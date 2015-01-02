@@ -2,3 +2,4 @@ port : '9999'
 enchode : 'utf-8'
 paginate: 2
 paginate_path: "page:num"
+excerpt_separator: "\n\n"

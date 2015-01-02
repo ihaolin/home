@@ -4,7 +4,17 @@
         {% include header.html %}
     </head>
 　　<body>
-        {{ content }}
+        {% include menu.html m=0 %}
+        <div class="ui grid">
+            <div class="three wide column" style="margin-left: 5px;">
+                {% include card.html %}
+            </div>
+            <div class="twelve wide column">
+                {{ content }}
+            </div>
+            <div class="one wide column"></div>
+        </div>
+        {% include pagination.html %}
         {% include footer.html %}
 　　</body>
 </html>

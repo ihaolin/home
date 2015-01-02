@@ -3,3 +3,13 @@
 <![endif]-->
 <script src="{{site.url}}/vendor/jquery.js"></script>
 <script src="{{site.url}}/vendor/semantic/semantic.js"></script>
+<script>
+    $(document).ready(function(){
+        $('.poptip')
+                .popup({
+                    inline   : true,
+                    hoverable: true,
+                    position : 'top left'
+                });
+    });
+</script>

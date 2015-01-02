@@ -1,45 +1,45 @@
-<div class="ui pagination menu">
-    <!-- Previous page -->
-    {% if paginator.previous_page %}
-    {% if paginator.previous_page == 1 %}
-    <a class="icon disabled item">
-        <i class="left arrow icon"></i>
-    </a>
-    {% else %}
-    <a class="icon item" href="{{ paginator.previous_page_path }}">
-        <i class="left arrow icon"></i>
-    </a>
-    {% endif %}
-    {% else %}
-    <a class="icon disabled item">
-        <i class="left arrow icon"></i>
-    </a>
-    {% endif %}
+<div class="ui grid">
+    <div class="three wide column"></div>
+    <div class="thirteen wide column">
+        <div class="ui pagination menu">
+            <!-- Previous page -->
+            {% if paginator.previous_page %}
+                <a class="icon item" href="{{ paginator.previous_page_path }}">
+                    <i class="left arrow icon"></i>
+                </a>
+            {% else %}
+                <a class="icon disabled item">
+                    <i class="left arrow icon"></i>
+                </a>
+            {% endif %}
 
-    <!-- First page -->
-    {% if paginator.page == 1 %}
-    <a class="active item">1</a>
-    {% else %}
-    <a class="item" href="/">1</a>
-    {% endif %}
+            <!-- First page -->
+            {% if paginator.page == 1 %}
+            <a class="active item">1</a>
+            {% else %}
+            <a class="item" href="/">1</a>
+            {% endif %}
 
-    <!-- 2 to Last page -->
-    {% for count in (2..paginator.total_pages) %}
-    {% if count == paginator.page %}
-    <a class="disabled item">{{count}}</a>
-    {% else %}
-    <a class="item" href="/page{{count}}">{{count}}</a>
-    {% endif %}
-    {% endfor %}
+            <!-- 2 to Last page -->
+            {% for count in (2..paginator.total_pages) %}
+            {% if count == paginator.page %}
+            <a class="disabled item">{{count}}</a>
+            {% else %}
+            <a class="item" href="/page{{count}}">{{count}}</a>
+            {% endif %}
+            {% endfor %}
 
-    <!-- Next page -->
-    {% if paginator.next_page %}
-    <a class="icon item" href="{{ paginator.next_page_path }}">
-        <i class="right arrow icon"></i>
-    </a>
-    {% else %}
-    <a class="icon disabled item">
-        <i class="right arrow icon"></i>
-    </a>
-    {% endif %}
+            <!-- Next page -->
+            {% if paginator.next_page %}
+            <a class="icon item" href="{{ paginator.next_page_path }}">
+                <i class="right arrow icon"></i>
+            </a>
+            {% else %}
+            <a class="icon disabled item">
+                <i class="right arrow icon"></i>
+            </a>
+            {% endif %}
+        </div>
+    </div>
 </div>
+

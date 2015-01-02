@@ -1,12 +1,14 @@
 ---
 layout : index
-title : Ha0's home
+title : Ha0's Home
 ---
 
-<ul>
-    {% for post in paginator.posts %}
-        <li> <a href="{{post.url}}">{{ post.title }}</a></li>
-    {% endfor %}
-</ul>
-
-{% include pagination.html %}
+{% for post in paginator.posts %}
+    <div class="ui blue segment">
+        <h4 class="ui header"><a href="{{post.url}}">{{ post.title }}</a></h4>
+        <p>
+            {{post.excerpt}}
+        </p>
+        <div align="right">{{post.date | date: "%Y-%m-%d"}}</div>
+    </div>
+{% endfor %}
