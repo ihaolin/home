@@ -1,0 +1,10 @@
+- path: sample.jpg
+  type: picture
+  date: 2014-10-24
+  desc: 海上的日出让人惬意
+
+- path: sample.jpg
+  type: movie
+  date: 2014-10-25
+  desc: 海上的日出让人惬意
+

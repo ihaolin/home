@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en" class="no-js">
+    <head>
+        {% include walking_header.html %}
+        {% include header.html %}
+    </head>
+    <body>
+        {% include menu.html m=1 %}
+        <section id="cd-timeline" class="cd-container">
+            {{ content }}
+        </section>
+        {% include footer.html %}
+        <script src="{{site.url}}/vendor/vhtimeline/js/main.js"></script>
+    </body>
+</html>
