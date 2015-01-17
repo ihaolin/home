@@ -1,0 +1,86 @@
+---
+title : Flaway数据库迁移工具
+category : [db]
+tags : [db, migrate]
+layout : db
+show : 1
+---
+
+在日常开发中, 经常由于hotfix或者feature需要对数据库表进行更新, 很难人工去把控DB的变更, 难免可能出现问题, <a href="http://flywaydb.org/" target="_blank">Flyway</a>也许能帮助我们.
+
+
+Flyway支持多种使用方式: 如
+<a href="http://flywaydb.org/documentation/commandline" target="_blank">命令行</a>
+<a href="http://flywaydb.org/documentation/api" target="_blank">Java API</a>,
+<a href="http://flywaydb.org/documentation/maven" target="_blank">Maven</a>,
+<a href="http://flywaydb.org/documentation/gradle" target="_blank">Gradle</a>等,
+并支持常用的数据库:
+<a href="http://flywaydb.org/documentation/database/oracle.html" target="_blank">Oracle</a>,
+<a href="http://flywaydb.org/documentation/database/mysql.html" target="_blank">MySQL</a>,
+<a href="http://flywaydb.org/documentation/database/mariadb.html" target="_blank">MariaDB</a>,
+<a href="http://flywaydb.org/documentation/database/h2.html" target="_blank">H2</a>等.
+
+
+<div class="content">
+    <ul>
+        <li>平时build多用Maven, 使用时需要做一些基本的插件配置: </li>
+        <p>
+            {% highlight xml %}
+<plugin>
+    <groupId>org.flywaydb</groupId>
+    <artifactId>flyway-maven-plugin</artifactId>
+    <version>3.1</version>
+    <configuration>
+        <url>jdbc:mysql://127.0.0.1:3306/gaara</url>
+        <user>root</user>
+        <password>root</password>
+        <locations>
+            <location>filesystem:${project.basedir}/db</location>
+        </locations>
+        <table>schema_history</table><!-- 数据库版本历史表 -->
+        <baselineOnMigrate>true</baselineOnMigrate>
+        <baselineVersion>5</baselineVersion>
+    </configuration>
+    <dependencies>
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>${mysql-connector-java.version}</version>
+        </dependency>
+    </dependencies>
+</plugin>
+            {% endhighlight %}
+        </p>
+        <li>执行mvn迁移命令: (之后数据库会生成schema_history表)</li>
+        <p>
+            {% highlight bash %}
+                mvn compile flyway:migrate
+            {% endhighlight %}
+        </p>
+        <p>
+            <img src="{{site.url}}/images/flyway1.jpg">
+        </p>
+        <li>现在我们进行了数据库变更, 并通过sqlMigrationPrefix, sqlMigrationSeparator等配置指明了db迁移文件的变更, 再次执行迁移命令</li>
+        <p>
+            <img src="{{site.url}}/images/flyway2.jpg">
+        </p>
+        <li>此时数据库历史表发生变化</li>
+        <p>
+            <img src="{{site.url}}/images/flyway3.jpg">
+        </p>
+        <li>除了<a href="http://flywaydb.org/documentation/maven/migrate.html" target="_blank">migrate</a>外, 该插件还提供了几个目标: </li>
+        <p>
+            <li class="plist"><a href="http://flywaydb.org/documentation/maven/clean.html" target="_blank">clean</a></li>
+            <li class="plist"><a href="http://flywaydb.org/documentation/maven/info.html" target="_blank">info</a></li>
+            <li class="plist"><a href="http://flywaydb.org/documentation/maven/validate.html" target="_blank">validate</a></li>
+            <li class="plist"><a href="http://flywaydb.org/documentation/maven/baseline.html" target="_blank">baseline</a></li>
+            <li class="plist"><a href="http://flywaydb.org/documentation/maven/repair.html" target="_blank">repair</a></li>
+        </p>
+    </ul>
+    <p>详细可参考<a href="http://flywaydb.org/documentation/">这里</a>.</p>
+</div>
+
+
+
+
+
