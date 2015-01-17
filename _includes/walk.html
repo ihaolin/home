@@ -3,7 +3,18 @@
         <img src="/vendor/vhtimeline/img/cd-icon-{{include.walk.type}}.svg">
     </div>
     <div class="cd-timeline-content">
-        <img class="poptip" src="{{site.url}}/album/{{include.walk.path}}" title="{{include.walk.desc}}" data-variation="inverted">
+        {% if include.walk.type == 'picture' %}
+            <img class="poptip" src="{{site.url}}/album/{{include.walk.path}}" title="{{include.walk.desc}}" data-variation="inverted">
+        {% endif %}
+
+        {% if include.walk.type == 'movie' %}
+            <section id="player">
+                <video id="media" width="454" height="340" controls>
+                    <source src="{{site.url}}/video/{{include.walk.path}}">
+                </video>
+            </section>
+        {% endif %}
+
         <span class="cd-date">{{include.walk.date}}</span>
     </div>
 </div>
