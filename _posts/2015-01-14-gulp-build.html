@@ -1,12 +1,12 @@
 ---
-title : 使用gulp进行web前端构建
-category : [java]
-tags : [web, gulp]
+title : 使用gulp进行web模块化开发
+category : [web]
+tags : [web, gulp, requirejs]
 layout : web
 show : 1
 ---
 
-今天研究了一个web前端构建工具: <a href="http://gulpjs.com/" target="_blank">Gulp</a>，相比之前接触过的Grunt，确实要简洁好用一些的,
+今天研究了下web前端构建工具: <a href="http://gulpjs.com/" target="_blank">Gulp</a>，相比之前接触过的Grunt，确实要简洁好用一些的,
 
 
 Gulp是基于<a href="http://nodejs.org/" target="_blank">node</a>的, 所以得安装好node及其node包管理工具<a href="https://www.npmjs.com/" target="_blank">npm</a>.
@@ -142,8 +142,9 @@ var gulp = require('gulp'),
     });
             {% endhighlight %}
         </p>
+        <li>若要达到模块开发, 我们还需要一个js模块管理工具, 这里使用的是<a href="http://www.requirejs.cn/" target="_blank">require.js</a></li>
     </ul>
-    <p>Gulp有许多插件可用, 需要多运用尝试, 方能让你优雅地构建你的前端项目, 源码在<a href="https://github.com/ihaolin/gulp-build" target="_blank">这里</a></p>
+    <p>Gulp有许多插件可用, 需要多运用尝试, 方能让你优雅地构建你的前端项目, 源码在<a href="https://github.com/ihaolin/gulp-build/tree/requirejs" target="_blank">这里</a></p>
 </div>
 
 
