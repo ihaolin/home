@@ -1,0 +1,127 @@
+---
+title : Java单元测试
+category : [java]
+tags : [java, test]
+layout : java
+show : 1
+---
+
+在开发中, 单元测试是必不可少的, 个人觉得越是庞大复杂的系统, 就越应该具有良好的测试覆盖, 也许一开始会觉得很费时和多余, 但这无疑是能把问题暴露在上线之前的有利保障。
+
+
+按照一般的系统架构, 通常会将系统垂直分为Dao, Service, Controller三层, 所以我们需要单独对这几层进行。
+
+<div class="content">
+    <ul>
+        <li><strong>Dao层测试</strong>: 这是系统功能最基础的支持, 必然保证准确无误。对于DB类型, 我们无非就是RDBS(如MySQL)和NoSQL(如Redis), 那我们要怎么比较优雅进行Dao的单元测试呢?</li>
+        <p>
+            对于Dao测试, 个人觉得不依赖任何环境, 是最优雅的。 先说关于RDBS类型的测试, 我们可以利用Java实现的数据库H2这种内嵌数据库就能完成, 即在单元测试中使用H2作为数据库(这需要忽略其与对应RDBS的差异),
+            对应的Spring配置大概为:
+            {% highlight java %}
+<!-- MyBatis 配置 -->
+<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+    <property name="dataSource" ref="dataSource"/>
+    <property name="configLocation" value="classpath:spring/mybatis-config.xml"/>
+    <property name="mapperLocations" value="classpath:mapper/*Mapper.xml"/>
+</bean>
+
+<!-- 事务管理器配置, 使用jdbc事务 -->
+<bean id="transactionManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+    <property name="dataSource" ref="dataSource"/>
+</bean>
+
+<!-- 使用annotation定义事务 -->
+<tx:annotation-driven transaction-manager="transactionManager" proxy-target-class="true"/>
+
+<!-- 嵌入式内存中数据库 -->
+<jdbc:embedded-database id="dataSource" type="H2">
+    <jdbc:script location="classpath:h2/user.sql"/><!-- 对应模块的数据库schema -->
+</jdbc:embedded-database>
+            {% endhighlight %}
+            这样, RDBMS的测试就能在内部就完成。那对于Redis这种NoSQL, 很遗憾没能对应这样的解决方案(若读者有这样的解决方案, 请@me)<br />
+            对于Dao测试, 若有对应的测试服务器, 当然可以在CI上作相应的环境切换, 利用外部环境完成测试。
+        </p>
+        <li><strong>Service层测试</strong>: Service主要负责业务逻辑, 既然是业务逻辑, 我们测试就应该只是逻辑, 不应该包含其他无关动作(外部调用, Dao操作等), 如何测试逻辑呢?</li>
+        <p>
+            这时我们需要<a href="https://code.google.com/p/mockito/w/list" target="_blank">Mockito</a>, <a href="https://code.google.com/p/powermock/w/list" target="_blank">PowerMock</a>等Mock测试库(这也是谷歌推荐的测试库), 测试Service将预演系统的业务流程, 这也是十分关键的。请看下面的代码样例:
+            {% highlight java %}
+@Test
+public void testSignupNicknameExist(){
+    User signuping = mockUser();
+    Mockito.when(userDao.findByNick(anyString())).thenReturn(new User());
+    CatchExceptionBdd.when(userManager).createUser(signuping);
+    then(caughtException())
+        .isInstanceOf(ServiceException.class)
+        .hasMessage("user.nickname.used")
+        .hasNoCause();
+}
+
+@Test
+public void testSignupEmailExist() {
+    User signuping = mockUser();
+    Mockito.when(userDao.findByNick(anyString())).thenReturn(null);
+    Mockito.when(userDao.findByEmail(anyString())).thenReturn(new User());
+    CatchExceptionBdd.when(userManager).createUser(signuping);
+    then(caughtException())
+        .isInstanceOf(ServiceException.class)
+        .hasMessage("user.email.used")
+        .hasNoCause();
+}
+
+@Test
+public void testSignupMobileExist() {
+    User signuping = mockUser();
+    Mockito.when(userDao.findByNick(anyString())).thenReturn(null);
+    Mockito.when(userDao.findByEmail(anyString())).thenReturn(null);
+    Mockito.when(userDao.findByMobile(anyString())).thenReturn(new User());
+    CatchExceptionBdd.when(userManager).createUser(signuping);
+    then(caughtException())
+        .isInstanceOf(ServiceException.class)
+        .hasMessage("user.mobile.used")
+        .hasNoCause();
+}
+            {% endhighlight %}
+            要像上面一样捕获异常, 还需要一些Assert库, 如<a href="https://github.com/alexruiz/fest-assert-2.x/wiki" target="_blank">fest-assert</a>, <a href="https://github.com/joel-costigliola/assertj-core" target="_blank">assertj</a>等.
+        </p>
+        <li><strong>Controller层测试</strong>: 若Controller层做得比较轻薄, 个人觉得单元测试不是那么必要, 或者也可采用Service层一样的Mock方法进行测试。当然, SpringMVC也为我们提供了一种真实的<a href="http://www.petrikainulainen.net/spring-mvc-test-tutorial/" target="_blank">测试Controller层的解决方案</a>。如,</li>
+        <p>
+            {% highlight java %}
+@RunWith(SpringJUnit4ClassRunner.class)
+@WebAppConfiguration(value = "src/main/webapp")
+@ContextHierarchy({
+    @ContextConfiguration(name = "parent", locations = "classpath:spring/spring-root.xml"),
+    @ContextConfiguration(name = "child", locations = "classpath:spring/spring-mvc.xml")
+})
+public class UserControllerTest {
+
+    @Autowired
+    private WebApplicationContext wac;
+
+    private MockMvc mockMvc;
+
+    @Before
+    public void setUp() {
+        mockMvc = webAppContextSetup(wac).build();
+    }
+
+    @Test
+    public void testLogin() throws Exception{
+        mockMvc.perform(
+            post("/user/login4")    // RequestMapping.value
+            .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"haolin\", \"password\":\"123456\"}")) //当Controller方法参数为@RequestBody时
+                .andExpect(status().isOk()) //状态码200
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON)) //返回内容类型
+                .andExpect(jsonPath("$.username", is("haolin")))    //json-path库可用于解析json结果
+                .andExpect(jsonPath("$.password", is("123456")));
+    }
+}
+            {% endhighlight %}
+        </p>
+    </ul>
+    <p>单元测试是系统稳定的有利保证.</p>
+</div>
+
+
+
+
+
