@@ -1,0 +1,182 @@
+---
+title : Nginx负载均衡
+category : [nginx]
+tags : [server, nginx, load, balance]
+layout : nginx
+show : 1
+---
+
+当后端Web服务器为了支撑更大的吞吐量, 减少请求延迟时, 就需要部署多个Web服务器同时提供服务, 这个时候我们也需要用到Web代理的负载均衡了.
+
+
+<div class="content">
+    <ul>
+        <li><h3>为多个Web服务器设置server组</h3></li>
+        <p>
+            我们首先需要定义一组虚拟主机, 如:
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+            当然还得将nginx请求转发到web_server:
+            {% highlight nginx %}
+server {
+    listen 80;
+    server_name  *.xxx.com;
+
+    location / {
+        proxy_pass http://web_server;
+    }
+}
+            {% endhighlight %}
+            这时用户访问*.xxx.com, 请求将根据负载均衡策略状态到web1或web2去.
+        </p>
+        <li><h3>选择负载均衡策略, Nginx支持如下负载均衡策略: </h3></li>
+        <p>
+            1.<strong>轮询(round-robin)</strong>: 请求被均匀地分发到Web服务器(考虑web服务器权重), 这也是默认的策略.<br />
+            2.<strong>最少连接(least_conn)</strong>: 每次将请求转发到当前激活连接数最少的web服务器(考虑web服务器权重):
+            {% highlight nginx %}
+upstream web_server {
+    least_conn;
+
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+            3.<strong>ip_hash</strong>: nginx通过客户端IP(IPv4的前3段或整个IPv6)地址计算hash值, 这样可以保证同样的IP请求到同样的web服务器:
+            {% highlight nginx %}
+upstream web_server {
+    ip_hash;
+
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+            4.<strong>通用hash</strong>: nginx可以通过对文本, 变量等进行hash值计算, 若源IP, 端口或者URI:
+            {% highlight nginx %}
+upstream web_server {
+    hash $request_uri consistent; # consistent表示一致性哈希
+
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+            若想临时移除某个web服务器, 可以使用down标记:
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080 down; # web2
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>web服务器权重</h3>可以通过weight参数指定web服务器权重: </li>
+        <p>
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080 weight=5; # web1, 默认weight=1, 这时来6个请求, 会有5个请求到web1, 1个请求到web2
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>延迟web服务器启动</h3></li>
+        <p>
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080 slow_start=30s; # web1, slow_start设置web服务器恢复权重的时间
+    server 192.168.1.10:8080; # web2
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>开启Session保持, 即nginx将标识用户session, 并且将该session的request都转发到相同的Web服务器, nginx支持3种会话保持策略(需要<a href="https://code.google.com/p/nginx-sticky-module/wiki/Documentation" target="_blank">nginx-sticky-module</a>模块): </h3></li>
+        <p>
+            1. <strong>sticky cookie</strong>, 当web服务器第一次响应request时, nginx会向client写入一个cookie, 下次client再请求, 则会被转发到同一台机器:
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+    sticky cookie {cookie_name} expires=1h domain={cookie域} path={cookie路径};
+}
+            {% endhighlight %}
+            2. <strong>sticky route</strong>, 当nginx收到client第一个请求时, 会分配一个叫"route"的cookie给client, 后续请求将被转发到对应route的Web服务器上:
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080 route=web1; # web1
+    server 192.168.1.10:8080 route=web2; # web2
+    sticky route $route_cookie $route_uri;
+}
+            {% endhighlight %}
+            3. <strong>cookie learn</strong>, nginx第一次会根据request和response找到session标识符, 并且nginx会学会哪个web服务器对应哪个session标识符, 这些
+               标识符通常在HTTP Cookie中:
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080; # web1
+    server 192.168.1.10:8080; # web2
+
+    sticky learn
+        create=$upstream_cookie_sessionid # 必须, nginx会通过cookie中的SESSIONID来创建会话
+        lookup=$cookie_sessionid          # 必须, 通过cookie中的SESSIONID来查询存在的会话
+        zone=client_sessions:1m           # 必须, 指定session信息保存的内存区域叫client_seesions, 并1M大小
+        timeout=1h;
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>在nginx plus中限制连接数</h3></li>
+        <p>
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080 max_conns=30; # web1, 超过最大连接数后, 请求将被放入queue中等待
+    server 192.168.1.10:8080; # web2
+
+    queue 100 timeout=70;   #若queue放满, 70s后, client将收到错误
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>被动的健康监控</h3></li>
+        <p>
+            当nginx察觉到web服务器不可用时, 会暂时停止向该web服务器转发请求
+            {% highlight nginx %}
+upstream web_server {
+    server 192.168.1.14:8080 max_fails=3 fail_timeout=30s; # 若在30s内, nginx发现3次web服务器响应失败, 则认为该web服务器不可用
+    server 192.168.1.10:8080;
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>主动的健康监控(<a href="https://github.com/yaoweibin/nginx_upstream_check_module" target="_blank">nginx_upstream_check_module</a>)</h3></li>
+        <p>
+            nginx周期性向web服务器发送特定的请求, 然后检查web服务器的响应是否满足某个条件, 来判定web服务器是否可用
+            {% highlight nginx %}
+upstream web_server {
+    zone backend 64k;  # 定义多个worker processes共享的内存大小及该server组的配置信息
+
+    server 192.168.1.14:8080;
+    server 192.168.1.10:8080;
+}
+server {
+    listen 80;
+    server_name  *.xxx.com;
+
+    location / {
+        proxy_pass http://web_server;
+        health_check; # 默认nginx每隔5秒会向web_server组下的web服务器的"/"路径发送请求, 若发生错误nginx会认为该web服务器不可用, 直到下次检查该web_server可用。
+    }
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>多个工作进程共享数据</h3></li>
+        <p>
+            1. 如果upstream没有指定zone, 那么每个工作进程将保留一份server的配置, 并且维护各自的计数器集。<br />
+            2. 当我们使用health_check和runtime modification时, zone配置是必须的, 也就是说所有工作进程应该共享这些配置, 计数器等数据。
+        </p>
+        <li><h3>使用DNS配置nginx负载均衡</h3></li>
+        <p>
+
+        </p>
+    </ul>
+</div>
+
+
+
+
+

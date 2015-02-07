@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+　　<head>
+    　{% include header.html %}
+      {% include post_header.html %}
+   </head>
+　　<body>
+        {% include menu.html m=0 %}
+        <div class="ui grid">
+            <div class="three wide column" style="margin-left: 5px;">
+                {% include card.html %}
+            </div>
+            <div class="twelve wide column">
+                <div class="ui blue segment">
+                    <h2 class="ui header">{{ page.title }}</h2>
+                    <p>
+                        {{ content }}
+                    </p>
+                    <div align="right">{{page.date | date: "%Y-%m-%d"}}</div>
+                </div>
+            </div>
+            <div class="one wide column"></div>
+        </div>
+        {% include footer.html %}
+　　</body>
+</html>
