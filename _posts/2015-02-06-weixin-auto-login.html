@@ -1,0 +1,180 @@
+---
+title : 微信公众号自动登录
+category : [other]
+tags : [weixin, oauth2]
+layout : server
+show : 1
+---
+
+除了QQ, 当前最火爆的社交工具无非是微信, 或许连QQ都难以匹敌, 更重要的是其更是一个平台, 一个可持续扩展的平台, 无论是公众号, 微店, 支付等, 都使得微信被运用得更为广, 再而深。
+之前做了一个关于公众号对接的, 实现用户只需第一次登录即可永久自动登录的功能, 觉得是个比较实用的功能, 分享如下:
+
+
+<div class="content">
+    <ul>
+        <li><h3>要实现该功能, 主要是使用<a href="http://oauth.net/2/" target="_blank">OAuth2</a>实现第三方登录, 看看OAuth2原理:</h3></li>
+        <p>
+            <img src="{{site.url}}/images/oauth2.jpg">
+        </p>
+        <li><h3>微信浏览器判断</h3></li>
+        <p>
+            若是微信浏览器, 其User-Agent将包含"MicroMessenger".
+            {% highlight java %}
+public static Boolean isWxClient(HttpServletRequest request){
+    String header = request.getHeader("USER-AGENT");
+    return header != null && header.contains("MicroMessenger");
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>自动登录需要用到的几个URL: </h3></li>
+        <p>
+        {% highlight java %}
+// 微信授权页面
+private static final String authorizeUrl = "https://open.weixin.qq.com/connect/oauth2/authorize";
+// 获取微信用户openId
+private static final String getOpenIdUrl = "https://api.weixin.qq.com/sns/oauth2/access_token";
+// 获取访问token
+private static final String getTokenUrl = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential";
+        {% endhighlight %}
+        </p>
+        <li><h3>对于实现自动登录功能, 可以在拦截器中实现这样的功能, 逻辑如下: </h3></li>
+        <p>
+            {% highlight java %}
+String requestUri = req.getRequestURI();
+if (WxConstants.isWxClient(req)
+    && filterUri(requestUri)){ // 过滤一些业务中不需要拦截的URI, 比如登入登出等(若登入登出拦截了, 用户将无法登入登出)
+    Object openId = req.getSession().getAttribute(WxConstants.OPEN_ID);
+    if (openId == null){
+        String redirectUrl = "http://" + ThreadVars.getHost() + requestUri;
+        // 未登录
+        Object code = req.getParameter(WxConstants.CODE);
+        if (code == null){
+            // 重定向到微信认证
+            wxRequestor.toAuthorize(redirectUrl, resp);
+            return Boolean.FALSE;
+            } else {
+                log.info("[weixin]: get code({}) from authorized.", code);
+                // 获取openId
+                Map<String, Object> mapResp = wxRequestor.getOpenId(String.valueOf(code));
+                if (mapResp.get("errcode") != null){
+                    log.error("[weixin]: failed to get openid by code({}) cause: {}", code, mapResp);
+                } else {
+                    String openIdStr = String.valueOf(mapResp.get(WxConstants.OPEN_ID));
+                    // TODO 这里可以从数据源中通过openIdStr查询对应的系统用户是否存在, 存在则可以让用户自动登录
+                }
+            }
+        }
+    }
+}
+            {% endhighlight %}
+        </p>
+        <li><h3>主要的微信公众号对接代码如下:</h3></li>
+        <p>
+            {% highlight java %}
+public final class WxConstants {
+    // 微信浏览器USER-AGENT标识
+    public static final String WEIXIN_USER_AGENT = "MicroMessenger";
+    // openid变量
+    public static final String OPEN_ID = "openid";
+    // code变量
+    public static final String CODE = "code";
+
+    /**
+     * 判断当前请求是否来自微信浏览器
+    **/
+    public static Boolean isWxClient(HttpServletRequest request){
+        String header = request.getHeader("USER-AGENT");
+        return header != null && header.contains(WEIXIN_USER_AGENT);
+    }
+}
+
+public class WxRequestor{
+
+    private String appId;   //微信公众号ID
+
+    private String secret;  //微信公众号密钥
+
+    ...
+
+    /**
+    * 重定向微信认证页面
+    */
+    public void toAuthorize(String redirectUrl, HttpServletResponse response) throws IOException {
+        toAuthorize(redirectUrl, "123", response);
+    }
+
+    /**
+    * 重定向微信认证页面
+    */
+    public void toAuthorize(String redirectUrl, String state, HttpServletResponse response) throws IOException {
+        String encodedUrl = URLEncoder.encode(redirectUrl, "utf-8");
+        StringBuilder redirect = new StringBuilder(authorizeUrl);
+        redirect.append("?appid=").append(appId)
+                .append("&redirect_uri=").append(encodedUrl)
+                .append("&response_type=code&scope=snsapi_base") //其中scope分两种: snsapi_base和snsapi_userinfo, 可见http://mp.weixin.qq.com/wiki/17/c0f37d5704f0b64713d5d2c37b468d75.html
+                .append("&state=").append(state)
+                .append("#wechat_redirect");
+        log.info("[weixin]: go to authorize page : {}.", redirect);
+        response.sendRedirect(redirect.toString());
+    }
+    /**
+    * 获取微信用户的openid
+    * @param code 认证后的code值
+    * @return 获取成功openid存放在map中, 反之errcode为错误码
+    */
+    public Map<String, Object> getOpenId(String code){
+        StringBuilder url = new StringBuilder(getOpenIdUrl);
+        url.append("?appid=").append(appId)
+            .append("&secret=").append(secret)
+            .append("&code=").append(code)
+            .append("&grant_type=authorization_code");
+        return get(url.toString());
+    }
+
+    /**
+    * 发送微信GET请求(默认不带上access_token)
+    * @param url 请求url
+    * @return map结果集
+    */
+    public Map<String, Object> get(String url){
+        return get(url, Boolean.FALSE);
+    }
+
+    /**
+    * 发送微信GET请求
+    * @param url 请求url
+    * @param withAccessToken 是否要带上access_token
+    * @return map结果集
+    */
+    public Map<String, Object> get(String url, boolean withAccessToken){
+        Map<String, Object> mapResp = doGet(url, withAccessToken);
+        log.info("[weixin]: do get request({}), and get response({}).", url, mapResp);
+        Object errcode = mapResp.get("errcode");
+        if (errcode != null && withAccessToken){
+            if (Objects.equal("40003", errcode)){
+                // token失效
+                doGetAccessToken();
+                return doGet(url, withAccessToken);
+            }
+            log.error("[weixin]: failed to do wx request({}), cause: {}", url, mapResp);
+        }
+        return mapResp;
+    }
+
+    private Map<String, Object> doGet(String url, boolean withAccessToken){
+        String requestUrl = withAccessToken ? addAccessToken(url) : url;
+        String jsonResp = HttpRequest.get(requestUrl).body();
+        Map<String, Object> mapResp = toJson(jsonResp, Map.class); //将json字符串转换为map对象
+        return mapResp;
+    }
+}
+            {% endhighlight %}
+        </p>
+        <li>代码下载: <a href="{{site.url}}/codes/WxConstants.java">WxConstants.java</a>, <a href="{{site.url}}/codes/WxRequestor.java">WxRequestor.java</a>(需相应改动).</li>
+    </ul>
+</div>
+
+
+
+
+
