@@ -1,0 +1,90 @@
+---
+title : PhotoShop也可以轻松些
+category : [web]
+tags : [photoshop, script]
+layout : web
+show : 1
+---
+
+昨日, 一老友突然发个信息问在没, 有事, 当时一紧张, 想到底应该说在还是不在呢?接着又来了几句说会不会PS, 还好这位朋友没有问我会不会修电脑, 心理顿时欣慰了。
+就勉强问要P啥(心理完全没底, 几年没安装过PS了, 就大学学了几个皮毛), 沟通后, 知道是要修改图片上的文字, 感觉还好, 瞎搞瞎搞就能弄出来了。
+
+
+
+<div class="content">
+    <ul>
+        <li><h3>图片样例大概这样: </h3></li>
+        <p>
+            <img src="{{site.url}}/images/ps1.jpg"> <br />
+            一张图大概7, 8个地方需要修改, 修改下来已经累觉不爱了, 特别是字体大小, 位置, 颜色等, 太费时间了。
+        </p>
+        <li><h3>被告知会有50, 60个需要修改的, 顿时感觉压力山大了, 心理想PhotoShop会不会有什么机制能支持这种重复繁杂的工作呢?了解到PhotoShop是支持脚本的, 感觉看到一些希望了:</h3></li>
+        <p>
+            PhotoShop支持三种脚本语言:<br />
+            <img src="{{site.url}}/images/ps2.jpg"><br />
+            于是选择了亲切些的Javascript.
+        </p>
+        <li><h3>PhotoShop DOM结构</h3></li>
+        <p>
+            PhotoShop DOM结构很类似于HTML的DOM结构, 这种自上向下的结构理解起来也比较容易, 如: <br />
+            Application(PhotoShop应用) --> Document(PSD文档) --> Layer(图层)/Channel(通道) --> ...
+        </p>
+        <li><h3>现在把主要的工作分成: 擦除需要修改的区域和填写对应的文本到擦除区域, 于是写了这两个这样的函数:</h3></li>
+        <p>
+            {% highlight javascript %}
+
+// 当前选中的文档
+var doc = app.activeDocument;
+
+// 白色
+var white = new SolidColor();
+white.rgb.red = 255;
+white.rgb.green = 255;
+white.rgb.blue = 255;
+
+// 文本颜色
+var textColor = new SolidColor();
+textColor.rgb.red = 47;
+textColor.rgb.green = 48;
+textColor.rgb.blue = 48;
+
+// 擦除某个区域
+var erase = function(pos){
+    doc.selection.select(pos);  //选择文档的某个区, 分别为左上, 右上, 右下, 左下四个点的(x, y)坐标
+    doc.selection.fill(white);  //填充为白色
+    doc.selection.deselect();   //取消选择
+}
+
+// 填充文本
+var text = function(pos, font, color, size, contents){
+    var eraseLayer = doc.artLayers.add();   // 添加图层
+    eraseLayer.kind = LayerKind.TEXT;       // 设置图层为文本类型
+    var textItem = eraseLayer.textItem;
+    textItem.font = font;                   // 字体, 如 "SimSun"(宋体)
+    textItem.color = color;
+    textItem.size = size;                   // 字体大小(points)
+    textItem.contents = contents;           // 文本内容
+    textItem.position = pos;                // 文本位置
+    doc.mergeVisibleLayers();               // 合并文档所有可见的图层
+}
+
+// 假如我们要修改某个区域, 则可以定义一个函数
+var patchPayDate = function(){
+    erase(Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175)));
+    text(Array(940, 170), "SimSun", textColor, 11, payDate);
+}
+patchPayDate();
+            {% endhighlight %}
+        </p>
+        <li><h3>打开PhotoShop及其对应的图片文档, 选择执行的脚本即可</h3></li>
+        <p>
+            <img src="{{site.url}}/images/ps3.jpg">
+        </p>
+        <li>似乎感觉世界有进了一步, 具体可参考<a href="http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/products/photoshop/pdfs/cs6/Photoshop-CS6-JavaScript-Ref.pdf" target="_blank">文档</a>。</li>
+    </ul>
+</div>
+
+
+
+
+
