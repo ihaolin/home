@@ -50,28 +50,28 @@ textColor.rgb.blue = 48;
 
 // 擦除某个区域
 var erase = function(pos){
-doc.selection.select(pos);  //选择文档的某个区, 分别为左上, 右上, 右下, 左下四个点的(x, y)坐标
-doc.selection.fill(white);  //填充为白色
-doc.selection.deselect();   //取消选择
+    doc.selection.select(pos);  //选择文档的某个区, 分别为左上, 右上, 右下, 左下四个点的(x, y)坐标
+    doc.selection.fill(white);  //填充为白色
+    doc.selection.deselect();   //取消选择
 }
 
 // 填充文本
 var text = function(pos, font, color, size, contents){
-var eraseLayer = doc.artLayers.add();   // 添加图层
-eraseLayer.kind = LayerKind.TEXT;       // 设置图层为文本类型
-var textItem = eraseLayer.textItem;
-textItem.font = font;                   // 字体, 如 "SimSun"(宋体)
-textItem.color = color;
-textItem.size = size;                   // 字体大小(points)
-textItem.contents = contents;           // 文本内容
-textItem.position = pos;                // 文本位置
-doc.mergeVisibleLayers();               // 合并文档所有可见的图层
+    var eraseLayer = doc.artLayers.add();   // 添加图层
+    eraseLayer.kind = LayerKind.TEXT;       // 设置图层为文本类型
+    var textItem = eraseLayer.textItem;
+    textItem.font = font;                   // 字体, 如 "SimSun"(宋体)
+    textItem.color = color;
+    textItem.size = size;                   // 字体大小(points)
+    textItem.contents = contents;           // 文本内容
+    textItem.position = pos;                // 文本位置
+    doc.mergeVisibleLayers();               // 合并文档所有可见的图层
 }
 
 // 假如我们要修改某个区域, 则可以定义一个函数
 var patchPayDate = function(){
-erase(Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175)));
-text(Array(940, 170), "SimSun", textColor, 11, payDate);
+    erase(Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175)));
+    text(Array(940, 170), "SimSun", textColor, 11, payDate);
 }
 patchPayDate();
         {% endhighlight %}
