@@ -1,0 +1,22 @@
+<div class="post">
+    <div class="post-header">
+        <a href="{{include.post.url}}">
+            {{include.post.title}}
+        </a>
+    </div>
+    <div class="post-date">
+        {{include.post.date | date: "%Y 年 %m 月 %d 日"}}
+        <div class="ui label"> {{include.post.category}}</div>
+    </div>
+    <div class="post-intro">
+        <p>
+            {{include.post.excerpt}}
+        </p>
+    </div>
+    <div class="post-footer">
+        <a class="ui red button" href="{{include.post.url}}"><i class="forward mail icon"></i>Read More...</a>
+    </div>
+    <div class="ui horizontal icon divider green">
+        <i class="angle up icon"></i>
+    </div>
+</div>

@@ -2,27 +2,23 @@
 title : Nginx压缩Web资源文件
 category : [nginx]
 tags : [server, nginx, gzip]
-layout : nginx
+layout : post
 show : 1
 ---
 
-对于Web前端的一些资源文件, 如JS, CSS等在经过代理服务器时都应该做一些压缩处理。
-
-
-对于Nginx, 我们可以通过<a href="http://nginx.org/en/docs/http/ngx_http_gzip_module.html" target="_blank">ngx_http_gzip_module</a>模块实现资源文件压缩处理。
-
 <div class="content">
     <ul>
-        <li>这是压缩前的请求:</li>
-        <p>
-            <img src="{{site.url}}/images/nginx-gzip1.jpg">
+        <p class="intro">
+            对于Web前端的一些资源文件, 如JS, CSS等在经过代理服务器时都应该做一些压缩处理。
+            对于Nginx, 我们可以通过<a href="http://nginx.org/en/docs/http/ngx_http_gzip_module.html" target="_blank">ngx_http_gzip_module</a>模块实现资源文件压缩处理。
         </p>
-        <li>这是压缩后的请求:</li>
-        <p>
-            <img src="{{site.url}}/images/nginx-gzip2.jpg">
-        </p>
-        <li>压缩效果还是很明显的, 只需对nginx.conf作如下配置: </li>
-        <p>
+
+
+        <li><h2>这是压缩前的请求</h2></li>
+        <img src="{{site.url}}/images/nginx-gzip1.jpg">
+        <li><h2>这是压缩后的请求</h2></li>
+        <img src="{{site.url}}/images/nginx-gzip2.jpg">
+        <li><h2>压缩效果还是很明显的, 只需对nginx.conf作如下配置</h2> </li>
             {% highlight bash %}
 gzip on;                #开启压缩
 gzip_disable "msie6";   #不对IE6进行压缩处理
@@ -32,7 +28,6 @@ gzip_buffers 16 8k;     #压缩想响应的缓冲个数及大小(默认大小为
 gzip_proxied any;       #任何proxy
 gzip_types       text/plain application/xml text/css text/js text/xml application/javascript application/x-javascript text/javascript application/json application/xml+rss; #压缩文件类型
             {% endhighlight %}
-        </p>
     </ul>
 </div>
 

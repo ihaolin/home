@@ -2,17 +2,17 @@
 title : 使用Maven构建Java项目
 category : [java]
 tags : [java, build, maven]
-layout : java
+layout : post
 show : 1
 ---
 
-如今很多Java项目应该都采用Maven进行构建, 其依赖管理, 配置式工作原理使得项目构建也变得比较灵活统一。
-
-
-<div class="content">
     <ul>
-        <li><h3>基础: Maven基于XML进行配置, 其配置文件叫pom.xml, 如</h3></li>
-        <p>
+        <p class="intro">
+            如今很多Java项目应该都采用Maven进行构建, 其依赖管理, 配置式工作原理使得项目构建也变得比较灵活统一。
+        </p>
+
+
+        <li><h2>基础: Maven基于XML进行配置, 其配置文件叫pom.xml, 如</h2></li>
             {% highlight xml %}
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -39,14 +39,11 @@ show : 1
     </build>
 </project>
             {% endhighlight %}
-        </p>
-        <li><h3>多模块开发: 通常我们的项目都会有多个模块, 合理地拆分模块, 也会使得我们的项目更清晰, 更容易维护, 甚至使得模块间的依赖关系更简单, 如</h3></li>
+        <li><h2>多模块开发: 通常我们的项目都会有多个模块, 合理地拆分模块, 也会使得我们的项目更清晰, 更容易维护, 甚至使得模块间的依赖关系更简单, 如</h2></li>
+        <img src="{{site.url}}/images/maven1.jpg">
         <p>
-            <img src="{{site.url}}/images/maven1.jpg">
             <ul>
-                <li>这里有4个模块, 我们会将api(如user-api)及其实现(如user)分开, 这样做对以后要替换或扩展实现, 或者暴露给外部, 甚至作服务化时都是有好处的, web模块依赖了user和webc模块, 那么我们会有一个root pom.xml作为整个项目的配置中心:</li>
-                <p>
-                root pom.xml:
+                <li><h2>这里有4个模块, 我们会将api(如user-api)及其实现(如user)分开, 这样做对以后要替换或扩展实现, 或者暴露给外部, 甚至作服务化时都是有好处的, web模块依赖了user和webc模块, 那么我们会有一个root pom.xml作为整个项目的配置中心</h2></li>
                 {% highlight xml %}
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -98,7 +95,7 @@ show : 1
 
 </project>
                 {% endhighlight %}
-                而对应的某个子模块pom.xml配置:
+                <li><h2>而对应的某个子模块pom.xml配置:</h2></li>
                 {% highlight xml %}
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -138,12 +135,11 @@ show : 1
 
 </project>
                 {% endhighlight %}
-                </p>
             </ul>
-        </p>
-        <li><h3>不同环境切换: 项目开发中, 我们可能会有很多不同的环境配置, 如DB源, 服务器host等, 我们不可能每次发布都去手动更改配置, 这既繁琐又容易出错, 那基于Maven我们怎么优雅地来切换不同环境呢?</h3></li>
         <p>
-        如上面所说, Maven可通过profile机制和filtering机制实现环境切换, 如:
+            不同环境切换: 项目开发中, 我们可能会有很多不同的环境配置, 如DB源, 服务器host等, 我们不可能每次发布都去手动更改配置, 这既繁琐又容易出错, 那基于Maven我们怎么优雅地来切换不同环境呢?如上面所说, Maven可通过profile机制和filtering机制实现环境切换, 如:
+        </p>
+
         {% highlight xml%}
 <build>
     <finalName>web</finalName> <!-- war包名 -->
@@ -183,33 +179,35 @@ show : 1
 </profiles>
 
         {% endhighlight %}
-        <img src="{{site.url}}/images/maven2.jpg"> <br />
+        <li><h2>项目结构如下</h2></li>
+        <img src="{{site.url}}/images/maven2.jpg">
+        <li><h2>对应的配置文件</h2></li>
         {% highlight properties %}
 # dev.properties
 env=dev
 props.one=123
 props.two=456
-
+        {% endhighlight %}
+        {% highlight properties %}
 # test.properties:
 env=test
 props.one=123abc
 props.two=456abc
-
+        {% endhighlight %}
+        {% highlight properties %}
 # app.properties:
 env=${env}
 props.one=${props.one}
 props.two=${props.two}
         {% endhighlight %}
-        这样我们就可以不同环境使用不同的profile进行编译打包了:
+        <li><h2>这样我们就可以不同环境使用不同的profile进行编译打包了:</h2></li>
         {% highlight bash %}
 mvn clean package -Pdev
 mvn clean package -Ptest
         {% endhighlight %}
-        通过这种方式我们就可以灵活的切换不同的环境, 甚至可以在不同的环境切换不同的实现等。
-        </p>
-        <li><h3>结合Spring上下文, 使Spring感知到当前环境</h3></li>
-        <p>
-            既然我们已经能通过maven编译打包不同的环境配置了, 那要怎么告知Spring当前是什么环境呢?
+        <p>通过这种方式我们就可以灵活的切换不同的环境, 甚至可以在不同的环境切换不同的实现等。</p>
+        <li><h2>结合Spring上下文, 使Spring感知到当前环境, 既然我们已经能通过maven编译打包不同的环境配置了, 那要怎么告知Spring当前是什么环境呢?</h2></li>
+
             {% highlight java %}
 // Spring ApplicationContext对象中有一个环境配置属性:
 /** Environment used by this context; initialized by {@link #createEnvironment()} */
@@ -219,7 +217,7 @@ private ConfigurableEnvironment environment;
 /**
 * Name of property to set to specify active profiles: {@value}. Value may be comma
 * delimited.
-* <p>Note that certain shell environments such as Bash disallow the use of the period
+* Note that certain shell environments such as Bash disallow the use of the period
 * character in variable names. Assuming that Spring's {@link SystemEnvironmentPropertySource}
 * is in use, this property may be specified as an environment variable as
 * {@code SPRING_PROFILES_ACTIVE}.
@@ -253,10 +251,8 @@ System.setProperty("spring.profiles.active", "dev");
     ...
 </beans>
             {% endhighlight %}
-        </p>
-        <li>如今, 除了Maven外, 有了更加灵活强大的构建工具<a href="http://www.gradle.org/documentation" target="_blank">Gradle</a>, Spring已经采用了其进行构建, 其通过Groovy动态语言及编程式构建项目, 不妨也可以实践实践。</li>
+        <p>如今, 除了Maven外, 有了更加灵活强大的构建工具<a href="http://www.gradle.org/documentation" target="_blank">Gradle</a>, Spring已经采用了其进行构建, 其通过Groovy动态语言及编程式构建项目, 不妨也可以实践实践。</p>
     </ul>
-</div>
 
 
 

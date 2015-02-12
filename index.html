@@ -3,14 +3,9 @@ layout : index
 title : Ha0's Home
 ---
 
+
 {% for post in paginator.posts %}
-   {% if post.show == 1 %}
-        <div class="ui blue segment">
-            <h4 class="ui header"><a href="{{post.url}}">{{ post.title }}</a></h4>
-            <p>
-                {{post.excerpt}}
-            </p>
-            <div align="right">{{post.date | date: "%Y-%m-%d"}}</div>
-        </div>
+    {% if post.show == 1 %}
+        {% include post.html post=post %}
     {% endif %}
 {% endfor %}

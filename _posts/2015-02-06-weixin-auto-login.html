@@ -2,32 +2,27 @@
 title : 微信公众号自动登录
 category : [other]
 tags : [weixin, oauth2]
-layout : server
+layout : post
 show : 1
 ---
 
-除了QQ, 当前最火爆的社交工具无非是微信, 或许连QQ都难以匹敌, 更重要的是其更是一个平台, 一个可持续扩展的平台, 无论是公众号, 微店, 支付等, 都使得微信被运用得更为广, 再而深。
-之前做了一个关于公众号对接的, 实现用户只需第一次登录即可永久自动登录的功能, 觉得是个比较实用的功能, 分享如下:
-
-
-<div class="content">
     <ul>
-        <li><h3>要实现该功能, 主要是使用<a href="http://oauth.net/2/" target="_blank">OAuth2</a>实现第三方登录, 看看OAuth2原理:</h3></li>
-        <p>
-            <img src="{{site.url}}/images/oauth2.jpg">
+        <p class="intro">
+            除了QQ, 当前最火爆的社交工具无非是微信, 或许连QQ都难以匹敌, 更重要的是其更是一个平台, 一个可持续扩展的平台, 无论是公众号, 微店, 支付等, 都使得微信被运用得更为广, 再而深。
+            之前做了一个关于公众号对接的, 实现用户只需第一次登录即可永久自动登录的功能, 觉得是个比较实用的功能, 分享如下:
         </p>
-        <li><h3>微信浏览器判断</h3></li>
-        <p>
-            若是微信浏览器, 其User-Agent将包含"MicroMessenger".
+
+
+        <li><h2>要实现该功能, 主要是使用<a href="http://oauth.net/2/" target="_blank">OAuth2</a>实现第三方登录, 看看OAuth2原理:</h2></li>
+        <img src="{{site.url}}/images/oauth2.jpg">
+        <li><h2>微信浏览器判断(若是微信浏览器, 其User-Agent将包含"MicroMessenger")</h2></li>
             {% highlight java %}
 public static Boolean isWxClient(HttpServletRequest request){
     String header = request.getHeader("USER-AGENT");
     return header != null && header.contains("MicroMessenger");
 }
             {% endhighlight %}
-        </p>
-        <li><h3>自动登录需要用到的几个URL: </h3></li>
-        <p>
+        <li><h2>自动登录需要用到的几个URL: </h2></li>
         {% highlight java %}
 // 微信授权页面
 private static final String authorizeUrl = "https://open.weixin.qq.com/connect/oauth2/authorize";
@@ -36,9 +31,7 @@ private static final String getOpenIdUrl = "https://api.weixin.qq.com/sns/oauth2
 // 获取访问token
 private static final String getTokenUrl = "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential";
         {% endhighlight %}
-        </p>
-        <li><h3>对于实现自动登录功能, 可以在拦截器中实现这样的功能, 逻辑如下: </h3></li>
-        <p>
+        <li><h2>对于实现自动登录功能, 可以在拦截器中实现这样的功能, 逻辑如下: </h2></li>
             {% highlight java %}
 String requestUri = req.getRequestURI();
 if (WxConstants.isWxClient(req)
@@ -67,9 +60,7 @@ if (WxConstants.isWxClient(req)
     }
 }
             {% endhighlight %}
-        </p>
-        <li><h3>主要的微信公众号对接代码如下:</h3></li>
-        <p>
+        <li><h2>主要的微信公众号对接代码如下:</h2></li>
             {% highlight java %}
 public final class WxConstants {
     // 微信浏览器USER-AGENT标识
@@ -169,10 +160,8 @@ public class WxRequestor{
     }
 }
             {% endhighlight %}
-        </p>
         <li>代码下载: <a href="{{site.url}}/codes/WxConstants.java">WxConstants.java</a>, <a href="{{site.url}}/codes/WxRequestor.java">WxRequestor.java</a>(需相应改动).</li>
     </ul>
-</div>
 
 
 

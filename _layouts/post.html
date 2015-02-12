@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        {% include header.html %}
+        {% include post_header.html %}
+        {% include custom_header.html %}
+    </head>
+    <body>
+        {% include sidebar.html %}
+        <div class="pusher">
+            <span id="sidebar-toggler">
+                <i class="list icon"></i>
+            </span>
+            <div class="ui grid">
+                <div class="row">
+                    <div class="two wide column"></div>
+                    <div class="twelve wide column">
+                        <div class="post-detail">
+                            <div class="post-detail-header">
+                                {{page.title}}
+                            </div>
+                            <div class="post-detail-date">
+                                {{page.date | date: "%Y 年 %m 月 %d 日"}}
+                                <div class="ui label"> {{page.category}}</div>
+                            </div>
+                            <div class="post-detail-content">
+                                {{ content }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="two wide column"></div>
+                </div>
+            </div>
+        </div>
+    </body>
+    {% include footer.html %}
+</html>

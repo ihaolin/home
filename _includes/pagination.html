@@ -1,16 +1,16 @@
-<div class="ui grid">
-    <div class="three wide column"></div>
-    <div class="thirteen wide column">
-        <div class="ui pagination menu">
+<div class="two wide column"></div>
+<div class="twelve wide column">
+    <div class="ui pagination menu">
+        {% if paginator.total_pages > 1 %}
             <!-- Previous page -->
             {% if paginator.previous_page %}
-                <a class="icon item" href="{{ paginator.previous_page_path }}">
-                    <i class="left arrow icon"></i>
-                </a>
+            <a class="icon item" href="{{ paginator.previous_page_path }}">
+                <i class="left arrow icon"></i>
+            </a>
             {% else %}
-                <a class="icon disabled item">
-                    <i class="left arrow icon"></i>
-                </a>
+            <a class="icon disabled item">
+                <i class="left arrow icon"></i>
+            </a>
             {% endif %}
 
             <!-- First page -->
@@ -33,13 +33,14 @@
             {% if paginator.next_page %}
             <a class="icon item" href="{{ paginator.next_page_path }}">
                 <i class="right arrow icon"></i>
-            </a>
-            {% else %}
-            <a class="icon disabled item">
-                <i class="right arrow icon"></i>
-            </a>
+                </a>
+                {% else %}
+                <a class="icon disabled item">
+                    <i class="right arrow icon"></i>
+                </a>
             {% endif %}
-        </div>
+        {% endif %}
     </div>
 </div>
+<div class="two wide column"></div>
 

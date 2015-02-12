@@ -1,0 +1,136 @@
+body{
+    font-family: "Helvetica Neue", Helvetica, Tahoma, Arial, "Hiragino Sans GB", STXihei, "华文细黑", "WenQuanYi Micro Hei", "文泉驿微米黑", "Microsoft YaHei", "微软雅黑", SimSun, "宋体", Heiti, "黑体", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: Raleway, 'Helvetica Neue', Helvetica, Tahoma, Arial, 'Hiragino Sans GB', STXihei, 华文细黑, 'WenQuanYi Micro Hei', 文泉驿微米黑, 'Microsoft YaHei', 微软雅黑, SimSun, 宋体, Heiti, 黑体, sans-serif;
+    font-weight: 500;
+    color: #00B5AD;
+}
+
+#sidebar-toggler{
+    font-size: 30px;
+    background-color:rgba(0, 0, 0, 0.4);
+    border-radius: 0 5px 5px 0;
+}
+
+#sidebar-toggler:hover{
+    background-color:rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+}
+
+.sidebar .portrait{
+    padding: 10px 0px 10px 80px;
+}
+
+.sidebar .portrait img{
+    width: 100px;
+    height: 100px;
+}
+
+#sidebar-menu a{
+    color: #00B5AD;
+    line-height: 20px;
+    font-size: 18px;
+    text-align: center;
+}
+
+#sidebar-menu a:hover{
+    cursor: pointer;
+}
+.sidebar .contact{
+    color: #999999;
+    text-align: center;
+    font-size: 16px;
+}
+
+.post{
+    padding-bottom: 20px;
+}
+.post .post-header{
+    text-align: center;
+    word-break:break-all;
+    dispaly: block;
+}
+.post .post-header a{
+    color: #807f83;
+    border-color: #807f83;
+    font-size: 55px;
+}
+
+.post .post-date, .post-detail .post-detail-date{
+    text-align: center !important;
+    font-size: 14px;
+    line-height: 20px;
+    color: #67666a;
+}
+
+.post .post-intro{
+    font-size: 18px;
+    color: #424143;
+}
+
+.post .post-intro p a{
+    color: #00B5AD;
+}
+
+.post .post-footer{
+    text-align: center;
+}
+
+.post .post-footer a{
+    font-style: italic;
+    font-size: 15px;
+}
+
+.post .divider{
+    color: #00B5AD;
+}
+
+.post-detail{
+    font-size: 18px;
+}
+
+.post-detail ul li{
+    list-style: none;
+}
+
+.post-detail .post-detail-header{
+    text-align: center;
+    word-break:break-all;
+    color: #00B5AD;
+    border-color: #807f83;
+    font-size: 55px;
+    dispaly: block;
+}
+
+.post-detail .post-detail-date{
+    font-size: 16px;
+}
+
+.post-detail .post-detail-content p{
+    background-color: #ffffff;
+    border-radius: 20px;
+    padding: 10px;
+}
+
+.post-detail .post-detail-content p.intro{
+    background-color: #fdf6e3;
+    border: 5px solid #ffffff;
+    border-radius: 20px;
+}
+
+.post-detail .post-detail-content p.note{
+    color: #D95C5C !important;
+}
+
+.post-detail img{
+    border: 1px solid #00B5AD;
+}
+
+.ui.horizontal.divider.green:after, .ui.horizontal.divider.green:before{
+    border-top-color: #00B5AD;
+}
+
+

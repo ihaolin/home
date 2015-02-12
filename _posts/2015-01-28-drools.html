@@ -2,36 +2,41 @@
 title : 一些和规则相关的东西
 category : [java]
 tags : [java, rule]
-layout : java
+layout : post
 show : 1
 ---
 
-最近做一个企业团购相关的项目, 这两天有人也提出了有关业务规则的一些东西, 特别一些有关营销的业务, 比如送积分, 送券这些。假如我们要搞一些营销活动,
-对一次性购买多少件或多少钱的用户送上一张面值不同的券, 放在平时, 可能马上就开个feature, 在下单后判断用户所支付的钱是否满足这个条件, 满足则送, 不满足就不送。
-但是, 要是现在希望更吸引用户, 我要降低门槛, 或增大面值, 难道又开个Hotfix改这段逻辑?似乎不是没有道理, 但是, 世间变化的东西太多, 我们人太难预料和
-把控, 那么如何去更好地认识这种问题呢?
-
-<p>
-这两天也想了又想, 到底要怎么才能更好地管理这些频繁变化的业务逻辑, 似乎自己想得太过于复杂, 或者想得不太清楚。现在想想, 似乎也有点点思路, 其实, 要把
-这些业务完全抽象出来是不可能的, 总不能拍拍屁股就让程序去执行一段逻辑了吧。
-</p>
-
-<p> 现在是这样想的: 我们自己还是要从代码业务中抽离出这些经常执行上述逻辑的地方,
-比如用户登录, 注册, 下单等。个人觉得我们要抽离的这些业务通常不会, 也不应该影响主逻辑, 比如送券, 不会送券没成功, 就不让用户下单吧, 这应该可以在程序中
-记录这些, 重试发放, 或者若用户发现未送, 可以同运营客服进行沟通, 所以抽离逻辑也许应该放在事件中来处理比较合理, 至少对于现在项目这种情况还是可行的。
-</p>
-
-<p>
-    要是真不能很好地抽离这些逻辑, 那我们是否也能尽力能让编写这种类似逻辑变得更规范更统一些呢?
-</p>
-
-<div class="content">
     <ul>
-        <li>这两天, 也了解了下规则引擎相关的东西, 接触了下Java中的一门规则引擎<a href="http://docs.jboss.org/drools/release/5.2.0.Final/drools-expert-docs/html/ch01.html" target="_blank">Drools</a>, 似乎看到了一丝希望,
-            Drools允许我们事先编写一个规则脚本, 准备一些上下文信息, 注入到规则上下文中, 然后执行, 下面是一个官方模拟的火灾现场例子:
-        </li>
+        <p class="intro">
+            最近做一个企业团购相关的项目, 这两天有人也提出了有关业务规则的一些东西, 特别一些有关营销的业务, 比如送积分, 送券这些。假如我们要搞一些营销活动,
+            对一次性购买多少件或多少钱的用户送上一张面值不同的券, 放在平时, 可能马上就开个feature, 在下单后判断用户所支付的钱是否满足这个条件, 满足则送, 不满足就不送。
+            但是, 要是现在希望更吸引用户, 我要降低门槛, 或增大面值, 难道又开个Hotfix改这段逻辑?似乎不是没有道理, 但是, 世间变化的东西太多, 我们人太难预料和
+            把控, 那么如何去更好地认识这种问题呢?
+        </p>
+
+
         <p>
-            drl脚本文件:
+            这两天也想了又想, 到底要怎么才能更好地管理这些频繁变化的业务逻辑, 似乎自己想得太过于复杂, 或者想得不太清楚。现在想想, 似乎也有点点思路, 其实, 要把
+            这些业务完全抽象出来是不可能的, 总不能拍拍屁股就让程序去执行一段逻辑了吧。
+        </p>
+
+        <p> 现在是这样想的: 我们自己还是要从代码业务中抽离出这些经常执行上述逻辑的地方,
+            比如用户登录, 注册, 下单等。个人觉得我们要抽离的这些业务通常不会, 也不应该影响主逻辑, 比如送券, 不会送券没成功, 就不让用户下单吧, 这应该可以在程序中
+            记录这些, 重试发放, 或者若用户发现未送, 可以同运营客服进行沟通, 所以抽离逻辑也许应该放在事件中来处理比较合理, 至少对于现在项目这种情况还是可行的。
+        </p>
+
+        <p>
+            要是真不能很好地抽离这些逻辑, 那我们是否也能尽力能让编写这种类似逻辑变得更规范更统一些呢?
+        </p>
+        <p>
+            这两天, 也了解了下规则引擎相关的东西, 接触了下Java中的一门规则引擎<a href="http://docs.jboss.org/drools/release/5.2.0.Final/drools-expert-docs/html/ch01.html" target="_blank">Drools</a>, 似乎看到了一丝希望,
+            Drools允许我们事先编写一个规则脚本, 准备一些上下文信息, 注入到规则上下文中, 然后执行, 下面是一个官方模拟的火灾现场例子:
+        </p>
+        <li>
+            <h2>
+                drl脚本文件:
+            </h2>
+        </li>
             {% highlight ruby %}
 rule "When there is a fire turn on the sprinkler"
 when
@@ -77,8 +82,10 @@ then
     System.out.println("Everything is ok");
 end
             {% endhighlight %}
-        对应的java模型数据类:
+
+<li><h2>对应的java模型数据类:</h2></li>
         {% highlight java %}
+
 // 房间
 public class Room {
     private String name;  //房间名
@@ -108,8 +115,10 @@ public class Fire {
 public class Alarm {
 }
         {% endhighlight %}
-        对应的模拟测试类:
+
+        <li><h2>对应的模拟测试类:</h2></li>
         {% highlight java %}
+
 KnowledgeBuilder kbuilder = KnowledgeBuilderFactory.newKnowledgeBuilder();
 kbuilder.add(ResourceFactory.newClassPathResource("rules/disaster.drl"), ResourceType.DRL);
 if (kbuilder.hasErrors()) { //脚本是否有错误
@@ -144,24 +153,21 @@ FactHandle officeFireHandle = ksession.insert( officeFire );
 ksession.fireAllRules();
 
 // fire is put out
-ksession.retract( kitchenFireHandle );
+ksession.retract( kitchenFireHandle )
 ksession.retract( officeFireHandle );
 ksession.fireAllRules();
 
 ksession.dispose();
         {% endhighlight %}
-结果也正如规则中的描述一样:<br />
+    <li><h2>结果也正如规则中的描述一样:</h2></li>
     <img src="{{site.url}}/images/drools.jpg" />
-        </p>
-    <li>除了营销业务, 交易等业务也有可能出现这种问题 </li>
     <p>
-        比如不同类目的商品可能会有不同的交易流程, 普通商品基本在线支付交易流程大概就是:<br />
-        买家创建订单-->买家支付-->卖家发货-->买家确认收货<br />
-        但其他类目商品, 如保险, 汽车等, 可能需要先付定金, 再付尾款等, <br />
+        除了营销业务, 交易等业务也有可能出现这种问题, 比如不同类目的商品可能会有不同的交易流程, 普通商品基本在线支付交易流程大概就是:
+        买家创建订单-->买家支付-->卖家发货-->买家确认收货
+        但其他类目商品, 如保险, 汽车等, 可能需要先付定金, 再付尾款等,
         所以交易流程也有必要规则化。
     </p>
     </ul>
-</div>
 
 
 

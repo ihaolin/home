@@ -2,58 +2,50 @@
 title : 使用gulp进行web模块化开发
 category : [web]
 tags : [web, gulp, requirejs]
-layout : web
+layout : post
 show : 1
 ---
 
-今天研究了下web前端构建工具: <a href="http://gulpjs.com/" target="_blank">Gulp</a>，相比之前接触过的Grunt，确实要简洁好用一些的,
+<ul>
+    <p class="intro">
+        今天研究了下web前端构建工具: <a href="http://gulpjs.com/" target="_blank">Gulp</a>，相比之前接触过的Grunt，确实要简洁好用一些的,
+        Gulp是基于<a href="http://nodejs.org/" target="_blank">node</a>的, 所以得安装好node及其node包管理工具<a href="https://www.npmjs.com/" target="_blank">npm</a>.
+    </p>
 
 
-Gulp是基于<a href="http://nodejs.org/" target="_blank">node</a>的, 所以得安装好node及其node包管理工具<a href="https://www.npmjs.com/" target="_blank">npm</a>.
-
-
-<div class="content">
-    <ul>
-        <li>安装Gulp: </li>
-        <p>
-            {% highlight bash %}
-                npm install --global gulp
-            {% endhighlight %}
-        </p>
-        <li>在项目根目录安装一些必要插件:</li>
-        <p>
-            {% highlight bash %}
-                npm install gulp-ruby-sass gulp-autoprefixer gulp-minify-css gulp-jshint gulp-concat gulp-uglify gulp-imagemin gulp-notify gulp-rename gulp-livereload gulp-cache del
-            {% endhighlight %}
-        </p>
-        <li>现在我们想达到这样一个目的: </li>
-        <p>
-            <img src="{{site.url}}/images/gulp.jpg">
-        </p>
-        <li>Gulp需要一个<strong>gulpfile.js</strong>文件进行build配置, 声明一些build用到的插件:</li>
-        <p>
-            {% highlight javascript %}
+    <li><h2>安装Gulp</h2></li>
+    {% highlight bash %}
+        npm install --global gulp
+    {% endhighlight %}
+    <li><h2>在项目根目录安装一些必要插件</h2></li>
+    {% highlight bash %}
+        npm install gulp-ruby-sass gulp-autoprefixer gulp-minify-css gulp-jshint gulp-concat gulp-uglify gulp-imagemin gulp-notify gulp-rename gulp-livereload gulp-cache del
+    {% endhighlight %}
+    <li><h2>现在我们想达到这样一个目的</h2></li>
+    <img src="{{site.url}}/images/gulp.jpg">
+    <li>
+        <h2>Gulp需要一个<strong>gulpfile.js</strong>文件进行build配置, 声明一些build用到的插件</h2>
+    </li>
+        {% highlight javascript %}
 
 var gulp = require('gulp'),
-    sass = require('gulp-ruby-sass'),
-    autoprefixer = require('gulp-autoprefixer'),
-    minifycss = require('gulp-minify-css'),
-    jshint = require('gulp-jshint'),
-    uglify = require('gulp-uglify'),
-    imagemin = require('gulp-imagemin'),
-    rename = require('gulp-rename'),
-    concat = require('gulp-concat'),
-    notify = require('gulp-notify'),
-    cache = require('gulp-cache'),
-    livereload = require('gulp-livereload'),
-    del = require('del');
+sass = require('gulp-ruby-sass'),
+autoprefixer = require('gulp-autoprefixer'),
+minifycss = require('gulp-minify-css'),
+jshint = require('gulp-jshint'),
+uglify = require('gulp-uglify'),
+imagemin = require('gulp-imagemin'),
+rename = require('gulp-rename'),
+concat = require('gulp-concat'),
+notify = require('gulp-notify'),
+cache = require('gulp-cache'),
+livereload = require('gulp-livereload'),
+del = require('del');
 
-            {% endhighlight %}
-        </p>
-        <li>定义打包scss文件的任务:</li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('styles', function() {
+        {% endhighlight %}
+    <li><h2>定义打包scss文件的任务</h2></li>
+        {% highlight javascript %}
+gulp.task('styles', function() {
     return gulp.src('components/**/*.scss')             //scss源文件目录
     .pipe(sass({ style: 'expanded', "sourcemap=none": true})) //这里要加上"sourcemap=none": true, 否则会报错
     .pipe(autoprefixer('last 2 versions', 'safari 5', 'ie 8', 'ie 9', 'opera 12.1', 'ios 6', 'android 4'))
@@ -61,26 +53,22 @@ var gulp = require('gulp'),
     .pipe(minifycss())                                  //压缩
     .pipe(gulp.dest('public/assets/css'))               //目标目录
     .pipe(notify({ message: 'Styles task complete' }));
-    });
-            {% endhighlight %}
-        </p>
-        <li>定义打包js文件的任务:</li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('scripts', function() {
+});
+        {% endhighlight %}
+    <li><h2>定义打包js文件的任务</h2></li>
+        {% highlight javascript %}
+gulp.task('scripts', function() {
     return gulp.src('components/**/*.js')               //js文件源目录
     .pipe(jshint.reporter('default'))
     .pipe(concat('app.js'))                             //打包成app.js
     .pipe(uglify())
     .pipe(gulp.dest('public/assets/js'))                //目标目录
     .pipe(notify({ message: 'Scripts task complete' }));
-    });
-            {% endhighlight %}
-        </p>
-        <li>打包第三方文件:</li>
-        <p>
-    {% highlight javascript %}
-    gulp.task('vendor', function(){
+});
+        {% endhighlight %}
+    <li><h2>打包第三方文件</h2></li>
+{% highlight javascript %}
+gulp.task('vendor', function(){
     // js, 根据应用保持一定的顺序
     gulp.src(['vendor/jquery.js', 'vendor/handlebars.js', 'vendor/amazeui.js'])
     .pipe(concat('vendor.js'))
@@ -91,61 +79,55 @@ var gulp = require('gulp'),
     .pipe(concat('vendor.css'))
     .pipe(minifycss())
     .pipe(gulp.dest('public/assets/css'));
-    });
-        {% endhighlight %}
-        </p>
-        <li>打包并压缩图片: </li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('images', function() {
+});
+    {% endhighlight %}
+    <li><h2>打包并压缩图片</h2></li>
+        {% highlight javascript %}
+gulp.task('images', function() {
     return gulp.src('images/**/*')
     .pipe(imagemin({ optimizationLevel: 3, progressive: true, interlaced: true })) //压缩图片
     .pipe(gulp.dest('public/assets/img'))
     .pipe(notify({ message: 'Images task complete' }));
-    });
-            {% endhighlight %}
-        </p>
-        <li>保留hbs模板文件: </li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('hbs', function(){
+});
+        {% endhighlight %}
+    <li><h2>保留hbs模板文件</h2></li>
+        {% highlight javascript %}
+gulp.task('hbs', function(){
     gulp.src('views/**/*.hbs').pipe(gulp.dest('public/views'));
     gulp.src('components/**/*.hbs').pipe(gulp.dest('public/components'));
-    })
-            {% endhighlight %}
-        </p>
-        <li>清理任务:</li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('clean', function(cb) {
+})
+        {% endhighlight %}
+    <li><h2>清理任务</h2></li>
+        {% highlight javascript %}
+gulp.task('clean', function(cb) {
     del(['public/assets/css', 'public/assets/js', 'public/assets/img'], cb)
-    });
-            {% endhighlight %}
-        </p>
-        <li>当我们不想总是重复build时, 可以使用watch任务监听文件变化, 然后执行特定任务</li>
-        <p>
-            {% highlight javascript %}
-    gulp.task('watch', function() {
+});
+        {% endhighlight %}
+    <li><h2>当我们不想总是重复build时, 可以使用watch任务监听文件变化, 然后执行特定任务</h2></li>
+        {% highlight javascript %}
+gulp.task('watch', function() {
     gulp.watch('components/**/*.scss', ['styles']);
     gulp.watch('components/**/*.js', ['scripts']);
     gulp.watch('images/**/*', ['images']);
     gulp.watch(['views/**/*.hbs','components/**/*.hbs'], ['hbs']);
-    });
-            {% endhighlight %}
-        </p>
-        <li>我们可以定义一个默认任务:</li>
-        <p>
-            {% highlight javascript %}
+});
+        {% endhighlight %}
+    <li><h2>我们可以定义一个默认任务</h2></li>
+        {% highlight javascript %}
 
-    gulp.task('default', ['clean'], function() { //clean任务会在其他任务执行前被执行
+gulp.task('default', ['clean'], function() { //clean任务会在其他任务执行前被执行
     gulp.start('styles', 'scripts', 'vendor', 'images', 'hbs');
-    });
-            {% endhighlight %}
-        </p>
-        <li>若要达到模块开发, 我们还需要一个js模块管理工具, 这里使用的是<a href="http://www.requirejs.cn/" target="_blank">require.js</a></li>
-    </ul>
-    <p>Gulp有许多插件可用, 需要多运用尝试, 方能让你优雅地构建你的前端项目, 源码在<a href="https://github.com/ihaolin/gulp-build/tree/requirejs" target="_blank">这里</a></p>
-</div>
+});
+        {% endhighlight %}
+    <li>
+        <h2>
+        若要达到模块开发, 我们还需要一个js模块管理工具, 这里使用的是<a href="http://www.requirejs.cn/" target="_blank">require.js</a>
+        </h2>
+    </li>
+    <p class="sumup">Gulp有许多插件可用, 需要多运用尝试, 方能让你优雅地构建你的前端项目, 源码在<a href="https://github.com/ihaolin/gulp-build/tree/requirejs" target="_blank">这里</a></p>
+</ul>
+
+
 
 
 
