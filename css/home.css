@@ -110,14 +110,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .post-detail .post-detail-content p{
-    background-color: #ffffff;
+    background-color: #fdf6e3;
     border-radius: 20px;
     padding: 10px;
+    border: 5px solid #ffffff;
 }
 
 .post-detail .post-detail-content p.intro{
-    background-color: #fdf6e3;
-    border: 5px solid #ffffff;
     border-radius: 20px;
 }
 
@@ -125,8 +124,29 @@ h1, h2, h3, h4, h5, h6 {
     color: #D95C5C !important;
 }
 
+.post-detail .post-detail-content p span.highlight{
+    color: #c7254e;
+    background-color: #ffffff;
+    font-size: 19px;
+}
+
 .post-detail img{
-    border: 1px solid #00B5AD;
+    border: 5px solid #fdf6e3;
+    border-radius: 20px;
+}
+
+.post-detail div.highlight{
+    background: transparent;
+}
+
+.post-detail div.highlight pre{
+    border-radius: 20px;
+    background-color: #fdf6e3;
+    border: 5px solid #ffffff;
+}
+
+.post-detail div.highlight pre code{
+    background-color: #fdf6e3;
 }
 
 .ui.horizontal.divider.green:after, .ui.horizontal.divider.green:before{

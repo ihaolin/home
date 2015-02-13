@@ -12,7 +12,7 @@ show : 1
         </p>
 
 
-        <li><h2>基础: Maven基于XML进行配置, 其配置文件叫pom.xml, 如</h2></li>
+        <li><h2>基础, Maven基于XML进行配置, 其配置文件叫pom.xml, 如</h2></li>
             {% highlight xml %}
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -39,11 +39,16 @@ show : 1
     </build>
 </project>
             {% endhighlight %}
-        <li><h2>多模块开发: 通常我们的项目都会有多个模块, 合理地拆分模块, 也会使得我们的项目更清晰, 更容易维护, 甚至使得模块间的依赖关系更简单, 如</h2></li>
+        <li><h2>多模块开发</h2></li>
+        <p>通常我们的项目都会有多个模块, 合理地拆分模块, 也会使得我们的项目更清晰, 更容易维护, 甚至使得模块间的依赖关系更简单, 如</p>
         <img src="{{site.url}}/images/maven1.jpg">
-        <p>
             <ul>
-                <li><h2>这里有4个模块, 我们会将api(如user-api)及其实现(如user)分开, 这样做对以后要替换或扩展实现, 或者暴露给外部, 甚至作服务化时都是有好处的, web模块依赖了user和webc模块, 那么我们会有一个root pom.xml作为整个项目的配置中心</h2></li>
+                <p>
+                    这里有4个模块, 我们会将api(如user-api)及其实现(如user)分开, 这样做对以后要
+                    <span class="highlight">替换</span>或<span class="highlight">扩展</span>实现,
+                    或者<span class="highlight">暴露</span>给外部, 甚至作<span class="highlight">服务化</span>时都是有好处的,
+                    web模块依赖了user和webc模块, 那么我们会有一个root pom.xml作为整个项目的配置中心
+                </p>
                 {% highlight xml %}
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -136,8 +141,11 @@ show : 1
 </project>
                 {% endhighlight %}
             </ul>
+        <li>
+            <h2>不同环境切换</h2>
+        </li>
         <p>
-            不同环境切换: 项目开发中, 我们可能会有很多不同的环境配置, 如DB源, 服务器host等, 我们不可能每次发布都去手动更改配置, 这既繁琐又容易出错, 那基于Maven我们怎么优雅地来切换不同环境呢?如上面所说, Maven可通过profile机制和filtering机制实现环境切换, 如:
+            项目开发中, 我们可能会有很多不同的环境配置, 如DB源, 服务器host等, 我们不可能每次发布都去手动更改配置, 这既繁琐又容易出错, 那基于Maven我们怎么优雅地来切换不同环境呢?如上面所说, Maven可通过profile机制和filtering机制实现环境切换, 如:
         </p>
 
         {% highlight xml%}
@@ -206,10 +214,13 @@ mvn clean package -Pdev
 mvn clean package -Ptest
         {% endhighlight %}
         <p>通过这种方式我们就可以灵活的切换不同的环境, 甚至可以在不同的环境切换不同的实现等。</p>
-        <li><h2>结合Spring上下文, 使Spring感知到当前环境, 既然我们已经能通过maven编译打包不同的环境配置了, 那要怎么告知Spring当前是什么环境呢?</h2></li>
+        <li><h2>使Spring感知到当前环境</h2></li>
+        <p>
+            既然我们已经能通过maven编译打包不同的环境配置了, 那要怎么告知Spring当前是什么环境呢?
+            在Spring ApplicationContext对象中有一个环境配置属性environment
+        </p>
 
             {% highlight java %}
-// Spring ApplicationContext对象中有一个环境配置属性:
 /** Environment used by this context; initialized by {@link #createEnvironment()} */
 private ConfigurableEnvironment environment;
 
