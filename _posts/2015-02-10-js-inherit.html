@@ -1,0 +1,129 @@
+---
+title : JavaScript继承
+category : [web]
+tags : [javascript, inherit]
+layout : post
+show : 1
+---
+
+<ul>
+    <p class="intro">
+        一直对JS的继承概念有点模糊, 大体知道是怎么回事, 但也没有去深究过, 今天翻阅【JavaScript语言精髓】一书的第五章比较深刻进行认知, 特此记录一番。
+    </p>
+
+
+    <p>JavaScript是一门基于<span class="highlight">原型</span>的语言, 其对象是直接从其他对象继承的</p>
+    <li><h2>伪类</h2></li>
+    <li>当我们构造一个函数对象时, 会默认生成一个constructor属性, 其值就是自身</li>
+    {% highlight javascript %}
+var Person = function(name){
+    this.name = name;
+}
+Person.prototype.whoAmI = function(){
+    console.info(this.name);
+}
+    {% endhighlight %}
+    <img src="{{site.url}}/images/js-inherit0.jpg">
+
+    <li>构造一个伪类, 继承Person</li>
+    {% highlight javascript %}
+var Student = function(grade){
+    this.grade = grade;
+}
+Student.prototype = new Person('haolin');
+    {% endhighlight %}
+    <li>但这些伪类操作会让人觉得怪异, 我们需要隐藏这些prototype, 这是书中使用的两个通用代码片段</li>
+    {% highlight javascript %}
+Function.prototype.method = function(name, func){
+    this.prototype[name] = func;
+    return this;
+}
+    {% endhighlight %}
+    <p class="note">
+        上述代码片段, 为Function.prototype增加一个method方法,
+        这样我们就可以通过String.method("newMethod", function(){...})
+        (而不是String.prototype.newMethod = function(){...})来为String扩展新方法了。
+    </p>
+    <li>于是我们也可以扩展一个方法, 用于继承: </li>
+    {% highlight javascript %}
+Function.method("extends", function(Parent){
+    this.prototype = new Parent;
+    return this;
+});
+    {% endhighlight %}
+    <li>那么可以通过这样的来进行继承</li>
+    {% highlight javascript %}
+var Student = function(grade){
+    this.grade = grade;
+}.extends(Person);
+    {% endhighlight %}
+    <p class="note">
+        现在我们基本达到了继承的目的, 但是也存在一些问题, 比如父类属性能公开访问, 在继承时需要加上new关键字等。
+    </p>
+    <li><h2>函数化构造器</h2></li>
+    <li>我们将不使用new关键字, 进行对象构造, 基本分为四个步骤</li>
+    {% highlight javascript %}
+var constructor = function(spec, my){
+    var that, 其他私有实例变量
+    my = my || {};
+
+    把共享的变量和函数添加到my中
+
+    that = 一个新对象
+
+    添加给that访问私有属性的方法
+
+    return that;
+}
+    {% endhighlight %}
+    <li>按照这个原则, 我们试着重新构造之前的继承关系: </li>
+    {% highlight javascript %}
+var person = function(context){
+    var that = {};
+
+    var whoAmI = function(){
+        return context.name;
+    };
+    that.whoAmI = whoAmI;
+
+    var howOld = function(){
+        return context.age || 0;
+    };
+    that.howOld = howOld;
+
+    return that;
+}
+
+var p2 = person({"name" : "haolin", "age" : 24});
+    {% endhighlight %}
+    <li>之前通过伪类进行继承, 我们需要重复构造器Person已经完成的工作, 而通过函数化构造则不要关系父类构造, 只需条用父类构造即可</li>
+    {% highlight javascript %}
+var student = function(context){
+
+    var number = context.number || "";
+    // 调用父类构造方法, 并能访问父类暴露的接口whoAmI, howOld
+    var that = person(context);
+
+    // 子类扩展方法
+    var getNumber = function(){
+        return number;
+    }
+    that.getNumber = getNumber;
+
+    var selfIntroduce = function(){
+        return "I am " + that.whoAmI() + ", I'm " + that.howOld() + " years old, My number is " + number;
+    }
+    that.selfIntroduce = selfIntroduce;
+
+    return that;
+}
+
+var s2 = student({"name" : "haolin", "age" : 24, "number" : "123456"});
+    {% endhighlight %}
+    <li>现在, 我们就能直接调用父类方法, 并且防止了父类私有属性被直接访问。</li>
+</ul>
+
+
+
+
+
