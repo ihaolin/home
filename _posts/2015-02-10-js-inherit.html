@@ -32,7 +32,7 @@ var Student = function(grade){
 }
 Student.prototype = new Person('haolin');
     {% endhighlight %}
-    <li>但这些伪类操作会让人觉得怪异, 我们需要隐藏这些prototype, 这是书中使用的两个通用代码片段</li>
+    <li>但这些伪类操作会让人觉得怪异, 我们需要隐藏这些prototype, 这是书中使用的通用代码片段</li>
     {% highlight javascript %}
 Function.prototype.method = function(name, func){
     this.prototype[name] = func;
