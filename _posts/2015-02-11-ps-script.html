@@ -76,11 +76,170 @@ var patchPayDate = function(){
 }
 patchPayDate();
         {% endhighlight %}
+    <p class="note">
+        1. 中文支持: 必须设置字体, 否则中文乱码<span class="highlight">textItem.font="SimSum"</span> <br />
+        2. 执行下载操作前合并图层<span class="highlight">doc.mergeVisibleLayers()</span>, 否则不能继续进行。<br />
+        3. PS中的矩阵区域表示为: <span class="highlight">Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175))</span><br />
+        4. 文本区域和擦除区域不太吻合: 按理擦除区域即为之后的填充区域, 但实际会有像素偏差, 需要调整。
+    </p>
     <li><h2>脚本执行</h2></li>
     <p>打开PhotoShop及其对应的图片文档, 选择执行的脚本即可</p>
     <img src="{{site.url}}/images/ps3.jpg">
+    <li>
+        <h2>处理Excel为JSON</h2>
+    </li>
+    {% highlight python %}
+# 主要代码
+
+import sys
+import xlrd, json
+import math, random
+from xlrd import xldate_as_tuple
+
+def openExcel(file="file.xls"):
+    try:
+        return xlrd.open_workbook(file)
+    except Exception, e:
+        print str(e)
+
+    """
+    read a sheet of xls to json
+    """
+    def read2json(file="file.xls", sheetIndex=0, headerIndex=0, startRow=1):
+        excel = openExcel(file);
+        sheet = excel.sheets()[sheetIndex];
+        nrows = sheet.nrows
+        colnames = sheet.row_values(headerIndex);
+        facets = []
+        for rownum in range(startRow, nrows):
+            row = sheet.row_values(rownum)
+            if row:
+            facet = {}
+            for i in range(len(colnames)):
+                facet[colnames[i]] = row[i]
+            facets.append(facet)
+        return json.dumps(facets, ensure_ascii=False, indent=2)
+    {% endhighlight %}
+    <p class="note">
+        1. 日期处理: 读取excel时, 读取日期类型后为浮点数, 需要引入<span class="highlight">xldate_as_tuple</span>进行处理
+    </p>
+    {% highlight python %}
+# 第二个参数表示起始时间: 0: 1900; 1: 1904
+# 返回(年, 月, 日, 时, 分, 秒)
+dateTuple = xldate_as_tuple(date, 0);
+year = dateTuple[0]
+month = dateTuple[1]
+    {% endhighlight %}
+    <p class="note">
+        2. 默认Python使用Ascii进行IO解码, 需要运行时设置
+    </p>
+    {% highlight python %}
+reload(sys)
+sys.setdefaultencoding('utf-8')
+    {% endhighlight %}
+    <p class="note">
+        3. json dump时, 会讲中文编码为Ascii, 也需要设置参数<span class="highlight">json.dumps(facets, ensure_ascii=False, indent=2)</span>
+    </p>
+    <li><h2>完善JavaScript脚本</h2></li>
+    {% highlight javascript %}
+// excel数据
+var bills = [{
+    "payNo": "14009052048",
+    "businessCategory": "...",
+    "clerkNo": "00023",
+    "payerBank": "...",
+    "payDate": "2014年09月09日",
+    "tradeCode": "52110",
+    "payNote": "...",
+    "printDate": "2014年02月05日",
+    "payAmount1": "壹万壹仟伍佰贰拾元",
+    "payAmount2": "11,520.00元",
+    "printCode": "4N1HTDSPVX2",
+    "payerNo": "...",
+    "payerName": "..."
+},
+...];
+
+var doc = app.activeDocument;
+
+// 修复类
+var Patch = function(){
+    var that = {};
+
+    var white = new SolidColor();
+    white.rgb.red = 255;
+    white.rgb.green = 255;
+    white.rgb.blue = 255;
+
+    var textColor = new SolidColor();
+    textColor.rgb.red = 47;
+    textColor.rgb.green = 48;
+    textColor.rgb.blue = 48;
+
+    var erase = function(pos){
+        doc.selection.select(pos);
+        doc.selection.fill(white);
+        doc.selection.deselect();
+    }
+
+    var text = function(pos, font, color, size, contents){
+        var eraseLayer = doc.artLayers.add();
+        eraseLayer.kind = LayerKind.TEXT;
+        var textItem = eraseLayer.textItem;
+        textItem.font = font;
+        textItem.color = color;
+        textItem.size = size;
+        textItem.contents = contents;
+        textItem.position = pos;
+        doc.mergeVisibleLayers();
+    }
+
+    // 修复日期
+    var patchPayDate = function(payDate){
+        erase(Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175)));
+        text(Array(940, 170), "SimSun", textColor, 11, payDate);
+    }
+
+    // ...其他修复功能
+
+    var patch = function(b){
+        if (!b) return;
+
+        if (b.payDate) patchPayDate(b.payDate);
+
+        // ...其他修复操作
+    }
+    that.patch = patch;
+
+    return that;
+
+}();
+
+// 图片保存
+var Saver = function(){
+    var that = {};
+
+    // 图片质量
+    var jpegOptions = new JPEGSaveOptions();
+    jpegOptions.quality = 8;
+
+    var saveAs = function(path){
+        doc.saveAs(new File(path), jpegOptions);
+    }
+    that.saveAs = saveAs;
+
+    return that;
+
+}();
+
+// go
+for (var i = 0; i<bills.length; i++){
+    Patch.patch(bills[i]);
+    Saver.saveAs("~/temp/" + bills[i].payerName + ".jpg");
+}
+    {% endhighlight %}
     <p class="sumup">
-        似乎感觉世界有进了一步, 具体可参考
+        这样基本不需要操作就能完成PS了, 具体可参考
         <a href="http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/products/photoshop/pdfs/cs6/Photoshop-CS6-JavaScript-Ref.pdf" target="_blank">文档</a>。
     </p>
 </ul>

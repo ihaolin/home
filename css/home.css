@@ -126,8 +126,10 @@ h1, h2, h3, h4, h5, h6 {
 
 .post-detail .post-detail-content p span.highlight{
     color: #c7254e;
-    background-color: #ffffff;
+    background-color: #e8e8e8;
     font-size: 19px;
+    padding: 3px;
+    border-radius: 5px;
 }
 
 .post-detail img{
