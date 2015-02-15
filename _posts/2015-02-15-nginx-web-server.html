@@ -1,0 +1,255 @@
+---
+title : Nginx Web服务器
+category : [nginx]
+tags : [nginx, server, web]
+layout : post
+show : 1
+keywords: nginx,虚拟服务器
+---
+
+    <ul>
+        <p class="intro">
+            通常, Nginx作为Web服务器, 需要配置一系列<span class="highlight">虚拟服务器</span>来负责处理特定的域名或者IP。
+            每个虚拟服务器需要定义处理特定URL集的<span class="highlight">Location实例</span>,
+            每个Location实例则可以
+            <span class="highlight">代理</span>请求,
+            <span class="highlight">返回文件</span>,
+            <span class="highlight">重写URL</span>(将请求重定向到其他虚拟服务器),
+            或者返回<span class="highlight">错误码</span>, 并且你也可以定义错误码对应的页面。
+        </p>
+
+
+        <li><h2>配置文件</h2></li>
+        <p>
+            nginx默认配置文件叫nginx.conf, 在Linux中通常位于
+            <span class="highlight">/usr/local/nginx/conf</span>,
+            <span class="highlight">/etc/nginx/conf</span>,
+            <span class="highlight">/usr/local/etc/nginx</span>,
+            在Mac OSX中, 若使用brew安装默认位于
+            <span class="highlight">/usr/local/etc/nginx</span>,
+            该文件使用<span class="highlight">指令</span>+
+            <span class="highlight">参数</span>进行配置, 类似
+        </p>
+        {% highlight nginx %}
+user             nobody;
+error_log        logs/error.log notice;
+worker_processes 1;
+        {% endhighlight %}
+        <li>通常我们会使用<a href="http://nginx.org/en/docs/ngx_core_module.html?&_ga=1.61754924.1466865208.1422975141#include" target="_blank">include</a>将配置文件分开, 这样便于管理</li>
+        {% highlight nginx %}
+include       mime.types;
+include	      /path/to/*.conf;
+        {% endhighlight %}
+        <li>
+            任何放在外部的指令配置都被认为是<span class="highlight">main</span>上下文的,
+            通常子级上下文重用父级上下文的配置, 也可以重写父级上下文的配置,
+            下面是一段较为完整的配置结构
+        </li>
+        {% highlight nginx %}
+# main上下文
+user nobody;
+
+events {
+    # 事件配置
+}
+
+# http上下文
+http {
+
+    # HTTP全局配置, 作用于所有虚拟服务器
+
+    # 虚拟服务器1
+    upstream server1 {
+        server localhost:9080;
+    }
+    server {
+        # 虚拟服务器1的配置
+        listen       80 ;           #监听信息
+        server_name  www.gaara.com; #虚拟服务器名称
+
+        location /one {
+            # 处理URL为/one的配置
+        }
+
+        location /two {
+            # 处理URL为/two的配置
+        }
+
+        # 所有请求转发到server1虚拟服务器
+        location / {
+            proxy_pass              http://server1;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header        Host $http_host;
+        }
+    }
+
+    upstream server2 {
+        server localhost:9090;
+    }
+    server {
+        ...
+    }
+}
+        {% endhighlight %}
+        <li>当需要生效新的配置时, 你可以重启nginx或者重新加载配置</li>
+        {% highlight nginx %}
+# 重启
+sudo nginx -s stop && sudo nginx
+# 重新加载配置
+sudo nginx -s reload
+# 之前你也可以测试下配置文件是否有错误
+sudo nginx -t -c /path/to/conf
+        {% endhighlight %}
+        <li><h2>配置虚拟服务器</h2></li>
+        <li>
+            nginx配置文件中至少需要配置一个虚拟服务器, 当客户端请求来时, nginx会选择虚拟服务器来处理该请求。
+            虚拟服务器通过<span class="highlight">http上下文</span> 中的<span class="highlight">server</span>指令进行配置
+        </li>
+        {% highlight nginx %}
+http {
+    server {
+        ...
+    }
+}
+        {% endhighlight %}
+        <li>
+            配置监听
+            <a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.2033329.1466865208.1422975141#listen" target="_blank">listen</a>和<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.228592924.1466865208.1422975141#server_name" target="_blank">server_name</a>
+        </li>
+        {% highlight nginx %}
+server {
+    listen      80;                          # 监听信息
+    server_name example.org www.example.org; # 虚拟服务器名称, 若请求匹配到多个server, 会再匹配请求头中的"Host"头, 支持全文, 通配符, 正则表达式
+}
+        {% endhighlight %}
+        <li>请求匹配过程</li>
+        <img src="{{site.url}}/images/nginx-web-server1.png">
+        <li><h2>配置Locations</h2></li>
+        <li>Location配置允许我们将不同的请求转发到不同的虚拟服务器, 或者转发到本地文件等</li>
+        {% highlight nginx %}
+location /some/path/ {
+    ...
+}
+        {% endhighlight %}
+        <li>
+            Location支持<span class="highlight">前缀字符串</span>
+            和<span class="highlight">正则表达式</span>匹配
+        </li>
+        <p class="wrap">
+            <span class="highlight">{uri}</span>: 前缀字符串匹配<br />
+            <span class="highlight">=</span>: 精确匹配<br />
+            <span class="highlight">^~</span>: 普通字符串匹配, 若该项匹配, 正则表达式不再检查匹配<br />
+            <span class="highlight">~</span>: 正则表达式匹配(区分大小写)<br />
+            <span class="highlight">~*</span>: 正则表达式匹配(不区分大小写)<br />
+        </p>
+        <li>Location匹配过程</li>
+        <p class="wrap">
+            首先匹配前缀字符串：<br />
+            &nbsp;&nbsp;&nbsp;1. 若<span class="highlight">"="</span>被匹配到, 则停止匹配。<br />
+            &nbsp;&nbsp;&nbsp;2. 若<span class="highlight">"^~"</span>被匹配到, 则正则表达式不会被检查。<br />
+            &nbsp;&nbsp;&nbsp;3. 保存最长匹配的前缀字符串。<br />
+            然后匹配正则表达式：<br />
+            &nbsp;&nbsp;&nbsp;4. 检查第一个匹配的正则表达式<br />
+            &nbsp;&nbsp;&nbsp;5. 若没有匹配到正则表达式, 则使用第3步保存的前缀字符串。
+        </p>
+        <li>
+            Location配置允许你将请求解析为
+            <span class="highlight">静态文件</span>
+            或<span class="highlight">转发到其他虚拟服务器</span>
+        </li>
+        {% highlight nginx %}
+server {
+    location / {
+        proxy_pass http://www.example.com;
+    }
+
+    location /images/ {
+        root /data;
+    }
+}
+        {% endhighlight %}
+        <p>
+            <a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.28199356.1466865208.1422975141#proxy_pass" target="_blank">proxy_pass: </a>指令会将请求转发到被代理服务器响应URI上。<br />
+            <a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.28199356.1466865208.1422975141#root" target="_blank">root</a>:指令会将请求到本地文件资源, 如/images/1.jpg --> /data/images/1.jpg,
+            这常用来转发web前端静态文件JS, CSS等。
+        </p>
+        <li>
+            <h2>变量</h2>
+        </li>
+        <li>
+            nginx.conf允许设置变量, 也有很多预定义的变量, 如<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.66465070.1466865208.1422975141#variables" target="_blank">Core Http</a>,
+            我们可以通过
+            <a href="http://nginx.org/en/docs/http/ngx_http_rewrite_module.html?&_ga=1.28249532.1466865208.1422975141#set" target="_blank">set</a>,
+            <a href="http://nginx.org/en/docs/http/ngx_http_map_module.html?&_ga=1.28249532.1466865208.1422975141#map" target="_blank">map</a>,
+            <a href="http://nginx.org/en/docs/http/ngx_http_geo_module.html?&_ga=1.65356462.1466865208.1422975141#geo" target="_blank">geo</a>指令, 大多数变量都是和当前请求相关的, 如$remote_addr表示客户端IP，$uri表示当前请求URI。
+        </li>
+        <li>
+            <h2>返回指定码</h2>
+        </li>
+        <li>我们可以通过<a href="http://nginx.org/en/docs/http/ngx_http_rewrite_module.html?&_ga=1.24070842.1466865208.1422975141#return" target="_blank">return指令返回指定码</a></li>
+        {% highlight nginx %}
+
+location /notfound/url {
+    return 404;
+}
+
+location /permanently/moved/url {
+    return 301 http://www.example.com/moved/here; # 可以带上第二个参数, 如重定向URL
+}
+        {% endhighlight%}
+        <li>
+            <h2>重写URI</h2>
+        </li>
+        <li>
+            一个URI在请求过程可以通过<span class="highlight"><a href="http://nginx.org/en/docs/http/ngx_http_rewrite_module.html?&_ga=1.24419642.1466865208.1422975141#rewrite" target="_blank">rewrite</a></span>指令被修改多次。
+            该指令有2个必须参数和1个可选参数: 第1个参数为检测的请求URI, 第2个参数为替换的URI, 第3个参数标志停止进一步的重写处理。
+        </li>
+        {% highlight nginx %}
+location /users/ {
+    rewrite ^/users/(.*)$ /show?user=$1 break;
+}
+        {% endhighlight %}
+        <li>
+            <span class="highlight">rewrite</span>可以在server和location中使用。在同样的server或location中可以包含
+            多个rewrite指令，并且被依次执行。
+        </li>
+        {% highlight nginx %}
+server {
+    rewrite ^(/download/.*)/media/(.*)\..*$ $1/mp3/$2.mp3 last;
+    rewrite ^(/download/.*)/audio/(.*)\..*$ $1/mp3/$2.ra  last;
+    return  403;
+    ...
+}
+        {% endhighlight %}
+        <li>
+            <span class="highlight">/download/some/media/file</span>被重写为<span class="highlight">/download/some/mp3/file.mp3</span>,
+            第二个rewrite和return将被忽略(因为<span class="highlight">last</span>标志)，但nginx会继续处理请求。若未匹配将返回403错误码
+        </li>
+        <li>rewrite具有两种标志</li>
+        <p class="wrap">
+            <span class="highlight">last</span>: 停止当前server或location的rewrite操作，但是location匹配依然会继续，因此新的location块中rewrite依然会执行。<br />
+            <span class="highlight">break</span>: 停止当前server或locatioin的rewrite操作，并且停止location匹配, 因此新的location不会再被执行。
+        </p>
+        <li>
+            <h2>配置错误页面</h2>
+        </li>
+        <li>
+            当返回错误码时，我们可以通过<span class="highlight"><a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.65945902.1466865208.1422975141#error_page">error_page</a></span>指定错误页面。
+        </li>
+        {% highlight nginx %}
+error_page 404 /404.html;
+        {% endhighlight %}
+        <li>我们也可以替换错误码, 如用户访问旧的网页, 我们就可以将其重定向到新页面。</li>
+        {% highlight nginx %}
+location /old/path.html {
+    error_page 404 =301 http:/example.com/new/path.html;
+}
+        {% endhighlight %}
+        <li>当然，我们可以不定义error_page，而是由后端服务器来处理。</li>
+    </ul>
+
+
+
+
+
