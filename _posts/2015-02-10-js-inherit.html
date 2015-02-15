@@ -121,6 +121,71 @@ var student = function(context){
 var s2 = student({"name" : "haolin", "age" : 24, "number" : "123456"});
     {% endhighlight %}
     <li>现在, 我们就能直接调用父类方法, 并且防止了父类私有属性被直接访问。</li>
+    <li><h2><a href="http://coffeescript.org/" target="_blank">CoffeeScript</a>中的类继承</h2></li>
+    <p>现在的前端项目都使用CoffeeScript, 其支持类和继承, 想看看它是怎么理解JS的类和继承的。</p>
+    {% highlight coffee %}
+
+class Person
+    constructor: (@name, @age) ->
+
+getName: ->
+    console.info @name
+
+class Student extends Person
+    constructor: (@number) ->
+
+getNumber: ->
+    console.info @number
+
+    {% endhighlight %}
+    <li>编译后的JS为</li>
+    {% highlight coffee %}
+
+var Person, Student, __hasProp = {}.hasOwnProperty,
+__extends = function(child, parent) {   //扩展函数
+    for (var key in parent) {
+    if (__hasProp.call(parent, key))    //赋值父类属性
+        child[key] = parent[key];
+    }
+    function ctor() {                   //子类构造函数
+        this.constructor = child;
+    }
+    ctor.prototype = parent.prototype;
+    child.prototype = new ctor();
+    child.__super__ = parent.prototype; //父类标识
+    return child;
+};
+
+Person = (function() {                  //使用闭包, 保护属性
+    function Person(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+
+    Person.prototype.getName = function() {
+        return console.info(this.name);
+    };
+
+    return Person;
+
+})();   //发起一次调用
+
+Student = (function(_super) {
+    __extends(Student, _super);
+
+    function Student(number) {
+        this.number = number;
+    }
+
+    Student.prototype.getNumber = function() {
+        return console.info(this.number);
+    };
+
+    return Student;
+
+})(Person);
+
+    {% endhighlight %}
 </ul>
 
 
