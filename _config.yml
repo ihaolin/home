@@ -3,3 +3,4 @@ encode : 'utf-8'
 paginate: 100
 paginate_path: "page:num"
 excerpt_separator: "\n\n"
+favicon: favicon.ico
