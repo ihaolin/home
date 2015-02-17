@@ -79,13 +79,11 @@ patchPayDate();
         {% endhighlight %}
     <p class="note">
         1. 中文支持: 必须设置字体, 否则中文乱码<span class="highlight">textItem.font="SimSum"</span> <br />
-        2. 执行下载操作前合并图层<span class="highlight">doc.mergeVisibleLayers()</span>, 否则不能继续进行。<br />
+        2. 执行下次操作前合并图层<span class="highlight">doc.mergeVisibleLayers()</span>, 否则不能继续进行。<br />
         3. PS中的矩阵区域表示为: <span class="highlight">Array(Array(930, 125), Array(1400, 125), Array(1400, 175), Array(930, 175))</span><br />
         4. 文本区域和擦除区域不太吻合: 按理擦除区域即为之后的填充区域, 但实际会有像素偏差, 需要调整。
     </p>
-    <li><h2>脚本执行</h2></li>
-    <li>打开PhotoShop及其对应的图片文档, 选择执行的脚本即可</li>
-    <img src="{{site.url}}/images/ps3.jpg">
+
     <li>
         <h2>处理Excel为JSON</h2>
     </li>
@@ -239,6 +237,9 @@ for (var i = 0; i<bills.length; i++){
     Saver.saveAs("~/temp/" + bills[i].payerName + ".jpg");
 }
     {% endhighlight %}
+    <li><h2>脚本执行</h2></li>
+    <li>打开PhotoShop及其对应的图片文档, 选择执行的脚本即可</li>
+    <img src="{{site.url}}/images/ps3.jpg">
     <p class="sumup">
         这样基本不需要操作就能完成PS了, 具体可参考
         <a href="http://wwwimages.adobe.com/www.adobe.com/content/dam/Adobe/en/products/photoshop/pdfs/cs6/Photoshop-CS6-JavaScript-Ref.pdf" target="_blank">文档</a>。
