@@ -1,0 +1,120 @@
+---
+title : Nginx反向代理
+category : [nginx]
+tags : [nginx, proxy]
+layout : post
+show : 1
+keywords: nginx,反向代理
+---
+
+    <ul>
+        <p class="intro">
+            <span class="highlight">代理</span>通常用来在多个后端服务器进行
+            <span class="highlight">负载均衡</span>，或者通过HTTP等协议进行请求转发。
+        </p>
+
+
+        <li>
+            <h2>传递请求到后端服务器</h2>
+        </li>
+        <p class="wrap">
+            当NGINX代理一个请求时，会将请求转发到特定的后端服务器，然后获取到响应，将其返回给客户端。
+            该请求可能被转发到HTTP服务器(另一个NGINX服务器或其他服务器)或者使用特定协议的非HTTP服务器(由特定框架开发的
+            ，如PHP，Python等)。支持的协议包括
+            <span class="highlight">FastCGI</span> ，
+            <span class="highlight">uwsgi</span>，
+            <span class="highlight">SCGI</span>，
+            <span class="highlight">memcached</span>。
+        </p>
+        <li>
+            为了转发请求到后端服务器, <a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.258482698.1466865208.1422975141#proxy_pass" target="_blank">proxy_pass</a>指令需要定义在location块内，如
+        </li>
+        {% highlight nginx %}
+location /some/path/ {
+    proxy_pass http://www.example.com/link/;
+}
+        {% endhighlight %}
+        <li>
+            若客户端访问<span class="highlight">/some/path/page.html</span>，
+            将被代理到<span class="highlight">http://www.example.com/link/page.html</span>
+        </li>
+        <li>
+            为了将请求转发到一个非HTTP后端服务器，需要用到
+            <span class="highlight">**_pass directive* </span> 指令
+        </li>
+        <p class="wrap">
+            1. <a href="http://nginx.org/en/docs/http/ngx_http_fastcgi_module.html?&_ga=1.28265148.1466865208.1422975141#fastcgi_pass" target="_blank">fastcig_pass</a>传递请求到FastCGI服务器。<br />
+            2. uwsgi_pass传递请求到uwsgi服务器。<br />
+            3. scgi_pass传递SCGI服务器。<br />
+            4. <a href="http://nginx.org/en/docs/http/ngx_http_memcached_module.html?&_ga=1.56050091.1466865208.1422975141#memcached_pass" target="_blank">memcached_pass</a>传递请求到memcached服务器。
+        </p>
+        <li>
+            <h2>传递请求头</h2>
+        </li>
+        <p>
+            默认，NGINX会重新定义请求头中的两个字段
+            <span class="highlight">Host</span>和
+            <span class="highlight">Connection</span>，
+            并且忽略空字符串的字段。<span class="highlight">Host</span>被设置为$proxy_host，
+            <span class="highlight">Connection</span>被设置为关闭的。
+        </p>
+        <li>
+            我们可以通过指令<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.266872718.1466865208.1422975141#proxy_set_header" target="_blank">proxy_set_header</a>设置请求头，
+            该指令可以用在http, server, location块中。如
+        </li>
+        {% highlight nginx %}
+
+location /some/path/ {
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_pass http://localhost:8000;
+}
+        {% endhighlight %}
+        <li>如果你想阻止某个请求头传递给后端服务器，可以将其设置为空字符串。</li>
+        {% highlight nginx %}
+location /some/path/ {
+    proxy_set_header Accept-Encoding "";
+    proxy_pass http://localhost:8000;
+}
+        {% endhighlight %}
+        <li>
+            <h2>配置缓冲区</h2>
+        </li>
+        <p class="wrap">
+            默认，NGINX会为后端服务器的响应提供<sapn class="highlight">缓冲区</sapn>。一个响应被存放在内部缓冲区中，
+            直到整个响应被接收到，然后发送给客户端。<span class="highlight">缓冲区</span>
+            针对一些慢客户端(如果响应被NGINX同步地返回，将浪费后端服务器的时间)可以提高性能。然而，
+            如果NGINX开启了缓冲区，将使得后端服务器快速地处理响应，而当客户端需要下载它们时，NGINX会存储
+            响应尽可能久的时间。
+        </p>
+        <li>
+            我们可以使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.58008106.1466865208.1422975141#proxy_buffers" target="_blank">proxy_buffers</a>
+            来为每一个请求设置缓冲区的大小和数量。响应的第一部分被存在单独的缓冲区内，其大小通过
+            <a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&&&_ga=1.23921210.1466865208.1422975141#proxy_buffer_size" target="_blank">proxy_buffer_size</a>指令设置
+            这部分通常包含一些比较小的响应头，并且比剩下的响应缓冲区更小。如
+        </li>
+        {% highlight nginx %}
+
+location /some/path/ {
+    proxy_buffers 16 4k;    # 16个缓冲区，每个缓冲区4K(默认为一个内存页，可通过getconf PAGE_SIZE获取)
+    proxy_buffer_size 2k;   # 用于存放响应的第一个部分信息, 比普通缓冲区4K更小
+    proxy_pass http://localhost:8000;
+}
+        {% endhighlight %}
+        <li>
+            如果缓冲区禁用了，当NGINX接收到后端服务器的响应时，会同步地发送给客户端。
+            这种情况可能在一些快速客户端交互(需要尽可能快接收响应)中会使用。
+            如果你想使某个location禁用缓冲区，可以使用<span class="highlight">proxy_buffering off</span>指令。
+        </li>
+        {% highlight nginx %}
+location /some/path/ {
+    proxy_buffering off;
+    proxy_pass http://localhost:8000;
+}
+        {% endhighlight %}
+    </ul>
+
+
+
+
+
