@@ -1,0 +1,189 @@
+---
+title : Nginx访问控制
+category : [nginx]
+tags : [nginx, access]
+layout : post
+show : 1
+keywords: nginx,访问控制
+---
+
+    <ul>
+        <p class="intro">
+            有时出于某些安全，权限等原因，我们需要对客户端访问进行控制，本文将记录如何
+            <span class="highlight">限制访问</span>，
+            <span class="highlight">设置连接最大请求数</span>，
+            或<span class="highlight">最大的下载速度</span>等。
+        </p>
+
+
+        <li>
+            <h2>限制访问</h2>
+        </li>
+        <li>
+            访问控制可以通过允许或拒绝客户端IP地址或使用HTTP基本认证，我可以通过指令
+            <a href="http://nginx.org/en/docs/http/ngx_http_access_module.html?&_ga=1.69542544.1466865208.1422975141#allow" target="_blank">allow</a>
+            和<a href="http://nginx.org/en/docs/http/ngx_http_access_module.html?&_ga=1.69542544.1466865208.1422975141#deny" target="_blank">deny</a>(类似于Linux的防火墙)。
+        </li>
+        {% highlight nginx %}
+location / {
+    allow 192.168.1.1/24;
+    allow 127.0.0.1;
+    deny 192.168.1.2;
+    deny all;
+}
+        {% endhighlight %}
+        <li>
+            为了开启身份认证，可以使用<a href="http://nginx.org/en/docs/http/ngx_http_auth_basic_module.html?&&&_ga=1.60689965.1466865208.1422975141#auth_basic" target="_blank">auth_basic</a>指令。
+            用户必须输入有效的用户名和密码才能访问站点。而用户名和密码应该列在
+            <a href="http://nginx.org/en/docs/http/ngx_http_auth_basic_module.html?&_ga=1.69034897.1466865208.1422975141#auth_basic_user_file" target="_blank">auth_basic_user_file</a>指令设置的文件中。
+        </li>
+        {% highlight nginx %}
+server {
+    ...
+    auth_basic "closed website";
+    auth_basic_user_file conf/htpasswd;
+}
+        {% endhighlight %}
+        <li>
+            auth_basic的off参数可以取消验证，比如对于一些公共资源，则可以取消验证。
+        </li>
+        {% highlight nginx %}
+server {
+    ...
+    auth_basic "closed website";
+    auth_basic_user_file conf/htpasswd;
+
+    location /public/ {
+        auth_basic off;
+    }
+}
+        {% endhighlight %}
+        <li>
+            我们还需使用<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.28206524.1466865208.1422975141#satisfy" target="_blank">satisfy</a>指令来组合来使用IP访问和Http验证。
+            其默认设置为<span class="highlight">all</span>，即IP访问和HTTP验证同时通过时才允许用户访问，若设置为<span class="highlight">any</span>，即IP访问和HTTP验证其一通过就允许用户访问。
+        </li>
+        {% highlight nginx %}
+location / {
+    satisfy any;
+
+    allow 192.168.1.0/24;
+    deny  all;
+
+    auth_basic           "closed site";
+    auth_basic_user_file conf/htpasswd;
+}
+        {% endhighlight %}
+        <li>
+            <h2>限制访问</h2>
+        </li>
+        <li><h3>限制连接数</h3></li>
+        <li>
+            首先我们使用<a href="" target="_blank">limit_conn_zone</a>来定义键和共享内存区的大小(工作者进程将使用该区共享键值对的计数信息)。
+            第一个参数为定义了键的计算表达式，第二个参数zone定义了区的名称和大小：
+        </li>
+        {% highlight nginx %}
+limit_conn_zone $binary_remote_address zone=addr:10m;
+        {% endhighlight %}
+        <li>
+            然后我们使用<a href=http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html?&_ga=1.224152475.1466865208.1422975141#limit_conn"" target="_blank">limit_conn</a>指令在
+            <span class="highlight">location</span>, <span class="highlight">server</span>, <span class="highlight">http</span>上下文中作限制。
+        </li>
+        {% highlight nginx %}
+location /download/ {
+    limit_conn addr 1;
+}
+        {% endhighlight %}
+        <li>
+            我们也可以限制server_name的连接数
+        </li>
+        {% highlight nginx %}
+http {
+    limit_conn_zone $server_name zone=servers:10m; #用server作为key
+
+    server {
+        ...
+        limit_conn servers 1000;
+    }
+}
+        {% endhighlight %}
+        <li>
+            <h3>限制请求率</h3>
+        </li>
+        <li>
+            类似limit_conn_zone，我们使用<a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html?&_ga=1.70149008.1466865208.1422975141#limit_req_zone" target="_blank">limit_req_zone</a>指令设置请求率限制的内存共享区
+        </li>
+        {% highlight nginx %}
+limit_req_zone $binary_remote_addr zone=one:10m rate=1r/s; # 定义每秒请求数，或r/m每分钟请求数
+        {% endhighlight %}
+        <li>
+            limit_req_zone设置好后，则可用<a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html?&_ga=1.31223359.1466865208.1422975141#limit_req" target="_blank">limit_req</a>来限制请求率了
+        </li>
+        {% highlight nginx %}
+location /search/ {
+    limit_req zone=one burst=5; # brust设置最大等待的请求，超过该值的请求将被返回503
+}
+        {% endhighlight %}
+        <li>也可以使用nodelay不延迟，这将使得超出limit_req的客户端立刻获得503</li>
+        {% highlight nginx %}
+limit_req zone=one burst=5 nodelay;
+        {% endhighlight %}
+        <li>
+            <h3>限制带宽</h3>
+        </li>
+        <li>
+            我们可以<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.102655617.1466865208.1422975141#limit_rate" target="_blank">limit_rate</a>指令限制带宽
+        </li>
+        {% highlight nginx %}
+location /download/ {
+    limit_rate 50k; # 每个连接只允许最大50kb/s的速度进行下载
+}
+        {% endhighlight %}
+        <li>
+            如果还想限制一个客户端只能同时一个连接，则还需要加上<span class="highlight">limit_conn</span>
+        </li>
+{% highlight nginx %}
+location /download/ {
+    limit_conn addr 1;
+    limit_rate 50k;
+}
+{% endhighlight %}
+        <p class="note">
+            我们还可以在后端服务器的响应头中设置<span class="highlight">X-Accel-Limit-Rate</span>来作限制。
+        </p>
+        <li>
+            当我们仅想当客户端下载了一些数据后，再开始限制下载速度，可以使用<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html?&_ga=1.102637825.1466865208.1422975141#limit_rate_after" target="_blank">limit_rate_after</a>命令
+        </li>
+        {% highlight nginx %}
+limit_rate_after 500k;
+limit_rate 20k;
+        {% endhighlight %}
+        <li>
+            下面是一个较为完整的例子
+        </li>
+        {% highlight nginx %}
+http {
+    limit_conn_zone $binary_remote_address zone=addr:10m
+
+    server {
+        root /www/data;
+        limit_conn addr 5;  # 全局允许一个客户端5个连接
+
+        location / {
+        }
+
+        location /download/ {
+            limit_conn addr 1; # /download时, 只允许一个客户端1个连接
+            limit_rate 50k;
+        }
+    }
+}
+        {% endhighlight %}
+        <p>
+
+        </p>
+    </ul>
+
+
+
+
+
