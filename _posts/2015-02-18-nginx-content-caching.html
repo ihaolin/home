@@ -1,0 +1,156 @@
+---
+title : Nginx缓存
+category : [nginx]
+tags : [nginx, caching]
+layout : post
+show : 1
+keywords: nginx,缓存
+---
+
+    <ul>
+        <p class="intro">
+            本文将讲述如何使用<span class="highlight">NGINX缓存</span>。NGINX缓存可以将后端服务器的响应保存在磁盘上，当客户端发来请求时，
+            会直接使用缓存来响应客户端，而不会去请求后端服务器。
+        </p>
+
+
+        <li>
+            <h2>开启缓存</h2>
+        </li>
+        <li>
+            为了开启缓存，可以在<span class="highlight">http</span>上下文中使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.104334720.1466865208.1422975141#proxy_cache_path" target="_blank">proxy_cache_path</a>，
+            然后在你想启用缓存的地方加上<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.104334720.1466865208.1422975141#proxy_cache" target="_blank">proxy_cache</a>，如
+        </li>
+        {% highlight nginx %}
+http {
+    ...
+    proxy_cache_path /data/nginx/cache keys_zone=one:10m;
+
+    server {
+        proxy_cache one;
+        location / {
+            proxy_pass http://localhost:8000;
+        }
+    }
+}
+        {% endhighlight %}
+        <p class="wrap">
+            1. <span class="highlight">proxy_cache_path</span>指令只能在<span class="highlight">http</span>上下文中使用。<br />
+            2. <span class="highlight">proxy_cache_path</span>指令需要两个必要的参数：<span class="highlight">path</span>(缓存的存储路径)和<span class="highlight">keys_zone</span>(共享内存区name:size, name对应<span class="highlight">proxy_cache</span>指令的参数)。<br />
+            3. <span class="highlight">共享内存区</span>用于存储缓存项的元数据信息，它的大小并不会限制缓存的总大小，缓存本身同其元数据信息一起被保存在文件系统特定的文件里，你可以通过<span class="highlight">max_size</span>限制文件存储的大小，然而
+            实际的文件存储可以暂时超过该值，直到一个叫<span class="highlight">cache manager</span>的进程检查缓存大小，进而移除掉最近最少使用的缓存及其元数据。
+        </p>
+        <li>
+            <h2>缓存进程</h2>
+        </li>
+        <li>NGINX缓存中有两个额外的NGINX进程：<span class="highlight">cache loader</span>和<span class="highlight">cache manager</span>。</li>
+        <p class="wrap">
+            <span class="highlight">cache manager</span>会被周期性地激活，并检查缓存文件存储的状态。实际上，当文件存储大小超过
+            <span class="highlight">max_size</span>时，<span class="highlight">cache manager</span>会移除掉最近最少使用的数据。
+        </p>
+        <p class="wrap">
+            <span class="highlight">cache loader</span>只会在NGINX启动后被激活一次，它加载之前缓存数据的元信息到共享内存区中。
+            一次性加载整个缓存可能会消耗很多资源，并且刚开始会降低NGINX的性能。这就是为什么<span class="highlight">cache loader</span>会使用
+            <span class="highlight">proxy_cache_path</span>的配置进行迭代工作，每一次迭代持续不超过
+            <span class="highlight">loader_threshold</span>(默认200)毫秒，每一次迭代加载不超过<span class="highlight">loader_files(默认100)</span>缓存项，
+            迭代之间的间隔时间设置为<span class="highlight">loader_sleeps(默认为50)</span>毫秒。
+        </p>
+        <li>如下面的配置将加快缓存元数据加载</li>
+        {% highlight nginx %}
+proxy_cache_path /data/nginx/cache keys_zone=one:10m
+loader_threshold=300 loader_files=200;
+        {% endhighlight %}
+        <li>
+            <h2>指定哪些请求需要缓存</h2>
+        </li>
+        <p>
+            默认情况下，nginx会缓存所有来自后端服务器第一次响应GET和HEAD请求的响应数据。NGINX使用请求字符串作为请求标识符。
+            无论什么时候，两个具有相同标识符的请求都被认为是相同的，于是相同的缓存响应将被发送给客户端。
+            <a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.65471790.1466865208.1422975141#proxy_cache_key" target="_blank">proxy_cache_key</a>指令可以用来指定请求标识符的计算方法
+        </p>
+        {% highlight nginx %}
+proxy_cache_key "$host$request_uri$cookie_user";
+        {% endhighlight %}
+        <li>
+            我们可以使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.65826222.1466865208.1422975141#proxy_cache_min_uses" target="_blank">proxy_cache_min_uses</a>设置响应被缓存的最小请求次数。(默认为1，即请求1次就被缓存)
+        </li>
+        {% highlight nginx %}
+proxy_cache_min_uses 5;
+        {% endhighlight %}
+        <li>我们也可以增加额外要缓存的HTTP请求方法</li>
+        {% highlight nginx %}
+proxy_cache_methods GET HEAD POST;
+        {% endhighlight %}
+        <li>
+            <h2>限制或绕过缓存</h2>
+        </li>
+        <p>
+            默认情况下，响应被缓存的时间是没有限制的。当文件缓存大小超出
+            <span class="highlight">max_size</span>时，最近最少使用的缓存项将被移除。否则，缓存的响应将被永久保存。
+        </p>
+        <li>
+            我们可以通过<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.224215579.1466865208.1422975141#proxy_cache_valid" target="_blank">proxy_cache_valid</a>来设置特定状态码的缓存有效时间
+        </li>
+        {% highlight nginx %}
+proxy_cache_valid 200 302 10m; # 200, 302状态的响应将被缓存10分钟
+proxy_cache_valid 404      1m; # 404状态的响应将被缓存1分钟
+        {% endhighlight %}
+        <li>也可以统一设置缓存时间</li>
+        {% highlight nginx %}
+proxy_cache_valid any 5m;
+        {% endhighlight %}
+        <li>
+            为了使响应不从缓存中抓取(即使缓存中存在)，我们可以使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.70151440.1466865208.1422975141#proxy_cache_bypass" target="_blank">proxy_cache_bypass</a>定义一些条件。
+            <span class="highlight">默认情况下，是没有任何条件的</span>。该指令有1个或多个参数，可由多个变量组成，如果至少一个字符串条件非空而且非“0”，nginx就不会从缓存中去取响应。
+        </li>
+        {% highlight nginx %}
+proxy_cache_bypass $cookie_nocache $arg_nocache$arg_comment;
+        {% endhighlight %}
+        <li>
+            同样可以使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html?&_ga=1.57543210.1466865208.1422975141#proxy_no_cache" target="_blank">proxy_no_cache</a>来禁止响应被缓存，用法同<span class="highlight">proxy_cache_bypass</span>
+        </li>
+        {% highlight nginx %}
+proxy_no_cache $http_pragma $http_authorization;
+        {% endhighlight %}
+        <li>完整的配置列子</li>
+        {% highlight nginx %}
+http {
+    ...
+    proxy_cache_path /data/nginx/cache keys_zone=one:10m loader_threshold=300 loader_files=200 max_size=200m;
+
+
+    upstream backend1 {
+        server localhost:8080;
+    }
+
+    upstream backend2 {
+        server localhost:8090;
+    }
+
+    server {
+        listen 80;
+        proxy_cache one;
+
+        location / {
+            proxy_pass http://backend1;
+        }
+
+        location /some/path {
+            proxy_cache_valid any   1m;
+            proxy_cache_min_uses 3;
+            proxy_cache_bypass $cookie_nocache $arg_nocache$arg_comment;
+            proxy_pass http://backend2;
+        }
+    }
+}
+        {% endhighlight %}
+        <p class="note">
+            1. 后端服务器backend1返回的响应会在第一次被请求就缓存，并且缓存尽量长时间。<br />
+            2. 后端服务器backend2可能数据变化较大，所有数据仅缓存1分钟，且当同一请求达到3次，其响应才被缓存，且进行一些缓存绕过设置。
+        </p>
+    </ul>
+
+
+
+
+
