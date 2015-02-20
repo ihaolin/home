@@ -1,0 +1,887 @@
+---
+title : Mybatis初始化配置
+category : [mybatis]
+tags : [mybatis, configuration, init]
+layout : post
+show : 1
+keywords: mybatis, 初始化
+---
+
+<ul>
+        <p class="intro">
+            Mybatis初始化是一个比较繁琐的过程，通过将配置的XML文件映射为其内部的<span class="highlight">Configuration</span>对象，
+            由其统一管理。本文将通过源码跟踪其初始化配置的整个过程，以进一步了解Mybatis内部工作原理。
+        </p>
+
+
+        <li>
+            建议大家先将Mybatis<a href="https://github.com/mybatis/mybatis-3" target="_blank">源码</a>
+            <span class="highlight">git clone git@github.com:mybatis/mybatis-3.git</span>到本地，导入IDE，以便随时查阅。
+            (Mybatis中注释比较少，可能作者是注释洁癖吧)
+        </li>
+
+        <li>
+            <h2>初始化操作</h2>
+        </li>
+        <li>
+            我们可以从<span class="highlight">SqlSessionTest</span>单元测试的Setup开始
+        </li>
+        {% highlight java %}
+private static SqlSessionFactory sqlMapper;
+
+@BeforeClass
+public static void setup() throws Exception {
+    createBlogDataSource();
+    final String resource = "org/apache/ibatis/builder/MapperConfig.xml";
+    final Reader reader = Resources.getResourceAsReader(resource);
+    sqlMapper = new SqlSessionFactoryBuilder().build(reader);
+}
+        {% endhighlight %}
+        <li>
+            MapperConfig.xml文件:
+        </li>
+        {% highlight xml %}
+<configuration>
+
+    <properties resource="databases/blog/blog-derby.properties"/>
+
+    <!-- 配置信息 -->
+    <settings>
+        <setting name="cacheEnabled" value="true"/>
+        <setting name="lazyLoadingEnabled" value="false"/>
+        <setting name="multipleResultSetsEnabled" value="true"/>
+        <setting name="useColumnLabel" value="true"/>
+        <setting name="useGeneratedKeys" value="false"/>
+        <setting name="defaultExecutorType" value="SIMPLE"/>
+        <setting name="defaultStatementTimeout" value="25"/>
+    </settings>
+
+    <!-- 类型别名配置 -->
+    <typeAliases>
+        <typeAlias alias="Author" type="domain.blog.Author"/>
+        <typeAlias alias="Blog" type="domain.blog.Blog"/>
+        <typeAlias alias="Comment" type="domain.blog.Comment"/>
+        <typeAlias alias="Post" type="domain.blog.Post"/>
+        <typeAlias alias="Section" type="domain.blog.Section"/>
+        <typeAlias alias="Tag" type="domain.blog.Tag"/>
+    </typeAliases>
+
+    <!-- 类型处理器 -->
+    <typeHandlers>
+        <typeHandler javaType="String" jdbcType="VARCHAR" handler="org.apache.ibatis.builder.ExampleTypeHandler"/>
+    </typeHandlers>
+
+    <!-- 对象工场 -->
+    <objectFactory type="org.apache.ibatis.builder.ExampleObjectFactory">
+        <property name="objectFactoryProperty" value="100"/>
+    </objectFactory>
+
+    <!-- 插件配置 -->
+    <plugins>
+        <plugin interceptor="org.apache.ibatis.builder.ExamplePlugin">
+            <property name="pluginProperty" value="100"/>
+        </plugin>
+    </plugins>
+
+    <!-- 环境配置 -->
+    <environments default="development">
+        <environment id="development">
+            <transactionManager type="JDBC">
+                <property name="" value=""/>
+            </transactionManager>
+            <dataSource type="UNPOOLED">
+                <property name="driver" value="${driver}"/>
+                <property name="url" value="${url}"/>
+                <property name="username" value="${username}"/>
+                <property name="password" value="${password}"/>
+            </dataSource>
+        </environment>
+    </environments>
+
+    <!-- SQL Mapper -->
+    <mappers>
+        <mapper resource="org/apache/ibatis/builder/AuthorMapper.xml"/>
+        <mapper resource="org/apache/ibatis/builder/BlogMapper.xml"/>
+        <mapper resource="org/apache/ibatis/builder/CachedAuthorMapper.xml"/>
+        <mapper resource="org/apache/ibatis/builder/PostMapper.xml"/>
+        <mapper resource="org/apache/ibatis/builder/NestedBlogMapper.xml"/>
+    </mappers>
+</configuration>
+        {% endhighlight %}
+        <li>
+            初始化入口从<span class="highlight">SqlSessionFactoryBuilder.build()</span>方法开始
+        </li>
+        {% highlight java %}
+XMLConfigBuilder parser = new XMLConfigBuilder(reader, environment, properties);
+return build(parser.parse());
+        {% endhighlight %}
+        <li>
+            XMLConfigBuilder构造器对构建出了Configuration对象, 并作了一定的初始化动作
+        </li>
+        {% highlight java %}
+public XMLConfigBuilder(InputStream inputStream, String environment, Properties props) {
+    this(new XPathParser(inputStream, true, props, new XMLMapperEntityResolver()), environment, props);
+}
+
+private XMLConfigBuilder(XPathParser parser, String environment, Properties props) {
+    // 创建Configuration对象
+    super(new Configuration());
+    // 基于ThreadLocal的错误上下文
+    ErrorContext.instance().resource("SQL Mapper Configuration");
+    this.configuration.setVariables(props);
+    this.parsed = false;
+    this.environment = environment;
+    // 核心的XML解析器
+    this.parser = parser;
+}
+        {% endhighlight %}
+        <li>
+            在<span class="highlight">new Configuration()</span>中已经作了部分初始化, 如类别名注册等
+        </li>
+        {% highlight java %}
+public Configuration() {
+    // 注册事务工厂别名
+    typeAliasRegistry.registerAlias("JDBC", JdbcTransactionFactory.class);
+    typeAliasRegistry.registerAlias("MANAGED", ManagedTransactionFactory.class);
+
+    // 注册数据源工厂别名
+    typeAliasRegistry.registerAlias("JNDI", JndiDataSourceFactory.class);
+    typeAliasRegistry.registerAlias("POOLED", PooledDataSourceFactory.class);
+    typeAliasRegistry.registerAlias("UNPOOLED", UnpooledDataSourceFactory.class);
+
+    // 注册缓存策略别名
+    typeAliasRegistry.registerAlias("PERPETUAL", PerpetualCache.class);
+    typeAliasRegistry.registerAlias("FIFO", FifoCache.class);
+    typeAliasRegistry.registerAlias("LRU", LruCache.class);
+    typeAliasRegistry.registerAlias("SOFT", SoftCache.class);
+    typeAliasRegistry.registerAlias("WEAK", WeakCache.class);
+
+    // 数据库厂商标识提供者
+    typeAliasRegistry.registerAlias("DB_VENDOR", VendorDatabaseIdProvider.class);
+
+    // 语言解析驱动类
+    typeAliasRegistry.registerAlias("XML", XMLLanguageDriver.class);
+    typeAliasRegistry.registerAlias("RAW", RawLanguageDriver.class);
+
+    // 注册日志处理类
+    typeAliasRegistry.registerAlias("SLF4J", Slf4jImpl.class);
+    typeAliasRegistry.registerAlias("COMMONS_LOGGING", JakartaCommonsLoggingImpl.class);
+    typeAliasRegistry.registerAlias("LOG4J", Log4jImpl.class);
+    typeAliasRegistry.registerAlias("LOG4J2", Log4j2Impl.class);
+    typeAliasRegistry.registerAlias("JDK_LOGGING", Jdk14LoggingImpl.class);
+    typeAliasRegistry.registerAlias("STDOUT_LOGGING", StdOutImpl.class);
+    typeAliasRegistry.registerAlias("NO_LOGGING", NoLoggingImpl.class);
+
+    // 注册动态代理工厂, 基于Cglib或者JAVASSIST
+    typeAliasRegistry.registerAlias("CGLIB", CglibProxyFactory.class);
+    typeAliasRegistry.registerAlias("JAVASSIST", JavassistProxyFactory.class);
+
+    // 解析动态SQL时用到的语言驱动, 3.2之后插拔自己的语言驱动
+    languageRegistry.setDefaultDriverClass(XMLLanguageDriver.class);
+    languageRegistry.register(RawLanguageDriver.class);
+}
+        {% endhighlight %}
+        <li>
+            接下来就是<span class="highlight">parser.parse()</span>核心方法
+        </li>
+        {% highlight java %}
+public Configuration parse() {
+    if (parsed) {
+        throw new BuilderException("Each XMLConfigBuilder can only be used once.");
+    }
+    parsed = true;
+    parseConfiguration(parser.evalNode("/configuration"));
+    return configuration;
+}
+
+private void parseConfiguration(XNode root) {
+    try {
+        // 属性
+        propertiesElement(root.evalNode("properties"));
+        // 别名
+        typeAliasesElement(root.evalNode("typeAliases"));
+        // 插件
+        pluginElement(root.evalNode("plugins"));
+        // 对象工厂
+        objectFactoryElement(root.evalNode("objectFactory"));
+        // 对象包装器工厂
+        objectWrapperFactoryElement(root.evalNode("objectWrapperFactory"));
+        // 设置
+        settingsElement(root.evalNode("settings"));
+        // 环境
+        environmentsElement(root.evalNode("environments")); // read it after objectFactory and objectWrapperFactory issue #631
+        // 数据库提供商
+        databaseIdProviderElement(root.evalNode("databaseIdProvider"));
+        // 类型处理器
+        typeHandlerElement(root.evalNode("typeHandlers"));
+        // SQL mapper
+        mapperElement(root.evalNode("mappers"));
+    } catch (Exception e) {
+        throw new BuilderException("Error parsing SQL Mapper Configuration. Cause: " + e, e);
+    }
+}
+        {% endhighlight %}
+    <li>
+        <h2>属性配置</h2>
+    </li>
+    <li>
+        属性可以用于在整个配置文件中动态替换对应的属性
+    </li>
+    {% highlight java %}
+private void propertiesElement(XNode context) throws Exception {
+    if (context != null) {
+        // 解析properties元素内部的property元素
+        Properties defaults = context.getChildrenAsProperties();
+        // classpath的properties
+        String resource = context.getStringAttribute("resource");
+        // url的properties
+        String url = context.getStringAttribute("url");
+        if (resource != null && url != null) {
+            throw new BuilderException("The properties element cannot specify both a URL and a resource based property file reference.  Please specify one or the other.");
+        }
+        // merge所有properties
+        if (resource != null) {
+            defaults.putAll(Resources.getResourceAsProperties(resource));
+        } else if (url != null) {
+            defaults.putAll(Resources.getUrlAsProperties(url));
+        }
+        Properties vars = configuration.getVariables();
+        if (vars != null) {
+            defaults.putAll(vars);
+        }
+        // 设置parser的上下文变量, 在解析其他配置元素时需要动态设置
+        parser.setVariables(defaults);
+        configuration.setVariables(defaults);
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>类型别名配置</h2>
+    </li>
+    {% highlight java %}
+private void typeAliasesElement(XNode parent) {
+    if (parent != null) {
+        for (XNode child : parent.getChildren()) {
+            if ("package".equals(child.getName())) {
+                //注册包名
+                String typeAliasPackage = child.getStringAttribute("name");
+                //这里可以直接使用typeAliasRegistry.registerAliases(typeAliasPackage)，内部会扫描所有该包下的JavaBean
+                configuration.getTypeAliasRegistry().registerAliases(typeAliasPackage);
+            } else {
+                // 注册类型, 类不存在或注册重复都会抛异常
+                String alias = child.getStringAttribute("alias");
+                String type = child.getStringAttribute("type");
+                try {
+                    Class<?> clazz = Resources.classForName(type);
+                    if (alias == null) {
+                        typeAliasRegistry.registerAlias(clazz);
+                    } else {
+                        typeAliasRegistry.registerAlias(alias, clazz);
+                    }
+                } catch (ClassNotFoundException e) {
+                    throw new BuilderException("Error registering typeAlias for '" + alias + "'. Cause: " + e, e);
+                }
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        1. 当元素为<span class="highlight">package</span>时, 该包下的所有JavaBean的别名默认为package.name + [类简单名]。<br />
+        2. 若JavaBean上存在<span class="highlight">@Alias</span>注解，则使用<span class="highlight">@Alias.value()</span>。
+    </p>
+    <li>Mybatis内部默认注册了一些常用类型</li>
+    {% highlight java %}
+registerAlias("string", String.class);
+
+registerAlias("byte", Byte.class);
+registerAlias("long", Long.class);
+registerAlias("short", Short.class);
+registerAlias("int", Integer.class);
+registerAlias("integer", Integer.class);
+registerAlias("double", Double.class);
+registerAlias("float", Float.class);
+registerAlias("boolean", Boolean.class);
+
+registerAlias("byte[]", Byte[].class);
+registerAlias("long[]", Long[].class);
+registerAlias("short[]", Short[].class);
+registerAlias("int[]", Integer[].class);
+registerAlias("integer[]", Integer[].class);
+registerAlias("double[]", Double[].class);
+registerAlias("float[]", Float[].class);
+registerAlias("boolean[]", Boolean[].class);
+
+registerAlias("_byte", byte.class);
+registerAlias("_long", long.class);
+registerAlias("_short", short.class);
+registerAlias("_int", int.class);
+registerAlias("_integer", int.class);
+registerAlias("_double", double.class);
+registerAlias("_float", float.class);
+registerAlias("_boolean", boolean.class);
+
+registerAlias("_byte[]", byte[].class);
+registerAlias("_long[]", long[].class);
+registerAlias("_short[]", short[].class);
+registerAlias("_int[]", int[].class);
+registerAlias("_integer[]", int[].class);
+registerAlias("_double[]", double[].class);
+registerAlias("_float[]", float[].class);
+registerAlias("_boolean[]", boolean[].class);
+
+registerAlias("date", Date.class);
+registerAlias("decimal", BigDecimal.class);
+registerAlias("bigdecimal", BigDecimal.class);
+registerAlias("biginteger", BigInteger.class);
+registerAlias("object", Object.class);
+
+registerAlias("date[]", Date[].class);
+registerAlias("decimal[]", BigDecimal[].class);
+registerAlias("bigdecimal[]", BigDecimal[].class);
+registerAlias("biginteger[]", BigInteger[].class);
+registerAlias("object[]", Object[].class);
+
+registerAlias("map", Map.class);
+registerAlias("hashmap", HashMap.class);
+registerAlias("list", List.class);
+registerAlias("arraylist", ArrayList.class);
+registerAlias("collection", Collection.class);
+registerAlias("iterator", Iterator.class);
+
+registerAlias("ResultSet", ResultSet.class);
+    {% endhighlight %}
+    <li>
+        <h2>插件配置</h2>
+    </li>
+    <li>
+        Mybatis中的<span class="highlight">plugin</span>即我们熟知的<span class="highlight">拦截器</span>，这里取为interceptor或许更可读。
+        Mybatis允许我们在某些核心处理类的某些方法点进行拦截, 如
+    </li>
+    <p class="wrap note">
+        1. Executor (update, query, flushStatements, commit, rollback, getTransaction, close, isClosed)<br />
+        2. ParameterHandler (getParameterObject, setParameters)<br />
+        3. ResultSetHandler (handleResultSets, handleOutputParameters)<br />
+        4. StatementHandler (prepare, parameterize, batch, update, query)
+    </p>
+    <li>一个简单的实例</li>
+    {% highlight java %}
+@Intercepts({@Signature(type= Executor.class, method = "update", args = {MappedStatement.class,Object.class})})
+public class ExamplePlugin implements Interceptor {
+    public Object intercept(Invocation invocation) throws Throwable {
+        return invocation.proceed();
+    }
+    public Object plugin(Object target) {
+        return Plugin.wrap(target, this);
+    }
+    public void setProperties(Properties properties) {
+    }
+}
+    {% endhighlight %}
+    {% highlight xml %}
+<plugins>
+    <plugin interceptor="org.mybatis.example.ExamplePlugin">
+        <property name="someProperty" value="100"/>
+    </plugin>
+</plugins>
+    {% endhighlight %}
+    <li>plugin初始化过程</li>
+    {% highlight java %}
+private void pluginElement(XNode parent) throws Exception {
+    if (parent != null) {
+        for (XNode child : parent.getChildren()) {
+            // interceptor 类名
+            String interceptor = child.getStringAttribute("interceptor");
+            // interceptor 属性
+            Properties properties = child.getChildrenAsProperties();
+            // 构造interceptor，会先从类型别名注册中心typeAliasRegistry中获取, 没有则直接返回classForName
+            Interceptor interceptorInstance = (Interceptor) resolveClass(interceptor).newInstance();
+            interceptorInstance.setProperties(properties);
+            configuration.addInterceptor(interceptorInstance);
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>对象工厂配置</h2>
+    </li>
+    <li>
+        Mybatis允许我们在创建结果对象新实例时，定制一个<span class="highlight">ObjectFactory</span>，用于创建新对象。
+    </li>
+    <li>
+        一个简单的实例
+    </li>
+    {% highlight java %}
+public class ExampleObjectFactory extends DefaultObjectFactory {
+    public Object create(Class type) {
+        return super.create(type);
+    }
+
+    public Object create(Class type, List<Class> constructorArgTypes, List<Object> constructorArgs) {
+        return super.create(type, constructorArgTypes, constructorArgs);
+    }
+
+    public void setProperties(Properties properties) {
+        super.setProperties(properties);
+    }
+
+    public <T> boolean isCollection(Class<T> type) {
+        return Collection.class.isAssignableFrom(type);
+    }
+}
+    {% endhighlight %}
+    {% highlight xml %}
+<objectFactory type="org.mybatis.example.ExampleObjectFactory">
+    <property name="someProperty" value="100"/>
+</objectFactory>
+    {% endhighlight %}
+    <li>
+        对象工厂初始化过程同plugin类似
+    </li>
+    {% highlight java %}
+private void objectFactoryElement(XNode context) throws Exception {
+    if (context != null) {
+        String type = context.getStringAttribute("type");
+        Properties properties = context.getChildrenAsProperties();
+        ObjectFactory factory = (ObjectFactory) resolveClass(type).newInstance();
+        factory.setProperties(properties);
+        configuration.setObjectFactory(factory);
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>对象包装工厂</h2>
+    </li>
+    <li>
+        <span class="highlight">ObjectWrapperFactory</span>允许对创建的结果对象进行进一步封装
+    </li>
+    {% highlight java %}
+private void objectWrapperFactoryElement(XNode context) throws Exception {
+    if (context != null) {
+        String type = context.getStringAttribute("type");
+        ObjectWrapperFactory factory = (ObjectWrapperFactory) resolveClass(type).newInstance();
+        configuration.setObjectWrapperFactory(factory);
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>通用设置配置</h2>
+    </li>
+    <li>
+        <span class="highlight">settings</span>的配置将改变Mybatis的运行时行为，其支持的属性配置很多，可见<a href="https://mybatis.github.io/mybatis-3/zh/configuration.html#settings" target="_blank">这里</a>。
+        对应的配置过程为
+    </li>
+    {% highlight java %}
+private void settingsElement(XNode context) throws Exception {
+    if (context != null) {
+        Properties props = context.getChildrenAsProperties();
+        // 首先检查Configuration对象是否有对应的配置项
+        MetaClass metaConfig = MetaClass.forClass(Configuration.class);
+        for (Object key : props.keySet()) {
+            if (!metaConfig.hasSetter(String.valueOf(key))) {
+                throw new BuilderException("The setting " + key + " is not known.  Make sure you spelled it correctly (case sensitive).");
+            }
+        }
+        // 字段映射行为
+        configuration.setAutoMappingBehavior(AutoMappingBehavior.valueOf(props.getProperty("autoMappingBehavior", "PARTIAL")));
+        // 是否开启缓存
+        configuration.setCacheEnabled(booleanValueOf(props.getProperty("cacheEnabled"), true));
+        // 代理工厂类型, 默认Javassist
+        configuration.setProxyFactory((ProxyFactory) createInstance(props.getProperty("proxyFactory")));
+        // 懒加载
+        configuration.setLazyLoadingEnabled(booleanValueOf(props.getProperty("lazyLoadingEnabled"), false));
+        // 延迟加载程度
+        configuration.setAggressiveLazyLoading(booleanValueOf(props.getProperty("aggressiveLazyLoading"), true));
+        // 多结果集
+        configuration.setMultipleResultSetsEnabled(booleanValueOf(props.getProperty("multipleResultSetsEnabled"), true));
+        // 使用列标签
+        configuration.setUseColumnLabel(booleanValueOf(props.getProperty("useColumnLabel"), true));
+        // 主键生成
+        configuration.setUseGeneratedKeys(booleanValueOf(props.getProperty("useGeneratedKeys"), false));
+        // SQL执行类型
+        configuration.setDefaultExecutorType(ExecutorType.valueOf(props.getProperty("defaultExecutorType", "SIMPLE")));
+        // 等待数据库响应时间(s)
+        configuration.setDefaultStatementTimeout(integerValueOf(props.getProperty("defaultStatementTimeout"), null));
+        // 是否开启数据库下划线映射Java驼峰规则: A_COLUMN --> aColumn
+        configuration.setMapUnderscoreToCamelCase(booleanValueOf(props.getProperty("mapUnderscoreToCamelCase"), false));
+        // 行分界
+        configuration.setSafeRowBoundsEnabled(booleanValueOf(props.getProperty("safeRowBoundsEnabled"), false));
+        // 缓存范围, session和statement
+        configuration.setLocalCacheScope(LocalCacheScope.valueOf(props.getProperty("localCacheScope", "SESSION")));
+        // jdbcType为空值时指定的类型
+        configuration.setJdbcTypeForNull(JdbcType.valueOf(props.getProperty("jdbcTypeForNull", "OTHER")));
+        // 懒加载触发方法
+        configuration.setLazyLoadTriggerMethods(stringSetValueOf(props.getProperty("lazyLoadTriggerMethods"), "equals,clone,hashCode,toString"));
+        // 结果处理器安全性
+        configuration.setSafeResultHandlerEnabled(booleanValueOf(props.getProperty("safeResultHandlerEnabled"), true));
+        // 动态sql语言解析器
+        configuration.setDefaultScriptingLanguage(resolveClass(props.getProperty("defaultScriptingLanguage")));
+        // 是否调用setter当字段为null时
+        configuration.setCallSettersOnNulls(booleanValueOf(props.getProperty("callSettersOnNulls"), false));
+        // 日志前缀
+        configuration.setLogPrefix(props.getProperty("logPrefix"));
+        // 日志实现
+        configuration.setLogImpl(resolveClass(props.getProperty("logImpl")));
+        // 配置工厂
+        configuration.setConfigurationFactory(resolveClass(props.getProperty("configurationFactory")));
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>环境配置</h2>
+    </li>
+    <li>
+        我们可以使用<span class="highlight">environment</span>配置不同的环境, 方便切换不同的数据源等。
+        具体的事务类型和数据源类型，在<span class="highlight">Configuration</span>对象构造时已经注册。
+    </li>
+    <li>
+        事务工厂，分为<span class="highlight">JDBC</span>(通过JDBC中的Connection对象管理事务)和
+        <span class="highlight">MANAGED</span>(由具体的容器管理事务, 自身并不作事务操作)。如果自己实现事务管理，需要实现接口TransactionFactory
+    </li>
+    {% highlight java %}
+public interface TransactionFactory {
+    void setProperties(Properties props);
+    Transaction newTransaction(Connection conn);
+    Transaction newTransaction(DataSource dataSource, TransactionIsolationLevel level, boolean autoCommit);
+}
+    {% endhighlight %}
+    <li>
+        在<span class="highlight">spring-mybatis</span>提供了由Spring容器管理的事务工厂实现, 这样事务管理就交由Spring容器
+    </li>
+    {% highlight java %}
+public class SpringManagedTransactionFactory implements TransactionFactory {
+
+    public Transaction newTransaction(DataSource dataSource, TransactionIsolationLevel level, boolean autoCommit) {
+        return new SpringManagedTransaction(dataSource);
+    }
+
+    public Transaction newTransaction(Connection conn) {
+        throw new UnsupportedOperationException("New Spring transactions require a DataSource");
+    }
+
+
+    public void setProperties(Properties props) {
+        // not needed in this version
+    }
+}
+    {% endhighlight %}
+    <li>
+        数据源, 分为<span class="highlight">JNDI</span>，<span class="highlight">POOLED</span>和<span class="highlight">POOLED</span>。
+        如果想用其他的数据源，需实现DataSourceFactory
+    </li>
+    {% highlight java %}
+public interface DataSourceFactory {
+    void setProperties(Properties props);
+    DataSource getDataSource();
+}
+    {% endhighlight %}
+    <li>
+        如你想使用<span class="highlight">c3p0</span>数据源
+    </li>
+    {% highlight java %}
+import org.apache.ibatis.datasource.unpooled.UnpooledDataSourceFactory;
+import com.mchange.v2.c3p0.ComboPooledDataSource;
+
+public class C3P0DataSourceFactory extends UnpooledDataSourceFactory {
+
+    public C3P0DataSourceFactory() {
+        this.dataSource = new ComboPooledDataSource();
+    }
+}
+    {% endhighlight %}
+    {% highlight xml %}
+<dataSource type="org.myproject.C3P0DataSourceFactory">
+    <property name="driver" value="org.postgresql.Driver"/>
+    <property name="url" value="jdbc:postgresql:mydb"/>
+    <property name="username" value="postgres"/>
+    <property name="password" value="root"/>
+</dataSource>
+    {% endhighlight %}
+    <li>环境配置过程</li>
+    {% highlight xml %}
+<environments default="dev">
+    <environment id="dev">
+        <transactionManager type="JDBC">
+            <property name="..." value="..."/>
+        </transactionManager>
+        <dataSource type="POOLED">
+            <property name="driver" value="${driver}"/>
+            <property name="url" value="${url}"/>
+            <property name="username" value="${username}"/>
+            <property name="password" value="${password}"/>
+        </dataSource>
+    </environment>
+</environments>
+    {% endhighlight %}
+    {% highlight java %}
+private void environmentsElement(XNode context) throws Exception {
+    if (context != null) {
+        if (environment == null) {
+            // 默认环境
+            environment = context.getStringAttribute("default");
+        }
+        for (XNode child : context.getChildren()) {
+            String id = child.getStringAttribute("id");
+            if (isSpecifiedEnvironment(id)) { // 仅设置当前环境
+                // 构造事务工厂, 从configuration.typeAliasRegistry获取或直接newInstance
+                TransactionFactory txFactory = transactionManagerElement(child.evalNode("transactionManager"));
+                // 构造数据源工厂, 从configuration.typeAliasRegistry获取或直接newInstance
+                DataSourceFactory dsFactory = dataSourceElement(child.evalNode("dataSource"));
+                DataSource dataSource = dsFactory.getDataSource();
+                Environment.Builder environmentBuilder = new Environment.Builder(id)
+                    .transactionFactory(txFactory)
+                    .dataSource(dataSource);
+                configuration.setEnvironment(environmentBuilder.build());
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>数据库厂商配置</h2>
+    </li>
+    <li>
+        有时我们需要为不同的数据库写不同的sql，首先要配置不同的数据库厂商，然后在sql语句上加上<span class="highlight">databaseId</span>
+    </li>
+    {% highlight xml %}
+<databaseIdProvider type="DB_VENDOR">
+    <property name="SQL Server" value="sqlserver"/>
+    <property name="DB2" value="db2"/>
+    <property name="Oracle" value="oracle" />
+    <property name="MySQL" value="mysql" />
+</databaseIdProvider>
+    {% endhighlight %}
+    <li>
+        在写sql语句就可以指定<span class="highlight">databaseId</span>
+    </li>
+    {% highlight xml %}
+<select id="count" resultType="int" databaseId="mysql">
+    select name from names limit 0, 20
+</select>
+    {% endhighlight %}
+    <li>
+        数据库厂商配置过程
+    </li>
+    {% highlight java %}
+private void databaseIdProviderElement(XNode context) throws Exception {
+    DatabaseIdProvider databaseIdProvider = null;
+    if (context != null) {
+        String type = context.getStringAttribute("type");
+        if ("VENDOR".equals(type)) type = "DB_VENDOR";
+        Properties properties = context.getChildrenAsProperties();
+        databaseIdProvider = (DatabaseIdProvider) resolveClass(type).newInstance();
+        databaseIdProvider.setProperties(properties);
+
+        Environment environment = configuration.getEnvironment();
+        if (environment != null && databaseIdProvider != null) {
+            // 获取当前环境的数据库信息, 并得到databaseId
+            String databaseId = databaseIdProvider.getDatabaseId(environment.getDataSource());
+            // 设置当前databaseId
+            configuration.setDatabaseId(databaseId);
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>类型处理器配置</h2>
+    </li>
+    <li>
+        类型处理器用于Mybatis预处理<span class="highlight">PreparedStatement</span>对象时，或从结果集中取值时，都会使用到<span class="highlight">类型处理器</span>。
+        <span class="highlight">Configuration.typeHandlerRegistry</span>内置了一些基本的类型处理器
+    </li>
+    {% highlight java %}
+// 布尔值类型处理器
+register(Boolean.class, new BooleanTypeHandler());
+register(boolean.class, new BooleanTypeHandler());
+register(JdbcType.BOOLEAN, new BooleanTypeHandler());
+register(JdbcType.BIT, new BooleanTypeHandler());
+
+// 字节类型处理器
+register(Byte.class, new ByteTypeHandler());
+register(byte.class, new ByteTypeHandler());
+register(JdbcType.TINYINT, new ByteTypeHandler());
+
+...
+    {% endhighlight %}
+    <li>
+        我们可以继承<span class="highlight">BaseTypeHandler</span>来实现自己的类型处理器
+    </li>
+    {% highlight java %}
+@MappedJdbcTypes(JdbcType.VARCHAR)
+public class ExampleTypeHandler extends BaseTypeHandler<String> {
+
+    @Override
+    public void setNonNullParameter(PreparedStatement ps, int i, String parameter, JdbcType jdbcType) throws SQLException {
+        ps.setString(i, parameter);
+    }
+
+    @Override
+    public String getNullableResult(ResultSet rs, String columnName) throws SQLException {
+        return rs.getString(columnName);
+    }
+
+    @Override
+    public String getNullableResult(ResultSet rs, int columnIndex) throws SQLException {
+        return rs.getString(columnIndex);
+    }
+
+    @Override
+    public String getNullableResult(CallableStatement cs, int columnIndex) throws SQLException {
+        return cs.getString(columnIndex);
+    }
+}
+    {% endhighlight %}
+    {% highlight xml %}
+<!-- 会覆盖默认的JAVA String与VARCHAR的类型处理器 -->
+<typeHandlers>
+    <typeHandler handler="org.mybatis.example.ExampleTypeHandler"/>
+</typeHandlers>
+    {% endhighlight %}
+    <li>
+        定制类型处理器，我们需要指定其对应的<span class="highlight">Java类型</span>和<span class="highlight">Jdbc类型</span>，
+        有<span class="highlight">XML</span>和<span class="highlight">注解</span>两种方式。
+    </li>
+    {% highlight xml %}
+<typeHandlers>
+    <typeHandler javaType="String" jdbcType="VARCHAR" handler="org.apache.ibatis.builder.ExampleTypeHandler"/>
+</typeHandlers>
+    {% endhighlight %}
+    <li>
+        等价的注解配置
+    </li>
+    {% highlight java %}
+@MappedTypes(String.class)
+@MappedJdbcTypes(JdbcType.VARCHAR)
+public class ExampleTypeHandler implements TypeHandler<String> {...}
+    {% endhighlight %}
+    <li>
+        类型处理器配置过程
+    </li>
+    <li>
+        类型处理器的配置过程类似于类型别名的配置过程
+    </li>
+    {% highlight java %}
+private void typeHandlerElement(XNode parent) throws Exception {
+    if (parent != null) {
+        for (XNode child : parent.getChildren()) {
+            if ("package".equals(child.getName())) {
+                String typeHandlerPackage = child.getStringAttribute("name");
+                // 自动扫描包下的所有类型处理器
+                typeHandlerRegistry.register(typeHandlerPackage);
+            } else {
+                String javaTypeName = child.getStringAttribute("javaType");
+                String jdbcTypeName = child.getStringAttribute("jdbcType");
+                String handlerTypeName = child.getStringAttribute("handler");
+                Class<?> javaTypeClass = resolveClass(javaTypeName);
+                JdbcType jdbcType = resolveJdbcType(jdbcTypeName);
+                Class<?> typeHandlerClass = resolveClass(handlerTypeName);
+                if (javaTypeClass != null) {
+                    if (jdbcType == null) {
+                        typeHandlerRegistry.register(javaTypeClass, typeHandlerClass);
+                    } else {
+                        typeHandlerRegistry.register(javaTypeClass, jdbcType, typeHandlerClass);
+                    }
+                } else {
+                    typeHandlerRegistry.register(typeHandlerClass);
+                }
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>Mapper映射配置</h2>
+    </li>
+    <li>
+        Mapper解析配置过程主要为
+    </li>
+    {% highlight java %}
+private void mapperElement(XNode parent) throws Exception {
+    if (parent != null) {
+        for (XNode child : parent.getChildren()) {
+            if ("package".equals(child.getName())) {
+                String mapperPackage = child.getStringAttribute("name");
+                // 自动扫描包下Mapper接口
+                configuration.addMappers(mapperPackage);
+            } else {
+                // 解析XML配置的mapper
+                String resource = child.getStringAttribute("resource");
+                String url = child.getStringAttribute("url");
+                String mapperClass = child.getStringAttribute("class");
+                if (resource != null && url == null && mapperClass == null) {
+                    ErrorContext.instance().resource(resource);
+                    InputStream inputStream = Resources.getResourceAsStream(resource);
+                    XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream, configuration, resource, configuration.getSqlFragments());
+                    mapperParser.parse();
+                } else if (resource == null && url != null && mapperClass == null) {
+                    ErrorContext.instance().resource(url);
+                    InputStream inputStream = Resources.getUrlAsStream(url);
+                    XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream, configuration, url, configuration.getSqlFragments());
+                    mapperParser.parse();
+                } else if (resource == null && url == null && mapperClass != null) {
+                    Class<?> mapperInterface = Resources.classForName(mapperClass);
+                    configuration.addMapper(mapperInterface);
+                } else {
+                    throw new BuilderException("A mapper element may only specify a url, resource or class, but not more than one.");
+                }
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        Mybatis支持了<span class="highlight">XML配置SQL mapper</span>，如今，也开始面向接口编程，支持<span class="highlight">接口定义SQL mapper</span>。
+        XML式的mapper解析主要是<span class="highlight">XMLMapperBuilder.parse()</span>方法
+    </li>
+    {% highlight java %}
+public void parse() {
+    if (!configuration.isResourceLoaded(resource)) {
+        // 配置mapper元素
+        configurationElement(parser.evalNode("/mapper"));
+        configuration.addLoadedResource(resource);
+        bindMapperForNamespace();
+    }
+
+    parsePendingResultMaps();
+    parsePendingChacheRefs();
+    parsePendingStatements();
+}
+    {% endhighlight %}
+    <li>
+        看看核心的<span class="highlight">configurationElement</span>方法
+    </li>
+    {% highlight java %}
+private void configurationElement(XNode context) {
+    try {
+        String namespace = context.getStringAttribute("namespace");
+        if (namespace.equals("")) {
+            throw new BuilderException("Mapper's namespace cannot be empty");
+        }
+        // 设置mapper的命名空间
+        builderAssistant.setCurrentNamespace(namespace);
+        // 解析其他命名空间缓存配置的引用
+        cacheRefElement(context.evalNode("cache-ref"));
+        // 缓存配置
+        cacheElement(context.evalNode("cache"));
+        // 解析参数配置, 已经不推荐
+        parameterMapElement(context.evalNodes("/mapper/parameterMap"));
+        // 解析结果集
+        resultMapElements(context.evalNodes("/mapper/resultMap"));
+        // 解析sql元素
+        sqlElement(context.evalNodes("/mapper/sql"));
+        // 解析select|insert|update|delete元素
+        buildStatementFromContext(context.evalNodes("select|insert|update|delete"));
+    } catch (Exception e) {
+        throw new BuilderException("Error parsing Mapper XML. Cause: " + e, e);
+    }
+}
+    {% endhighlight %}
+    <li>
+        mapper的解析过程也是比较复杂的，我们可以在另外的文章再论。以上就基本是MyBatis的初始化配置过程。
+    </li>
+</ul>
+
+
+
+
+
