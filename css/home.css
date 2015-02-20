@@ -13,6 +13,10 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 30px;
     background-color:rgba(0, 0, 0, 0.4);
     border-radius: 0 5px 5px 0;
+    z-index: 1;
+    position: absolute;
+    margin-top: 20px;
+    margin-left: 2px;
 }
 
 #sidebar-toggler:hover{
@@ -43,6 +47,14 @@ h1, h2, h3, h4, h5, h6 {
     color: #999999;
     text-align: center;
     font-size: 16px;
+}
+
+.banner{
+    top: 0px;
+}
+
+.banner img{
+    width: 100%;
 }
 
 .post{
@@ -152,6 +164,41 @@ span.highlight{
 
 .ui.horizontal.divider.green:after, .ui.horizontal.divider.green:before{
     border-top-color: #00B5AD;
+}
+
+.category .category-header{
+    word-break: break-all;
+    color: #00B5AD;
+    border-color: #807f83;
+    font-size: 30px;
+    dispaly: block;
+    padding-bottom: 10px;
+}
+
+.category {
+    padding-bottom: 15px;
+}
+
+.category .category-post-list .category-post{
+    border-bottom: 1px ridge #00B5AD;
+}
+
+.category .category-post-list .category-post{
+    line-height: 40px;
+}
+
+.category .category-post-list .category-post a{
+    color: #807f83;
+}
+
+.category .category-post-list .category-post .category-post-title{
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.category .category-post-list .category-post .category-post-date{
+    float: right;
+    font-size: 16px;
 }
 
 

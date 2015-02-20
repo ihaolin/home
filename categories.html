@@ -1,0 +1,8 @@
+---
+layout : category
+title : Ha0's Home
+---
+
+{% for category in site.categories %}
+    {% include category.html c=category %}
+{% endfor %}

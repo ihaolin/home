@@ -8,10 +8,9 @@
     <body>
         {% include sidebar.html %}
         <div class="pusher">
-            <span id="sidebar-toggler">
-                <i class="list icon"></i>
-            </span>
+            {% include sidebar-toggle.html %}
             <div class="ui grid">
+                {% include banner.html %}
                 <div class="row">
                     <div class="two wide column"></div>
                     <div class="twelve wide column">
