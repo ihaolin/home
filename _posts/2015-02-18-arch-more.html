@@ -1,0 +1,104 @@
+---
+title : 架构之路
+category : [architecture]
+tags : [architecture, thinking]
+layout : post
+show : 1
+keywords: web, 架构
+---
+
+    <ul>
+        <p class="intro">
+            我相信每一个工程师心中都会有自己心中的架构之路，无论你从事过什么样的产品项目开发，系统总是会有自己的架构，
+            在产品生命周期过程中，架构也是会随之慢慢演进，改善的，而不可能一步到位，特此用一篇文章来记录自己所感，
+            可能有些凌乱，但会慢慢改进。
+        </p>
+
+
+        <li>
+            <h2>Web服务器 + DB服务器</h2>
+        </li>
+        <li>
+            记得自己写的第一个web应用，也就是一个最基本的<span class="highlight">Servlet + JSP</span>的小网站，
+            那个时候对应用架构也没有什么概念，只是想这那样做而已，应用架构也很简单。
+        </li>
+        <img src="{{site.url}}/images/arch/arch1.png">
+        <li>
+            <h2>代理服务器 + Web服务器 + DB服务器</h2>
+        </li>
+        <li>
+            但通常如果我们不会直接将web服务器提供的服务直接暴露给用户，我们需要一个前端代理服务器，如
+            <span class="highlight">Apache</span>, <span class="highlight">Nginx</span>等，
+            这样有便于我们作一些如<span class="highlight">安全</span>，<span class="highlight">缓存</span>，<span class="highlight">静态文件</span>，<span class="highlight">分流</span>等处理，而不是直接在WEB服务器里直接完成。
+        </li>
+        <img src="{{site.url}}/images/arch/arch2.png">
+        <li>
+            <h2>多WEB服务器</h2>
+        </li>
+        <li>
+            当单个web服务器已经很难较快响应用户请求(吞吐量过低)，
+            此时我们也许需要多个web服务器，让代理服务器通过<span class="highlight">负载均衡</span>进行分流处理。
+        </li>
+        <img src="{{site.url}}/images/arch/arch3.png">
+        <li>
+            如果当我们WEB服务器数量已经比较多时，这时也许需要扩展多个代理服务器，每个代理服务器映射一个<span class="highlight">WEB服务器组</span>。
+        </li>
+        <img src="{{site.url}}/images/arch/arch4.png">
+        <li>
+            <h2>
+                缓存和数据库
+            </h2>
+        </li>
+        <li>
+            由<a href="http://baike.baidu.com/link?url=QSO1z7Cf974L3UbnD53ZOdIzBil52qCj3tlDYvIGI7Rz-aH5XB4nRsfmEsImWQNbJ1k67xjq_MlAPj2b8oxNL3-JLDrMPlGq7yh2X6_Xa804iSoaJ5R-2gDmrQ7RzMEWnHT662A5tp8rdq1GmCL1VQx0CCe0RcdDnRr-z-ZJ9z_" target="_blank">木桶原理</a>可知，即便WEB服务器能及时收到客户端请求，但是最终可能因为数据源的压力过大，
+            同样导致响应时间增长，这时我们也许需要做的就是<span class="highlight">DB Master/Slave</span>部署，基本原理可见<a href="http://my.oschina.net/indestiny/blog/334910" target="_blank">之前的文章</a>，或者提供缓存服务器。
+        </li>
+        <img src="{{site.url}}/images/arch/arch5.png">
+        <li>
+            对于<span class="highlight">缓存</span>，会比较多用一些KV数据库
+            (如<span class="highlight">Redis</span>, <span class="highlight">Memcached</span>等)，
+            利用其内存式数据，可以高效获取到缓存数据。
+        </li>
+        <li>
+            <h3>本地缓存 + 通知</h3>
+        </li>
+        <li>
+            对于缓存我们可以将<span class="highlight">缓存放在WEB服务器本地</span>(而不是分布式数据库中),
+            比如利用<a href="https://code.google.com/p/guava-libraries/wiki/GuavaExplained" target="_blank">Guava</a>的<span class="highlight">Cache API</span>
+            来实现不同策略的缓存。但可能遇到一些比较实时的缓存数据，会造成多个WEB服务器的缓存数据不一致，
+            这时就需要通知其他WEB服务器数据需要刷新，可以利用
+            <span class="highlight">Redis Pub/Sub</span>，
+            <span class="highlight">Zookeeper Watcher</span>，
+            <span class="highlight">消息队列</span>等来实现通知。
+        </li>
+        <img src="{{site.url}}/images/arch/arch6.png">
+        <li>
+            <h2>服务化</h2>
+        </li>
+        <li>
+            当系统业务越来越多时，单个系统会变得越来越庞大复杂，这个时候我们需要将系统拆分开来，
+            将一些核心基础的服务作为单独的服务中心，这样各自的业务系统可以直接调用这些独立的服务，而
+            自己特有的业务只需自己实现即可。常用的Java服务化框架有淘宝的
+            <a href="http://alibaba.github.io/dubbo-doc-static/User+Guide-zh.htm" target="_blank">Dubbo</a>，
+            当当的<a href="http://dangdangdotcom.github.io/dubbox/" target="_blank">DubboX</a>等。
+        </li>
+        <img src="{{site.url}}/images/arch/arch7.png">
+        <li>
+            <h2>搜索</h2>
+        </li>
+        <p class="wrap">
+            <span class="highlight">搜索</span>作为一个站点比较基本的功能，通常是不太可能直接查询数据库，
+            特别是用户相关的系统，我们通常会先将需要查询的数据建立索引，在查询时，只需到索引库中进行查询，一旦建立了索引，
+            就应该想到什么时候更新索引，特别是一些比较实时的业务数据等。当然，不是只有需要搜索的数据才能使用搜索技术，
+            前台大部分数据库都可以使用搜索技术，这不仅减小数据库的压力，也会使得系统查询能力得到很大提升。常用的搜索实现有
+            <span class="highlight">Lucene</span>，
+            <span class="highlight">Solr</span>，
+            <span class="highlight">ElasticSearch</span>(推荐)。
+        </p>
+        <img src="{{site.url}}/images/arch/arch8.png">
+    </ul>
+
+
+
+
+
