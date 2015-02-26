@@ -1,0 +1,103 @@
+---
+title : Nginx日志和监控
+category : [nginx]
+tags : [nginx, logging, monitor]
+layout : post
+show : 1
+keywords: nginx,日志,监控
+---
+
+<ul>
+    <p class="intro">
+        本文将讲述Nginx中如何配置错误和请求处理的<span class="highlight">日志处理</span>，
+        以及<span class="highlight">运行时监控</span>Nginx和Nginx Plus。
+    </p>
+
+
+    <li>
+        <h2>设置错误日志</h2>
+    </li>
+    <li>
+        我们可以通过<a href="http://nginx.org/en/docs/ngx_core_module.html?&_ga=1.98321951.1466865208.1422975141#error_log" target="_blank">error_log</a>指令设置nginx日志，nginx日志分为很多级别
+        <span class="highlight">
+            [debug | info | notice | warn | error | crit | alert | emerg]
+        </span>，如下面的配置将会把warn级别以上的日志输出到<span class="highlight">{prefix}/logs/error.log</span>，
+        prefix为安装nginx时指定的<span class="highlight">--error-log-path</span>，若未指定，则使用<span class="highlight">--prefix</span>。
+        <span class="highlight">error_log</span>支持多个上下文: <span class="highlight">main, http, server, location</span>。
+        如果在同一上下文中定义了多个<span class="highlight">error_log</span>，那么日志将被记录到所有日志文件中(<span class="highlight">Nginx1.5.2+</span>)。
+    </li>
+    {% highlight nginx %}
+error_log logs/error.log warn;
+    {% endhighlight %}
+    <li>
+
+    </li>
+    <li>
+        <h2>设置访问日志</h2>
+    </li>
+    <li>
+        我们可以通过<a href="http://nginx.org/en/docs/http/ngx_http_log_module.html?&_ga=1.262622092.1466865208.1422975141#log_format" target="_blank">access_log</a>指令来记录客户端请求的日志。
+        日志的格式可以通过<a href="http://nginx.org/en/docs/http/ngx_http_log_module.html?&_ga=1.27616572.1466865208.1422975141#log_format" target="_blank">log_format</a>指令设置，
+        如
+    </li>
+    {% highlight nginx %}
+http {
+    log_format compression '$remote_addr - $remote_user [$time_local] '
+                            '"$request" $status $body_bytes_sent '
+                            '"$http_referer" "$http_user_agent" "$gzip_ratio"';
+
+    server {
+        gzip on;
+        access_log /spool/logs/nginx-access.log compression;
+        ...
+    }
+}
+    {% endhighlight %}
+    <li>
+        访问日志可以通过<span class="highlight">缓冲区</span>进行优化。如
+    </li>
+    {% highlight nginx %}
+access_log /spool/logs/nginx-access.log compression buffer=32k;
+    {% endhighlight %}
+    <li>下面这些情况会引起日志被写到文件中</li>
+    <p class="note wrap">
+        1. 下一行日志不适于写入缓冲区。<br />
+        2. 缓冲区的数据存在时间超过<span class="highlight">flush</span>参数。<br />
+        3. <span class="highlight">worker process</span>重新打开日志文件或被关闭。
+    </p>
+    <li>
+        <h2>
+            启用条件日志
+        </h2>
+    </li>
+    <li>
+        <a href="http://nginx.org/en/docs/http/ngx_http_log_module.html?&_ga=1.262622092.1466865208.1422975141#log_format" target="_blank">access_log</a>
+        的<span class="highlight">if</span>参数允许我们使用条件进行日志记录，这样可以忽略一些不重要的日志。如
+    </li>
+    {% highlight nginx %}
+# 排除2xx和3xx状态码的请求
+map $status $loggable {
+    ~^[23]  0;
+    default 1;
+}
+access_log /path/to/access.log combined if=$loggable;
+    {% endhighlight %}
+    <li>
+        <h2>将日志记录到Syslog</h2>
+    </li>
+    <li>
+        <a href="http://nginx.org/en/docs/syslog.html" target="_blank">Syslog</a>是计算机消息日志的标准，允许在单个syslog服务器上从不同的设备收集日志。
+        <span class="highlight">access_log</span>和<span class="highlight">error_log</span>指令都允许通过<span class="highlight">syslog:</span>
+        前缀来配置输出日志到syslog。
+    </li>
+    {% highlight nginx %}
+access_log syslog:server=192.168.1.1 debug;
+error_log syslog:server=unix:/var/log/nginx.sock;
+error_log syslog:server=[2001:db8::1]:12345,facility=local7,tag=nginx,severity=info combined;
+    {% endhighlight %}
+</ul>
+
+
+
+
+
