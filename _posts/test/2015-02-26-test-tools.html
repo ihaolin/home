@@ -1,0 +1,209 @@
+---
+title : 几款实用的Web测试工具
+category : [test]
+tags : [test, tool]
+layout : post
+show : 1
+keywords: web,测试,工具,http_load,siege,WebBench
+---
+
+    <ul>
+        <p class="intro">
+            对于web应用，我们经常需要进行一些基本的测试，如
+            <span class="highlight">吞吐量测试</span>，
+            <span class="highlight">压力测试</span>等，
+            本文将介绍几款实用的测试工具，如
+            <a href="http://acme.com/software/http_load/" target="_blank">http_load</a>，
+            <a href="http://www.joedog.org/siege-manual/" target="_blank">siege</a>，
+            <a href="http://home.tiscali.cz/~cz210552/webbench.html" target="_blank">web bench</a>等。
+        </p>
+
+
+        <li>
+            <h2>http_load</h2>
+        </li>
+        <li>
+            <span class="highlight">http_load</span>是一款小巧的WEB服务器吞吐量测试工具，
+            其以<span class="highlight">单进程</span>的方式来模拟多个客户端，因此对本机的性能损失很小。
+        </li>
+        <li>
+            <h3>安装</h3>
+        </li>
+        <li>
+            从<a href="http://acme.com/software/http_load/http_load-14aug2014.tar.gz" target="_blank">这里</a>下载，解压并安装
+        </li>
+        {% highlight bash %}
+tar zxf http_load-14aug2014.tar.gz
+cd http_load-14aug2014
+make && make install
+        {% endhighlight %}
+        <li class="note">
+            若是<span class="highlight">Mac OSX</span>系统，需修改<span class="highlight">Makefile</span>中的
+            <span class="highlight">MANDIR</span>变量为<span class="highlight">/usr/local/share/man/man1</span>，
+            否则命令文档不能被安装。
+        </li>
+        <li>
+            <h3>参数说明</h3>
+        </li>
+        {% highlight bash %}
+-checksum 第一次抓取每个URL后，计算校验和，以后每次请求都重新计算并比较。不加该配置，则只有byte count被检查。
+-throttle 模拟调制解调器，数据传输率控制为33.6Kbps
+-proxy host:port 通过一个代理来运行http_load
+-timeout 等待空闲连接的超时时间，默认60s
+-sip sip_file 指定IP源地址列表，每行一个IP(必须是真实可达的IP地址)
+-fetches/-f 访问次数
+-rate/-r 每秒的访问频率
+-seconds/-s 访问时间
+-parallel/-p 并发访问的线程数
+url_file url列表文件, 每行一个url
+        {% endhighlight %}
+        <li>
+            <h3>例子</h3>
+        </li>
+        {% highlight bash %}
+# 同时使用5个进程，随机访问urls中的地址100次
+http_load -p 5 -f 1000 urls
+
+1000 fetches, 5 max parallel, 2.13949e+08 bytes, in 231.488 seconds
+213949 mean bytes/connection # 每连接平均传输213949b
+4.31988 fetches/sec, 924234 bytes/sec #每秒仅能承受4次访问, 每秒传输924234b
+msecs/connect: 354.165 mean, 4169.44 max, 7.335 min #每连接平均需要354ms, 最大4169ms, 最小7ms
+msecs/first-response: 461.859 mean, 1923.96 max, 294.593 min
+HTTP response codes:
+code 200 -- 1000
+
+# 30s内保持每秒5次访问的频率
+http_load -r 5 -s 30 urls
+        {% endhighlight %}
+
+        <li>
+            <h2>Siege</h2>
+        </li>
+        <li>
+            <span class="highlight">Siege</span>是一个压力测试工具。
+        </li>
+        <li>
+            <h3>安装</h3>
+        </li>
+        <li>
+            先到<a href="http://download.joedog.org/siege/siege-latest.tar.gz" target="_blank">这里</a>下载，解压并安装。
+        </li>
+        {% highlight bash %}
+tar zxf siege-latest.tar.gz
+cd siege-3.0.9
+./configure && make && make install
+        {% endhighlight %}
+        <li>
+            <h3>可选参数</h3>
+        </li>
+        {% highlight sh %}
+-V, --version             版本信息
+-h, --help                文档信息
+-C, --config              当前的siege的配置信息, 默认配置文件在PREFIX/siege.config
+-v, --verbose             打印通知
+-q, --quiet               安静模式，不输出信息
+-g, --get                 拉去请求头，显示处理过程(用于调试)
+-c, --concurrent=NUM      并发用户数，默认10
+-i, --internet            用户模拟，随机点击
+-b, --benchmark           基准: 请求间没有延迟.
+-t, --time=NUMm           测试时间
+-r, --reps=NUM            运行次数
+-f, --file=FILE           url列表文件
+-R, --rc=FILE             RC, specify an siegerc file
+-l, --log[=FILE]          日志文件，默认PREFIX/var/siege.log
+-m, --mark="text"         MARK, mark the log file with a string.
+-d, --delay=NUM           每个请求间的延迟(1~NUM)(不作统计)
+-H, --header="text"       设置请求头
+-A, --user-agent="text"   设置User-Agent
+-T, --content-type="text" 设置Content-Type
+        {% endhighlight %}
+        <li>
+            <h3>例子</h3>
+        </li>
+        {% highlight bash %}
+# 模拟30个客户端，每个进行10次请求
+siege -q -c 30 -r 10 -f urls.txt
+
+Transactions:                 296 hits           # 总请求数
+Availability:                 100.00 %           # 有效请求100%
+Elapsed time:                 126.57 secs        # 总使用126s
+Data transferred:              25.67 MB          # 总传输数据25.67MB
+Response time:                  0.62 secs        # 请求响应时间
+Transaction rate:               2.34 trans/sec   # 每秒2次处理
+Throughput:                     0.20 MB/sec      # 每秒0.2M数据传输
+Concurrency:                    1.46             # 并发度
+Successful transactions:         296             # 成功请求296次
+Failed transactions:               0             # 失败0次
+Longest transaction:            3.80             # 最长处理时间
+Shortest transaction:           0.10             # 最短处理时间
+
+# 以10个客户端请求10s
+siege -c 10 -t 10S -f urls.txt
+
+        {% endhighlight %}
+        <li>
+            同时你可以事先配置好(默认配置文件<span class="highlight">PREFIX/siege.config</span>)，然后使用<span class="highlight">siege</span>命令。
+            同时你也可以查看测试的日志记录(默认<span class="highlight">PREFIX/var/siege.log</span>)。
+        </li>
+        {% highlight bash %}
+Date & Time,  Trans,  Elap Time,  Data Trans,  Resp Time,  Trans Rate,  Throughput,  Concurrent,    OKAY,   Failed
+2015-02-26 20:17:05,   5263,    1283.07,         453,       4.13,        4.10,        0.35,       16.93,    5263,      32
+2015-02-26 20:59:28,   2950,    2526.40,         255,       0.68,        1.17,        0.10,        0.79,    2950,       0
+2015-02-26 21:02:03,    296,     126.57,          25,       0.62,        2.34,        0.20,        1.46,     296,       0
+2015-02-26 21:47:36,    130,       9.08,          11,       0.21,       14.32,        1.21,        3.03,     130,       0
+        {% endhighlight %}
+        <li>
+            <h2>Web Bench</h2>
+        </li>
+        <li>
+            <span class="highlight">Web Bench</span>是一个简单的WEB服务器基准测试工具。通过<span class="highlight">fork()</span>模拟多个客户端。
+        </li>
+        <li>
+            <h3>安装</h3>
+        </li>
+        <li>
+            在<a href="http://home.tiscali.cz/~cz210552/distfiles/webbench-1.5.tar.gz" target="_blank">这里</a>下载，解压并安装
+        </li>
+        {% highlight bash %}
+tar zxf webbench-1.5.tar.gz
+cd webbench-1.5
+make && make install
+        {% endhighlight %}
+        <li>
+            <h3>可选参数</h3>
+        </li>
+        {% highlight bash %}
+-f|--force               不等待服务器回复
+-r|--reload              发送reload请求(Pragma: no-cache)
+-t|--time <sec>          运行多少秒，默认30s
+-p|--proxy <server:port> 使用代理服务器
+-c|--clients <n>         并发客户端，默认1个
+-9|--http09              HTTP/0.9
+-1|--http10              HTTP/1.0
+-2|--http11              HTTP/1.1
+--get                    GET请求
+--head                   HEAD请求
+--options                OPTIONS请求
+--trace                  TRACE请求
+        {% endhighlight %}
+        <li>
+            <h3>例子</h3>
+        </li>
+        {% highlight bash %}
+# 10个客户端运行10秒
+webbench -t 10 -c 10 -1 --get http://item.jd.com/1020541924.html
+
+Benchmarking: GET http://item.jd.com/1020541924.html
+10 clients, running 10 sec.
+
+Speed=6 pages/min, 29257 bytes/sec.
+Requests: 1 susceed, 0 failed.
+
+        {% endhighlight %}
+    </ul>
+
+
+
+
+
+
