@@ -1,0 +1,378 @@
+---
+title : Zookeeper深入理解(一)(概念及基础)
+category : [zookeeper]
+tags : [zookeeper, basic]
+layout : post
+show : 1
+keywords: zookeeper, 概念, 基础
+---
+
+<ul>
+    <p class="intro">
+        前两天被问到有关<span class="highlight">Zookeeper</span>的一些问题，但确没有很好的回答上来。
+        之前也接触过<span class="highlight">Zookeeper</span>，比如使用其<span class="highlight">Watcher</span>实现一些通知，
+        或者<span class="highlight">Leader</span>选举功能，也可以作为如<span class="highlight">Dubbo</span>服务框架的注册中心等，
+        但是对<span class="highlight">Zookeeper</span>的运作原理等是不太了解的，也没有认真仔细研究过，
+        特此希望通过阅读和记录文章，深入理解一番<span class="highlight">Zookeeper</span>，觉得其中很多分布式的思想，会对自己有很大的帮助。
+    </p>
+
+    <li>
+        <h2>资源</h2>
+    </li>
+    <li>
+        网上比较完整统一的资料不是很多，很多文章感觉也说得不是很清楚，或者版式体验真不太好。
+        主要就找到两本书籍，一本<a href="{{site.url}}/files/zookeeper.pdf" target="_blank">英文</a>，一本才出不久的<a href="http://item.jd.com/11622772.html" target="_blank">中文</a>，
+        第二本还在路上，就先用第一本过过瘾。这本英文书主要就三个部分，所以希望能用三篇文章来记录，还有个地方就是<a href="http://zookeeper.apache.org/doc/trunk/index.html" target="_blank">官网</a>。
+    </li>
+    <img src="{{site.url}}/images/zk/zk2.jpg"/><img src="{{site.url}}/images/zk/zk1.jpg"/>
+    <li>
+        <h2>源代码</h2>
+    </li>
+    <li>
+        建议把源代码拿到，以备不时之需。
+    </li>
+    {% highlight bash %}
+git clone git@github.com:apache/zookeeper.git
+cd zookeeper
+ant eclipse
+    {% endhighlight %}
+    <li>
+        这样就可以将源代码<span class="highlight">Import</span>到Eclipse中了(请用Java Compile Level调整到1.7以上)。
+    </li>
+    <li>
+        <h2>简介</h2>
+    </li>
+    <p class="wrap">
+        就像螺丝刀对螺丝，螺丝刀可以转动螺丝，但这并不能完全说明它的功能，更重要的是它可以组装我们的家具和电子设备等。
+        而<span class="highlight">Zookeeper</span>则可以在
+        <span class="highlight">分布式系统</span>中帮助我们<span class="highlight">协调</span>任务。
+    </p>
+    <li>
+        <h3>"Zookeeper"由来</h3>
+    </li>
+    <li>
+        作者讲述了<span class="highlight">"Zookeeper"</span>名称由来。<span class="highlight">Zookeeper</span>是伴随<span class="highlight">Hadoop</span>产生的，
+        而Hadoop生态系统中，很多项目都是以动物来命名，如<span class="highlight">Pig</span>，<span class="highlight">Hive</span>等，
+        似乎像一个动物园，这样就得到动物园管家的名称<span class="highlight">"Zookeeper"</span>。
+    </li>
+    <li>
+        <h3>同步原语</h3>
+    </li>
+    <p class="wrap">
+        在典型的<span class="highlight">Master-Worker</span>架构中，
+        <span class="highlight">Worker</span>需要告诉<span class="highlight">Master</span>自己可以接受任务，
+        然后<span class="highlight">Master</span>将分配任务给<span class="highlight">Worker</span>。
+        又例如，在多线程上下文中有用的<span class="highlight">同步原语</span>在分布式系统中同样也有用，但有一个重要的区别，
+        在<a href="http://en.wikipedia.org/wiki/Shared_nothing_architecture" target="_blank">无共享架构</a>中，不同的机器除了共享网络外，不会共享其他任何东西。
+        虽然有很多消息传递算法可以实现<span class="highlight">同步原语</span>，但是通过一些提供共享存储和有序属性的组件来实现会更容易一些，
+        <span class="highlight">Zookeeper</span>就是这样做的。
+    </p>
+    <li>
+        <h3>元数据配置</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">协调</span>也不总是<span class="highlight">同步原语</span>的形式，
+        比如<span class="highlight">Leader选举</span>或者<span class="highlight">锁</span>，
+        而<span class="highlight">元数据配置</span>通常用来实现传递别人应该做什么，比如，<span class="highlight">Master-Worker</span>架构中，
+        <span class="highlight">Worker</span>需要知道分配给它的任务，即便<span class="highlight">Master</span>崩溃了。
+    </p>
+    <li>
+        <h3>Zookeeper应用</h3>
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">Apache HBase</span>。HBase中，Zookeeper用于选举集群Master，跟踪可用的Server，和保存集群元数据。<br />
+        2. <span class="highlight">Apache Kafka</span>。Kafka中，Zookeeper用于崩溃检测，实现Topic发现，和维护Topic的生产和消费状态。<br />
+        3. <span class="highlight">Apache Solr</span>。Solr中，Zookeeper用于存储集群的元数据信息及协调元数据的更新。<br />
+        4. <span class="highlight">Yahoo!Fetching Server</span>。Fetching Service中，Zookeeper用于Master选举，崩溃检测，元数据保存。<br />
+        5. <span class="highlight">Facebook Messages</span>。Messages中，Zookeeper用于实现分片和故障迁移的控制器，和服务发现。<br />
+        ...
+    </p>
+    <li>
+        <h3>通过Zookeeper Client API我们可以做什么</h3>
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">强一致</span>，<span class="highlight">有序性</span>和<span class="highlight">持久化</span>操作。<br />
+        2. 典型的<span class="highlight">同步原语</span>实现。<br />
+        3. 在分布式系统中，<span class="highlight">更容易处理往往不正确的并发行为</span>。
+    </p>
+    <li>
+        <h3>Zookeeper不能做什么</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Zookeeper</span>不适合用于<span class="highlight">大容量存储</span>。对于<span class="highlight">大容量存储</span>
+        ，我们完全可以考虑使用<span class="highlight">数据库</span>或者<span class="highlight">分布式文件系统</span>等，重要的是，我应该将<span class="highlight">业务数据</span>
+        和
+        <span class="highlight">用于协调和控制的数据</span>分离。<span class="highlight">Zookeeper</span>本身并没有提供如
+        <span class="highlight">Master选举</span>，<span class="highlight">跟踪活动进程</span>的功能，而是提供一些实现这些功能的工具。
+    </p>
+    <li>
+        <h3>案例: 典型的Master-Worker架构</h3>
+    </li>
+    <img src="{{site.url}}/images/zk/master-worker.jpg"/>
+    <li>
+        <span class="highlight">Master-Worker</span>架构是比较有代表性的，其中阐述了很多常用的功能，如
+        <span class="highlight">Master选举</span>，<span class="highlight">跟踪可用的Worker</span>，<span class="highlight">维护应用元数据</span>。
+        在<span class="highlight">Master-Worker</span>架构，我们需要解决三个关键的问题
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">Master崩溃</span>。Master一旦崩溃，系统将不能在分配新任务或者重新分配来自Worker的任务。<br />
+        2. <span class="highlight">Worker崩溃</span>。Worker一旦崩溃，那么分配给它的任务将不能被完成。<br />
+        3. <span class="highlight">通信失败</span>。Master和Worker之间不能交换信息，Worker将不能学习分配给它的新任务。
+    </p>
+    <li>
+        针对上面的问题，我们需要做到以下几点
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">Master选举</span>。让可用的Master分配任务给Worker的过程是至关重要的。<br />
+        2. <span class="highlight">崩溃检测</span>。Master必须能检测Worker什么时候崩溃或者不可连接。<br />
+        3. <span class="highlight">组成员管理</span>。Master必须能知道哪些Worker可以执行任务。<br />
+        4. <span class="highlight">元数据管理</span>。Master和Worker必须能以可靠的方式存储任务分配和执行状态的信息。
+    </p>
+    <li>
+        最后，被作者这句话所打动
+    </li>
+    <p class="wrap quote">
+        so easily, in fact, that some developers use it without com‐ pletely understanding some of the cases that require the developer to make decisions that ZooKeeper cannot make by itself. One of the purposes of writing this book is to make sure that developers understand what they need to do to use ZooKeeper effectively and why they need to do it that way.
+    </p>
+    <li>
+        <h2>开始使用Zookeeper</h2>
+    </li>
+    <li>
+        之前讲述了<span class="highlight">协调</span>在分布式应用中的重要性，也列举了会遇到的一些通用问题，接下来我们将开始接触
+        <span class="highlight">Zookeeper</span>。
+    </li>
+    <li>
+        <h3>Zookeeper基础</h3>
+    </li>
+    <li>
+        Zookeeper本身并没有提供一些原语操作，如分布式锁，而是，暴露一些类似文件系统的API，用于操作一些小的数据节点，叫做
+        <span class="highlight">Znode</span>，这些节点组成了一棵层级树，如<span class="highlight">Master-Worker</span>架构中
+    </li>
+    <img src="{{site.url}}/images/zk/data-node-tree.jpg" />
+    <li>
+        <span class="highlight">Znode</span>数据缺失往往会透露出重要的信息，
+        如master节点缺失就意味着当前没有master节点被选举出，上图也说明
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">/workers</span>节点下的是所有worker节点，图中表明<span class="highlight">foo.com:2181</span>的worker节点可用。
+        若worker不可用了，将从/workers下移除。<br />
+        2. <span class="highlight">/tasks</span>节点下的是所有创建的和等待被执行的任务节点，每当客户端向Master提交任务时，将在<span class="highlight">/tasks</span>下添加新的任务节点。<br />
+        3. <span class="highlight">/assign</span>节点下的是分配给woker节点的任务。
+    </p>
+    <li>
+        <h3>API概览</h3>
+    </li>
+    <li>
+        <span class="highlight">Znode</span>可以存储二进制数据， <span class="highlight">Zookeeper</span>并没有直接提供解析二进制数据的功能，这需要我们自己根据应用来转译对应的二进制数据。
+        Zookeeper Client主要提供了以下API:
+    </li>
+    {% highlight python %}
+create /path data
+    创建节点/path, 并存储数据data
+delete /path
+    删除节点/path
+exists /path
+    检查节点/path是否存在
+setData /path data
+    设置节点/path的数据
+getData /path
+    获取节点/path的数据
+getChildren /path
+    获取节点/path的子节点
+    {% endhighlight %}
+    <li>
+        <h3>不同模式的节点</h3>
+    </li>
+    <li>
+        <span class="highlight">持久节点</span>和<span class="highlight">临时节点</span>。
+    </li>
+    <p class="wrap">
+        <span class="highlight">持久节点</span>只能通过<span class="highlight">delete</span>调用才能删除，
+        可用于存储一些应用数据(即使它的创建者不存在了，但这些数据依然需要保存)，如<span class="highlight">Master-Worker</span>中的任务分配信息。
+        而<span class="highlight">临时节点</span>，会在客户端崩溃或断开连接时被删除，或者通过<span class="highlight">delete</span>调用。比如，
+        在<span class="highlight">Master-Worker</span>中的Master和Worker节点均采用<span class="highlight">临时节点</span>，当Master崩溃或连接断开，
+        该节点将自动删除，既而才能进行<span class="highlight">Master选举</span>，<span class="highlight">临时节点</span>暂时还不支持有子节点，即便以后支持，
+        其子节点也必须是<span class="highlight">临时节点</span>。
+    </p>
+    <li>
+        <h3>连续节点</h3>
+    </li>
+    <p class="wrap">
+        一个<span class="highlight">Znode</span>可以被设置为<span class="highlight">sequential</span>，连续节点将被分配一个唯一且连续的整数，
+        该整数会追加到节点的path后，如客户端创建一个path为/task/task-的连续节点，最终节点的path会变成/task/task-1。<br />
+        综上，<span class="highlight">Zookeeper</span>节点支持四种模式:
+        <span class="highlight">持久节点</span>，<span class="highlight">临时节点</span>，<span class="highlight">持久连续节点</span>，<span class="highlight">临时连续节点</span>。
+    </p>
+    <li>
+        <h3>
+            监听(Watches)和通知(Notifications)
+        </h3>
+    </li>
+    <li>
+        在<span class="highlight">Zookeeper</span>中频繁访问节点及数据是耗资源，将导致很高的延迟，如图，
+        多次调用<span class="highlight">getChildren()</span>返回的值却一样，而这种重复调用是没有必要的
+    </li>
+    <img src="{{site.url}}/images/zk/data-node-multi-access.jpg">
+    <li>
+        这是因为采用的是<span class="highlight">Polling</span>模式，而<span class="highlight">Zookeeper</span>
+        采用的是<span class="highlight">Notifications</span>机制：客户端通过注册来接收节点变化的通知。注册接收通知通过<span class="highlight">Watch</span>
+        来设置。而<span class="highlight">Watch</span>是一次性操作，也就是只能接收一次通知，如果需要继续得到通知，
+        则需要再次<span class="highlight">Watch</span>。
+    </li>
+    <img src="{{site.url}}/images/zk/data-node-watch-notify.jpg">
+    <li>
+        由于通知是一次性操作，因此某些情况会有一些问题，如
+    </li>
+    <p class="wrap">
+        1. 客户端c1对节点/tasks设置了Watch<br />
+        2. 客户端c2在节点/tasks添加了新节点<br />
+        3. 客户端c1收到了通知<br />
+        4. 客户端c1设置新的Watch, 但在设置之前, 客户端c3在节点/tasks添加了新的节点<br />
+        5. 此时客户端c1就丢失了来自客户端c3的更新通知
+    </p>
+    <li>
+        上述的问题，我们可以在客户端c1设置完Watch后，读取一次/tasks的状态，这样就能防止丢失更新通知。
+        尽管这样可能导致<span class="highlight">Zookeeper</span>的状态改变分发变慢，但是更重要的是，
+        这样使得所有客户端可以统一顺序感知到<span class="highlight">Zookeeper</span>的状态改变，这是十分关键的。
+    </li>
+    <li>
+        <span class="highlight">Zookeeper</span>支持多种通知，这要看客户端Watch什么样的事件，如
+        <span class="highlight">节点数据改变</span>，<span class="highlight">子节点改变</span>，
+        <span class="highlight">节点删除</span>，<span class="highlight">节点创建</span>等，
+        <span class="highlight">Zookeeper</span>提供了<span class="highlight">Watcher</span>对象来调用对应API，
+        后面会详述该对象。
+    </li>
+    <li>
+        <h3>版本号(Versions)</h3>
+    </li>
+    <li>
+        <span class="highlight">Zookeeper</span>中每个节点都有一个版本号(version)与之关联，每当节点数据发生变化时，
+        版本号将递增，其中<span class="highlight">setData()</span>和<span class="highlight">delete()</span>
+        两个API需要带上版本号作为输入参数，在做更新前，<span class="highlight">Zookeeper</span>
+        会比较客户端传来的version和当前服务器的version是否一致，不一致则会操作失败，这就有效阻止了数据非一致性，如
+    </li>
+    <img src="{{site.url}}/images/zk/data-node-version.jpg">
+    <li>
+        <h3>Zookeeper架构</h3>
+    </li>
+    <li>
+        在使用<span class="highlight">Zookeeper</span>中，我们都是通过<span class="highlight">Zookeeper Client API</span>
+        与<span class="highlight">Zookeeper Server</span>进行交互，下图则说明了Client和Server之间的关系
+    </li>
+    <img src="{{site.url}}/images/zk/zk-arch-ov.jpg">
+    <li>
+        <span class="highlight">Zookeeper</span>以两种方式运行：<span class="highlight">Standalone</span>和<span class="highlight">Quorum</span>。
+        <span class="highlight">Standalone模式下</span>，仅有一个<span class="highlight">Zookeeper</span>服务器，<span class="highlight">Zookeeper</span>状态不会被复制。
+        <a href="http://zh.wikipedia.org/wiki/Quorum_%28%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%29" target="_blank">Quorum</a>机制，是一种分布式系统中常用的，用来保证数据冗余和最终一致性的投票算法。
+        <span class="highlight">Quorum模式下</span>，一组<span class="highlight">Zookeeper</span>服务器，状态会被复制，并一同为客户端提供服务。
+    </li>
+    <li>
+        <h3>Zookeeper Quorums</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Quorum模式下</span>，<span class="highlight">Zookeeper</span>复制树节点数据到所有的Server。
+        但是不是说需要等待所有数据复制到所有Server后，才能响应客户端请求继续，往往quorum会比较小，比如，我们的<span class="highlight">Zookeeper</span>集群有
+        5个Server，而quorum=3，那么只要有3个Server已经有复制的数据了，就能让客户端继续操作，而其他两个Server最终会同步到数据。
+        大多数情况下，我们容忍小于N/2个Server崩溃，集群建议用<span class="highlight">奇数个</span>Server组成。
+    </p>
+    <li>
+        <h3>会话(Sessions)</h3>
+    </li>
+    <li>
+        在执行任何请求前，客户端必须先与<span class="highlight">Zookeeper</span>集群建立<span class="highlight">回话(Session)</span>。
+        <span class="highlight">会话</span>提供了有序保证，即同一<span class="highlight">会话</span>中请求将以FIFO的顺序被执行。
+        但当客户端并发开启多个会话，将不能跨会话保证FIFO顺序。
+    </li>
+    <li>
+        <h3>
+            开始使用Zookeeper
+        </h3>
+    </li>
+    <li>
+        在<a href="http://mirror.nus.edu.sg/apache/zookeeper/zookeeper-3.4.6/zookeeper-3.4.6.tar.gz" target="_blank">这里</a>下载，解压并安装。
+    </li>
+    {% highlight bash %}
+tar -xvzf zookeeper-3.4.5.tar.gz
+cd zookeeper-3.4.6
+# zookeeper配置文件
+mv conf/zoo_sample.cfg conf/zoo.cfg
+# 设置zoo.cfg的dataDir
+dataDir=~/path/to/data
+# 启动zookeeper，start-foreground表示ZK运行在前台
+bin/zkServer.sh [start-foreground]
+# 运行客户端
+bin/zkCli.sh
+    {% endhighlight %}
+    <li>
+        这样客户端就能与Zookeeper交互了
+    </li>
+    <img src="{{site.url}}/images/zk/zk-cli.jpg">
+    <li>
+        简单执行几个命令
+    </li>
+    {% highlight bash %}
+[zk: localhost:2181(CONNECTED) 0] ls /
+[dubbo, zookeeper, pampas, pubsub]
+[zk: localhost:2181(CONNECTED) 1] create /workers ""
+Created /workers
+[zk: localhost:2181(CONNECTED) 2] ls /
+[dubbo, zookeeper, workers, pampas, pubsub]
+[zk: localhost:2181(CONNECTED) 3] delete /workers
+[zk: localhost:2181(CONNECTED) 4] ls /
+[dubbo, zookeeper, pampas, pubsub]
+[zk: localhost:2181(CONNECTED) 5] quit
+
+# 停止Server
+bin/zkServer.sh stop
+    {% endhighlight %}
+    <li>
+        <h3>会话的状态和生命周期</h3>
+    </li>
+    <li>
+        会话主要有四个状态：
+        <span class="highlight">NOT_CONNECTED</span>，
+        <span class="highlight">CONNECTING</span>，
+        <span class="highlight">CONNECTED</span>，
+        <span class="highlight">CLOSED</span>，
+        会话状态转换图为
+    </li>
+    <img src="{{site.url}}/images/zk/zk-session-transfer.jpg">
+    <li>
+        解释下这几个状态
+    </li>
+    <p class="wrap">
+        1. Client初始化连接，状态转为<span class="highlight">CONNECTING</span>(①)<br />
+        2. Client与Server成功建立连接，状态转为<span class="highlight">CONNECTED</span>(②)<br />
+        3. Client丢失了与Server的连接或者没有接受到Server的响应，状态转为<span class="highlight">CONNECTING</span>(③)<br />
+        4. Client连上另外的Server或连接上了之前的Server，状态转为<span class="highlight">CONNECTED</span>(②)<br />
+        5. 若会话过期(<span class="highlight">是Server负责声明会话过期，而不是Client</span> )，状态转为CLOSED(⑤)，状态转为<span class="highlight">CLOSED</span><br />
+        6. Client也可以主动关系会话(④)，状态转为<span class="highlight">CLOSED</span>
+    </p>
+    <li>
+        Client会话建立过程
+    </li>
+    <p class="wrap">
+        在Client创建会话时，可以指定超时时间<span class="highlight">T</span>，若Server在T内没有收到客户端任何消息，将认为会话过期。
+        而对于Client，若在在<span class="highlight">T/3</span>时没有收到Server的响应，将发送一个心跳信息给Server，
+        在<span class="highlight">2/3T</span>时刻还是没有收到Server的响应，则会尝试重连其他Server(这样就还有<span class="highlight">T/3</span>时间查找另外的Server)。
+    </p>
+    <li>
+        Client重连机制
+    </li>
+    <p class="wrap">
+        在Client重连不同的Server时，该Server的状态必须同该Client观察到的Server<span class="highlight">状态一致(或者更新)</span>，这一点很重要。
+        Client不能连接上状态过时的Server<span class="highlight">(没有看到该Client已经看到的服务器状态变化)</span>。在Zookeeper实现中，
+        系统会为每一个<span class="highlight">更新连接</span>分配一个有序的<span class="highlight">事务标识符(zxid)</span>，这样就能保证Client不会重连上比自己过时的Server，如图
+    </p>
+    <img src="{{site.url}}/images/zk/client-reconnect.jpg">
+    <li>
+        <h3>Zookeeper集群</h3>
+    </li>
+
+</ul>
+
+
+
+
+
+

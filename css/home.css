@@ -131,6 +131,13 @@ h1, h2, h3, h4, h5, h6 {
     border: 5px solid #ffffff;
 }
 
+.post-detail .post-detail-content p.quote{
+    font-style: italic;
+    text-indent: 2em;
+    font-size: 22px;
+    color: #999999;
+}
+
 .post-detail .post-detail-content p.note{
     color: #D95C5C !important;
 }
