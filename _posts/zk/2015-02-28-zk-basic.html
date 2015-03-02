@@ -368,7 +368,34 @@ bin/zkServer.sh stop
     <li>
         <h3>Zookeeper集群</h3>
     </li>
-
+    <li>
+        首先准备几个Server的目录
+    </li>
+    <img src="{{site.url}}/images/zk/zk-servers.jpg">
+    <li>
+        Server主配置zoo.cfg
+    </li>
+    {% highlight properties %}
+# 心跳间隔时间(ms)
+tickTime=2000
+# Follower与Leader初始化时能容忍的时间(initLimit * tickTime)
+initLimit=10
+# Follower与Leader请求响应时能容忍的时间(syncLimit * tickTime)
+syncLimit=5
+# server1数据目录，每个server各自配置
+dataDir=/path/to/server1/data
+# 客户端连接端口
+clientPort=2182
+# server列表:
+# .n(标记server)=(server地址):(投票时所用端口):(选举Leader时所用端口)
+server.1=127.0.0.1:2889:3889
+server.2=127.0.0.1:2990:3990
+server.3=127.0.0.1:2991:3991
+    {% endhighlight %}
+    <li>
+        在每个<span class="highlight">Server/data</span>目录下建立一个<span class="highlight">myid</span>文件，标识自己是哪个Server(对应<span class="highlight">zoo.cfg的server列表</span>)
+    </li>
+    <img src="{{site.url}}/images/zk/zk-servers-myid.jpg">
 </ul>
 
 
