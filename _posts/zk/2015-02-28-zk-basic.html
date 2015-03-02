@@ -132,7 +132,7 @@ ant eclipse
         最后，被作者这句话所打动
     </li>
     <p class="wrap quote">
-        so easily, in fact, that some developers use it without com‐ pletely understanding some of the cases that require the developer to make decisions that ZooKeeper cannot make by itself. One of the purposes of writing this book is to make sure that developers understand what they need to do to use ZooKeeper effectively and why they need to do it that way.
+        so easily, in fact, that some developers use it without completely understanding some of the cases that require the developer to make decisions that ZooKeeper cannot make by itself. One of the purposes of writing this book is to make sure that developers understand what they need to do to use ZooKeeper effectively and why they need to do it that way.
     </p>
     <li>
         <h2>开始使用Zookeeper</h2>
@@ -396,6 +396,292 @@ server.3=127.0.0.1:2991:3991
         在每个<span class="highlight">Server/data</span>目录下建立一个<span class="highlight">myid</span>文件，标识自己是哪个Server(对应<span class="highlight">zoo.cfg的server列表</span>)
     </li>
     <img src="{{site.url}}/images/zk/zk-servers-myid.jpg">
+    <li>
+        现在启动server1
+    </li>
+    {% highlight console %}
+server1/zookeeper-3.4.6/bin/zkServer.sh start-foreground
+
+# 输出
+2015-03-02 19:56:47,485 [myid:1] - INFO  [QuorumPeer[myid=1]/0:0:0:0:0:0:0:0:2182:QuorumPeer@714] - LOOKING
+2015-03-02 19:56:47,486 [myid:1] - INFO  [QuorumPeer[myid=1]/0:0:0:0:0:0:0:0:2182:FastLeaderElection@815] - New election. My id =  1, proposed zxid=0x1a00000006
+2015-03-02 19:56:47,488 [myid:1] - INFO  [WorkerReceiver[myid=1]:FastLeaderElection@597] - Notification: 1 (message format version), 1 (n.leader), 0x1a00000006 (n.zxid), 0x1 (n.round), LOOKING (n.state), 1 (n.sid), 0x1a (n.peerEpoch) LOOKING (my state)
+2015-03-02 19:56:47,510 [myid:1] - WARN  [WorkerSender[myid=1]:QuorumCnxManager@382] - Cannot open channel to 2 at election address /127.0.0.1:3990
+java.net.ConnectException: Connection refused
+at java.net.PlainSocketImpl.socketConnect(Native Method)
+at java.net.AbstractPlainSocketImpl.doConnect(AbstractPlainSocketImpl.java:345)
+at java.net.AbstractPlainSocketImpl.connectToAddress(AbstractPlainSocketImpl.java:206)
+at java.net.AbstractPlainSocketImpl.connect(AbstractPlainSocketImpl.java:188)
+at java.net.SocksSocketImpl.connect(SocksSocketImpl.java:392)
+at java.net.Socket.connect(Socket.java:589)
+at org.apache.zookeeper.server.quorum.QuorumCnxManager.connectOne(QuorumCnxManager.java:368)
+at org.apache.zookeeper.server.quorum.QuorumCnxManager.toSend(QuorumCnxManager.java:341)
+at org.apache.zookeeper.server.quorum.FastLeaderElection$Messenger$WorkerSender.process(FastLeaderElection.java:449)
+at org.apache.zookeeper.server.quorum.FastLeaderElection$Messenger$WorkerSender.run(FastLeaderElection.java:430)
+at java.lang.Thread.run(Thread.java:744)
+2015-03-02 19:56:47,560 [myid:1] - WARN  [WorkerSender[myid=1]:QuorumCnxManager@382] - Cannot open channel to 3 at election address /127.0.0.1:3991
+    {% endhighlight %}
+    <li>
+        server1尝试连接<span class="highlight">zoo.cfg</span>中配置的server列表，这时server2，server3还没启动，因此连接失败，
+        将server2，server3一并启动后，可以看到server1已经成为<span class="highlight">Follower</span>
+    </li>
+    {% highlight console %}
+2015-03-02 20:02:41,487 [myid:1] - INFO  [/127.0.0.1:3889:QuorumCnxManager$Listener@511] - Received connection request /127.0.0.1:65469
+2015-03-02 20:02:41,492 [myid:1] - INFO  [WorkerReceiver[myid=1]:FastLeaderElection@597] - Notification: 1 (message format version), 3 (n.leader), 0x1a00000006 (n.zxid), 0x1 (n.round), LOOKING (n.state), 3 (n.sid), 0x1a (n.peerEpoch) FOLLOWING (my state)
+    {% endhighlight %}
+    <li>
+        于是，可以使用客户端尝试连接这个集群，并且客户端会被<span class="highlight">随机分配</span>到一个server
+    </li>
+    {% highlight bash %}
+server1/zookeeper-3.4.6/bin/zkCli.sh -server 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184
+    {% endhighlight %}
+    <li>
+        <h3>Zookeeper分布式锁实现</h3>
+    </li>
+    <p>
+        虽然<span class="highlight">Zookeeper</span>没有原生提供锁操作，但是通过<span class="highlight">Zookeeper</span>提供的一些API，
+        较容易实现<span class="highlight">分布式锁</span>。我们可以利用<span class="highlight">临时节点</span>来实现，多个进程都尝试创键<span class="highlight">临时节点/lock</span>，
+        但最终只会有一个进程P能创建成功，而其他没能创建成功的进程，可以在<span class="highlight">节点/lock</span>上<span class="highlight">Watch</span>(相当于<span class="highlight">等待锁释放</span>)，
+        一旦进程P处理完事务，断开连接，节点/lock被自动删除，其他进程将得到通知，进而继续创建节点/lock，以争得锁资源。
+        (<span class="highlight">这里使用临时节点，是为了防止获得锁的进程突然崩溃而没有释放锁，导致死锁发生</span>)。
+    </p>
+    <li>
+        <h3>Master-Worker实现</h3>
+    </li>
+    <li>
+        这里仅仅是使用<span class="highlight">zkCli.sh</span>工具来实现，达到阐述原理的目的，代码实现放在下一篇文章中
+    </li>
+    <li>
+        第一个会话创建一个叫<span class="highlight">/master</span>的<span class="highlight">临时节点</span>
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 3] create -e /master "master1.example.com:2223"
+Created /master
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 4] ls /
+[zookeeper, master]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 5] get /master
+"master1.example.com:2223"
+cZxid = 0x1b00000002
+ctime = Mon Mar 02 20:39:06 CST 2015
+mZxid = 0x1b00000002
+mtime = Mon Mar 02 20:39:06 CST 2015
+pZxid = 0x1b00000002
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x34bda5de5120000
+    {% endhighlight %}
+    <li>
+        假设现在还有另一个进程作为<span class="highlight">master备份节点</span>，开始创建master节点，却被告知master节点已经存在
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 1] create -e /master "master2.example.com:2223"
+Node already exists: /master
+    {% endhighlight %}
+    <li>
+        但有可能在某一瞬间主master就崩溃了，这时备份master应立即转为主master，所以我们需要<span class="highlight">Watch</span>主master
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 1] create -e /master "master2.example.com:2223"
+Node already exists: /master
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 2] stat /master true
+cZxid = 0x1b00000002
+ctime = Mon Mar 02 20:39:06 CST 2015
+mZxid = 0x1b00000002
+mtime = Mon Mar 02 20:39:06 CST 2015
+pZxid = 0x1b00000002
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x34bda5de5120000
+dataLength = 26
+numChildren = 0
+    {% endhighlight %}
+    <li>
+        <span class="highlight">stat</span>命令可以获取节点的属性，并且监听其是否存在，参数<span class="highlight">true</span>表明设置<span class="highlight">Watch</span>。
+        这时，主master突然崩溃断开连接(第一个的会话)，这时第二个会话将得到节点/master删除的通知，并立即转为主master
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 0] ls /
+[zookeeper, master]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 1] create -e /master "master2.example.com:2223"
+Node already exists: /master
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 2] stat /master true
+cZxid = 0x1b00000002
+ctime = Mon Mar 02 20:39:06 CST 2015
+mZxid = 0x1b00000002
+mtime = Mon Mar 02 20:39:06 CST 2015
+pZxid = 0x1b00000002
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x34bda5de5120000
+dataLength = 26
+numChildren = 0
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 3]
+WATCHER::
+
+WatchedEvent state:SyncConnected type:NodeDeleted path:/master
+ls /
+[zookeeper]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 4] create -e /master "master2.example.com:2223"
+Created /master
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 5] ls /
+[zookeeper, master]
+    {% endhighlight %}
+    <li>
+        <h3>
+            工作者(Workers)，任务(Tasks)和分配(Assignments)
+        </h3>
+    </li>
+    <li>
+        先建立分别存在Workers，Tasks和Assignments的节点：/workers，/tasks，/assign。(注意是<span class="highlight">持久节点</span>)
+    </li>
+    {% highlight console %}
+zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 6] create /workers ""
+Created /workers
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 7] create /tasks ""
+Created /tasks
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 8] create /assign ""
+Created /assign
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 9] ls /
+[zookeeper, workers, tasks, master, assign]
+    {% endhighlight %}
+    <li>
+        现在我们的master节点需要监听到节点/workers和/tasks，以便分配task到worker
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 10] ls /workers true
+[]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 11] ls /tasks true
+[]
+    {% endhighlight %}
+    <li>
+        <span class="highlight">ls</span>命令带上<span class="highlight">true</span>参数，表明Watch该节点的子节点变化。
+    </li>
+    <li>
+        <h3>Worker角色</h3>
+    </li>
+    <li>
+        打开另一个会话，假设现在有一个<span class="highlight">worker</span>可用
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 0] create -e /workers/worker1.example.com "worker1.example.com:2224"
+Created /workers/worker1.example.com
+    {% endhighlight %}
+    <li>
+        此时<span class="highlight">master</span>也得到<span class="highlight">/workers</span>子节点变化的通知
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 12]
+WATCHER::
+
+WatchedEvent state:SyncConnected type:NodeChildrenChanged path:/workers
+    {% endhighlight %}
+    <li>
+        为了收到分配的任务，<span class="highlight">worker</span>需要创建一个节点
+        <span class="highlight">/assign/worker1.example.com</span>，并且监听子节点的变化
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 1] create /assign/worker1.example.com ""
+Created /assign/worker1.example.com
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 2] ls /assign/worker1.example.com true
+[]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 3]
+    {% endhighlight %}
+    <li>
+        Client角色
+    </li>
+    <li>
+        现在假设一个<span class="highlight">客户端</span>提交了一个任务到服务器中，
+        并且它必须还得<span class="highlight">监听该任务节点</span>，
+        因为客户端必须知道自己提交的任务到底被执行或执行成功没有
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 0] create -s /tasks/task- "cmd"
+Created /tasks/task-0000000000
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 1] ls /tasks/task-0000000000 true
+[]
+    {% endhighlight %}
+    <li>
+        这里我们创建了一个<span class="highlight">连续持久</span>节点，因此其节点名称加上了一个递增整数<span class="highlight">0000000000</span>，
+        这时，<span class="highlight">master</span>节点就感知到有新的任务提交上来了，将其分配给<span class="highlight">worker1</span>
+    </li>
+    {% highlight console %}
+WATCHER::
+
+WatchedEvent state:SyncConnected type:NodeChildrenChanged path:/tasks
+    {% endhighlight %}
+    <li>
+        然后<span class="highlight">master</span>节点检查新的任务，可用的<span class="highlight">worker</span>节点，并分配任务给<span class="highlight">worker</span>
+    </li>
+    {% highlight console %}
+ls /tasks
+[task-0000000000]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 13] ls /workers
+[worker1.example.com]
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 14] create /assign/worker1.example.com/task-0000000000 ""
+Created /assign/worker1.example.com/task-0000000000
+    {% endhighlight %}
+    <li>
+        于是，<span class="highlight">worker</span>节点感知到了分配给自己的任务，并做检查
+    </li>
+    {% highlight console %}
+WATCHER::
+
+WatchedEvent state:SyncConnected type:NodeChildrenChanged path:/assign/worker1.example.com
+ls /assign/worker1.example.com
+[task-0000000000]
+    {% endhighlight %}
+    <li>
+        <span class="highlight">worker</span>一旦完成了任务，将在对应的任务下增加一个状态节点
+    </li>
+    {% highlight console %}
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 4] create /tasks/task-0000000000/status "done"
+Created /tasks/task-0000000000/status
+    {% endhighlight %}
+    <li>
+        此时<span class="highlight">客户端</span>将得到通知，并检查任务执行结果
+    </li>
+    {% highlight console %}
+WATCHER::
+
+WatchedEvent state:SyncConnected type:NodeChildrenChanged path:/tasks/task-0000000000
+get /tasks/task-0000000000
+"cmd"
+cZxid = 0x1b0000000e
+ctime = Mon Mar 02 23:26:43 CST 2015
+mZxid = 0x1b0000000e
+mtime = Mon Mar 02 23:26:43 CST 2015
+pZxid = 0x1b00000010
+cversion = 1
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 5
+numChildren = 1
+[zk: 127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184(CONNECTED) 3] get /tasks/task-0000000000/status
+"done"
+cZxid = 0x1b00000010
+ctime = Mon Mar 02 23:52:18 CST 2015
+mZxid = 0x1b00000010
+mtime = Mon Mar 02 23:52:18 CST 2015
+pZxid = 0x1b00000010
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 6
+numChildren = 0
+    {% endhighlight %}
+    <li>
+        于是，<span class="highlight">客户端</span>就知道了任务被执行的结果，这里结果为<span class="highlight">"done"</span>，
+        表示任务被成功执行。
+    </li>
+    <p class="wrap">
+        以上就是整个<span class="highlight">Master-Worker</span>架构的主要工作机制，虽然只是一个模拟过程，
+        但是对我们理解<span class="highlight">Master-Worker</span>工作原理是很有帮助的，对以后要研究代码实现，也是一个很好的铺垫。
+    </p>
 </ul>
 
 
