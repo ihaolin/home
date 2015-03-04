@@ -1,0 +1,184 @@
+---
+title : Zookeeper深入理解(二)(编程实践)
+category : [zookeeper]
+tags : [zookeeper, program]
+layout : post
+show : 1
+keywords: zookeeper，编程，实践
+---
+
+<ul>
+    <p class="intro">
+        本文将讲述如何使用<span class="highlight">Zookeeper Client API</span>进行编程，
+        以在分布式应用中实现<span class="highlight">协调</span>功能，
+        <span class="highlight">Zookeeper</span>支持Java和C的API，本文主要使用Java语言。
+    </p>
+
+    <li>
+        <h2>使用Zookeeper API</h2>
+    </li>
+    <li>
+        <h3>首先添加Maven依赖</h3>
+    </li>
+    {% highlight xml %}
+<dependency>
+    <groupId>org.apache.zookeeper</groupId>
+    <artifactId>zookeeper</artifactId>
+    <version>3.4.6</version>
+</dependency>
+    {% endhighlight %}
+    <li>
+        <h3>创建Zookeeper会话</h3>
+    </li>
+    <li>
+        Zookeeper API会围绕一个<span class="highlight">Zookeeper 句柄</span>，通过该句柄来调用各种API，该句柄也就是
+        <span class="highlight">Zookeeper会话</span>。如果会话连接断开了，该会话会被迁移到另一台Server上(如图)，只要会话仍然存活着，
+        该句柄将一直有效，Client就会持续保持和Server的连接，若句柄被关掉，Client将告诉Server关掉会话。
+    </li>
+    <img src="{{site.url}}/images/zk/session-migrate.jpg">
+    <li>
+        Zookeeper提供了一个创建句柄的构造器
+    </li>
+    {% highlight java %}
+/**
+ * connectString: server列表，如127.0.0.1:2182,127.0.0.1:2183,127.0.0.1:2184
+ * sessionTimeout: 如果Server超过该时间(毫秒)没能和Client通信，Server将关闭此次会话，通常为5 ~ 10秒。
+ * watcher: 用于接收Session事件，该事件会在会话建立，关闭或过期时产生，Client也可以用于监控Zookeeper数据变化。
+ */
+ZooKeeper(String connectString, int sessionTimeout, Watcher watcher)
+    {% endhighlight %}
+    <li>
+        <h3>
+            实现Watcher
+        </h3>
+    </li>
+    <li>
+        为了收到Zookeeper的通知，我们需要实现Watcher接口
+    </li>
+    {% highlight java %}
+public interface Watcher {
+    void process(WatchedEvent event);
+}
+    {% endhighlight %}
+    <li>
+        比如，我们可以实现一个<span class="highlight">Master</span>
+    </li>
+    {% highlight java %}
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
+import java.io.IOException;
+
+/**
+* Author: haolin
+* On: 3/4/15
+*/
+public class Master implements Watcher {
+
+    private ZooKeeper zk;
+
+    private String connnectHost;
+
+    public Master(String connnectHost){
+        this.connnectHost = connnectHost;
+    }
+
+    public void startZK() throws IOException {
+        zk = new ZooKeeper(connnectHost, 15000, this);
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        System.out.print(event);
+    }
+
+    public static void main(String[] args) throws Exception {
+        String connnectHost = "localhost:2181";
+        Master m = new Master(connnectHost);
+        m.startZK();
+        // wait for a bit
+        Thread.sleep(60000);
+    }
+}
+    {% endhighlight %}
+    <li>
+        运行上面的程序则会看到如下日志
+    </li>
+    {% highlight console %}
+2015-03-04 23:36:05,661 - INFO  - [main:Environment@100] - Client environment:zookeeper.version=3.4.6-1569965, built on 02/20/2014 09:09 GMT
+2015-03-04 23:36:05,664 - INFO  - [main:Environment@100] - Client environment:host.name=192.168.0.102
+2015-03-04 23:36:05,667 - INFO  - [main:Environment@100] - Client environment:java.version=1.7.0_45
+2015-03-04 23:36:05,667 - INFO  - [main:Environment@100] - Client environment:java.vendor=Oracle Corporation
+2015-03-04 23:36:05,667 - INFO  - [main:Environment@100] - Client environment:java.home=/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre
+2015-03-04 23:36:05,667 - INFO  - [main:Environment@100] - Client environment:java.class.path=/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/ant-javafx.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/dt.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/javafx-doclet.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/javafx-mx.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/jconsole.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/sa-jdi.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/lib/tools.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/charsets.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/deploy.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/htmlconverter.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/javaws.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/jce.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/jfr.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/jfxrt.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/JObjC.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/jsse.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/management-agent.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/plugin.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/resources.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/rt.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/dnsns.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/localedata.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/sunec.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/sunjce_provider.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/sunpkcs11.jar:/Library/Java/JavaVirtualMachines/jdk1.7.0_45.jdk/Contents/Home/jre/lib/ext/zipfs.jar:/Users/haolin/Learning/langs/java/codes/kb/libraries/zkclient/target/classes:/Users/haolin/Envir/build/maven/m2/repos/org/slf4j/slf4j-api/1.7.1/slf4j-api-1.7.1.jar:/Users/haolin/Envir/build/maven/m2/repos/org/apache/zookeeper/zookeeper/3.4.6/zookeeper-3.4.6.jar:/Users/haolin/Envir/build/maven/m2/repos/org/slf4j/slf4j-log4j12/1.6.1/slf4j-log4j12-1.6.1.jar:/Users/haolin/Envir/build/maven/m2/repos/log4j/log4j/1.2.16/log4j-1.2.16.jar:/Users/haolin/Envir/build/maven/m2/repos/jline/jline/0.9.94/jline-0.9.94.jar:/Users/haolin/Envir/build/maven/m2/repos/io/netty/netty/3.7.0.Final/netty-3.7.0.Final.jar:/Users/haolin/Envir/build/maven/m2/repos/org/apache/curator/curator-recipes/2.1.0-incubating/curator-recipes-2.1.0-incubating.jar:/Users/haolin/Envir/build/maven/m2/repos/org/apache/curator/curator-framework/2.1.0-incubating/curator-framework-2.1.0-incubating.jar:/Users/haolin/Envir/build/maven/m2/repos/org/apache/curator/curator-client/2.1.0-incubating/curator-client-2.1.0-incubating.jar:/Users/haolin/Envir/build/maven/m2/repos/com/google/guava/guava/18.0/guava-18.0.jar:/Users/haolin/Envir/build/maven/m2/repos/org/projectlombok/lombok/1.12.2/lombok-1.12.2.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-core/3.2.6.RELEASE/spring-core-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/commons-logging/commons-logging/1.1.1/commons-logging-1.1.1.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-beans/3.2.6.RELEASE/spring-beans-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-context/3.2.6.RELEASE/spring-context-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-aop/3.2.6.RELEASE/spring-aop-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-expression/3.2.6.RELEASE/spring-expression-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-tx/3.2.6.RELEASE/spring-tx-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/aopalliance/aopalliance/1.0/aopalliance-1.0.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-context-support/3.2.6.RELEASE/spring-context-support-3.2.6.RELEASE.jar:/Users/haolin/Envir/build/maven/m2/repos/org/springframework/spring-jdbc/3.2.6.RELEASE/spring-jdbc-3.2.6.RELEASE.jar:/Applications/IntelliJ IDEA 14 EAP.app/Contents/lib/idea_rt.jar
+2015-03-04 23:36:05,668 - INFO  - [main:Environment@100] - Client environment:java.library.path=/Users/haolin/Library/Java/Extensions:/Library/Java/Extensions:/Network/Library/Java/Extensions:/System/Library/Java/Extensions:/usr/lib/java:.
+2015-03-04 23:36:05,668 - INFO  - [main:Environment@100] - Client environment:java.io.tmpdir=/var/folders/c4/1qgb32bj4_j734lwcs9lspsc0000gn/T/
+2015-03-04 23:36:05,668 - INFO  - [main:Environment@100] - Client environment:java.compiler=<NA>
+2015-03-04 23:36:05,668 - INFO  - [main:Environment@100] - Client environment:os.name=Mac OS X
+2015-03-04 23:36:05,668 - INFO  - [main:Environment@100] - Client environment:os.arch=x86_64
+2015-03-04 23:36:05,669 - INFO  - [main:Environment@100] - Client environment:os.version=10.10.3
+2015-03-04 23:36:05,669 - INFO  - [main:Environment@100] - Client environment:user.name=haolin
+2015-03-04 23:36:05,669 - INFO  - [main:Environment@100] - Client environment:user.home=/Users/haolin
+2015-03-04 23:36:05,669 - INFO  - [main:Environment@100] - Client environment:user.dir=/Users/haolin/Learning/langs/java/codes/kb
+2015-03-04 23:36:05,704 - INFO  - [main:ZooKeeper@438] - Initiating client connection, connectString=localhost:2181 sessionTimeout=15000 watcher=org.apache.zookeeper.book.practice.Master@6f85c59c
+2015-03-04 23:36:05,965 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@975] - Opening socket connection to server localhost/127.0.0.1:2181. Will not attempt to authenticate using SASL (unknown error)
+2015-03-04 23:36:05,972 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@852] - Socket connection established to localhost/127.0.0.1:2181, initiating session
+2015-03-04 23:36:06,051 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@1235] - Session establishment complete on server localhost/127.0.0.1:2181, sessionid = 0x14bbc76762e0005, negotiated timeout = 15000
+WatchedEvent state:SyncConnected type:None path:null
+    {% endhighlight %}
+    <li>
+        然而，当我们这时将server停掉，Client会尝试重新连接，并且Client也没有收到任何事件
+    </li>
+    {% highlight console %}
+2015-03-04 23:47:55,667 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@975] - Opening socket connection to server localhost/127.0.0.1:2181. Will not attempt to authenticate using SASL (unknown error)
+2015-03-04 23:47:55,669 - WARN  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@1102] - Session 0x14bbc76762e0006 for server null, unexpected error, closing socket connection and attempting reconnect
+java.net.ConnectException: Connection refused
+at sun.nio.ch.SocketChannelImpl.checkConnect(Native Method)
+at sun.nio.ch.SocketChannelImpl.finishConnect(SocketChannelImpl.java:735)
+at org.apache.zookeeper.ClientCnxnSocketNIO.doTransport(ClientCnxnSocketNIO.java:361)
+at org.apache.zookeeper.ClientCnxn$SendThread.run(ClientCnxn.java:1081)
+2015-03-04 23:47:57,771 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@975] - Opening socket connection to server localhost/127.0.0.1:2181. Will not attempt to authenticate using SASL (unknown error)
+2015-03-04 23:47:57,771 - WARN  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@1102] - Session 0x14bbc76762e0006 for server null, unexpected error, closing socket connection and attempting reconnect
+    {% endhighlight %}
+    <li>
+        再次启动server，Client再次接收到<span class="highlight">SyncConnected</span>事件
+    </li>
+    {% highlight console %}
+2015-03-04 23:47:59,847 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@975] - Opening socket connection to server localhost/127.0.0.1:2181. Will not attempt to authenticate using SASL (unknown error)
+2015-03-04 23:47:59,847 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@852] - Socket connection established to localhost/127.0.0.1:2181, initiating session
+2015-03-04 23:47:59,877 - INFO  - [main-SendThread(localhost:2181):ClientCnxn$SendThread@1235] - Session establishment complete on server localhost/127.0.0.1:2181, sessionid = 0x14bbc76762e0006, negotiated timeout = 15000
+WatchedEvent state:SyncConnected type:None path:null
+    {% endhighlight %}
+    <li>
+        既然Zookeeper Client能够自己尝试尽可能连接上Server，所以对于我们，<span class="highlight">尽量不要亲自去管理连接</span>。
+    </li>
+    <li>
+        我们可以通过<span class="highlight">telnet</span>观察下Zookeeper状态，可以看到两个Client，一个是之前Master程序，一个就是当前telent。
+    </li>
+    <img src="{{site.url}}/images/zk/zk-stat.jpg">
+    <li>
+        同样，我们还可以通过<span class="highlight">dump</span>查看一些会话信息，可以看到有一个会话(Master)
+    </li>
+    <img src="{{site.url}}/images/zk/zk-dump1.jpg">
+    <li>
+        如果现在我们关掉Master，其实会话并不会马上销毁，而会等到超时。最终才没有了会话
+    </li>
+    <img src="{{site.url}}/images/zk/zk-dump2.jpg">
+    <li>
+        当然我们也可以手动关闭连接，而不是等到超时
+    </li>
+    {% highlight java %}
+public void stopZk() throws InterruptedException {
+    zk.close();
+}
+    {% endhighlight %}
+    <li>
+        <h3>获取主控权</h3>
+    </li>
+</ul>
+
+
+
+
+
+
