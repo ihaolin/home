@@ -173,7 +173,362 @@ public void stopZk() throws InterruptedException {
 }
     {% endhighlight %}
     <li>
-        <h3>获取主控权</h3>
+        <h3>获取领导权(Mastering)</h3>
+    </li>
+    <li>
+        现在我们希望<span class="highlight">Master</span>能够获取到<span class="highlight">领导权</span>，
+        之前的文章讲述过，我们需要创建一个<span class="highlight">临时节点</span>如/master，若该节点已经存在，
+        说明Master已经存在，否则自己将成为Master。
+    </li>
+    {% highlight java %}
+// 标识自己
+private String serverId = Integer.toHexString(random.nextInt());
+// 是否是Leader
+private boolean isLeader;
+
+public void runForMaster() throws KeeperException, InterruptedException {
+    while (true) {
+        try {
+            zk.create("/master", serverId.getBytes(),
+                ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+            // 创建/master节点成功
+            isLeader = true;
+            break;
+        } catch (KeeperException.NodeExistsException e) {
+            // /master已经存在
+            isLeader = false;
+            break;
+        } catch (KeeperException.ConnectionLossException e) {
+        }
+        if (checkMaster()) break;
+    }
+}
+
+/**
+* 检查master是否存在
+* @return 存在返回true，反之false
+*/
+private boolean checkMaster() throws InterruptedException{
+    while (true) {
+        try {
+            Stat stat = new Stat();
+            byte data[] = zk.getData("/master", false, stat);
+            isLeader = new String(data).equals(serverId);
+            return true;
+        } catch (KeeperException.NoNodeException e) {
+            // 没有master节点，可返回false
+            return false;
+        } catch (KeeperException e) {
+            e.printStackTrace();
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        这里，我们创建节点时，指明了节点的权限控制
+        <span class="highlight">OPEN_ACL_UNSAFE</span>，这并不安全，但对于例子足以，
+        在创建节点时，我们捕获了<span class="highlight">NodeExistsException</span>异常，
+        表明Master已经存在，而<span class="highlight">ConnectionLossException</span>异常，
+        该异常通常由于网络错误，Server崩溃导致，这时Client并不知道请求是否被Server处理，我们不做处理，
+        而是让Client API尝试重新连接。<span class="highlight">InterruptedException</span>
+        异常是由客户端线程导致，可交由外部去处理。接着我们通过<span class="highlight">getData()</span>
+        来获取节点数据
+    </li>
+    {% highlight java %}
+/**
+ * path: 节点路径
+ * watch: 是否监听节点数据变化
+ * stat: 节点元数据信息
+ */
+getData(String path, bool watch, Stat stat)
+    {% endhighlight %}
+    <li>
+        我们启动两个进程
+    </li>
+    {% highlight java %}
+public static void main(String[] args) throws Exception {
+    String connnectHost = "localhost:2181";
+    Master m = new Master(connnectHost);
+    m.startZK();
+    m.runForMaster();
+    if (m.isLeader){
+        System.out.println("I am leader");
+    } else {
+        System.out.println("I am not leader");
+    }
+    Thread.sleep(600000);
+}
+    {% endhighlight %}
+    <li>
+        将看到输出
+    </li>
+    <img src="{{site.url}}/images/zk/master1.jpg">
+    <img src="{{site.url}}/images/zk/master2.jpg">
+    <li>
+        <h3>异步获取领导权(Mastering)</h3>
+    </li>
+    <li>
+        Zookeeper的API都会有一个<span class="highlight">异步</span>的版本，如创建节点
+    </li>
+    {% highlight java %}
+void create(
+    String path,
+    byte[] data,
+    List<ACL> acl,
+    CreateMode createMode,
+    AsyncCallback.StringCallback cb, // 回调
+    Object ctx //用户定义的上下文，回调时会传入
+)
+    {% endhighlight %}
+    <li>
+        该方法会立即返回，只是将Server请求放入队列中，请求过程放在另一个线程中，
+        当收到Server响应时，这些响应将在一个专门的回调线程中处理(
+        <span class="highlight">因此，你不应该在回调中做太重的操作，或者执行阻塞操作，这会严重影响后续的回调执行</span>)，
+        此方法不会抛出异常，任何请求错误将编码为回调的第一个参数，回调形式为
+    </li>
+    {% highlight java %}
+/**
+ * rc: 调用结果，OK或者KeeperException异常码
+ * path: create传递的path
+ * ctx: create传递的context
+ * name: 节点名称，若创建成功将等于path(但对于CreateMode.SEQUENTIAL的节点会加上递增整数)
+ */
+void processResult(int rc, String path, Object ctx, String name)
+    {% endhighlight %}
+    <li>
+        将上面的实现改为异步回调后
+    </li>
+    {% highlight java %}
+private AsyncCallback.StringCallback masterCreateCb = new AsyncCallback.StringCallback() {
+    @Override
+    public void processResult(int rc, String path, Object ctx, String name) {
+        switch (KeeperException.Code.get(rc)){
+            case CONNECTIONLOSS:
+                checkMaster();
+                return;
+            case OK: // 创建节点成功，成功获取领导权
+                isLeader = true;
+                break;
+            default:
+                isLeader = false;
+        }
+        System.out.println("I'm " + (isLeader ? "" : "not ") + "the leader");
+    }
+};
+
+public void runForMaster(){
+    zk.create("/master", serverId.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL, masterCreateCb, null);
+}
+
+private AsyncCallback.DataCallback masterCheckCb = new AsyncCallback.DataCallback() {
+    @Override
+    public void processResult(int rc, String path, Object ctx, byte[] data, Stat stat) {
+        switch(KeeperException.Code.get(rc)) {
+            case CONNECTIONLOSS:
+                checkMaster();
+                return;
+            case NONODE: // 没有master节点存在，则尝试获取领导权
+                runForMaster();
+                return;
+            case NODEEXISTS:
+                System.out.println("node exists.");
+        }
+    }
+};
+
+private void checkMaster() {
+    zk.getData("/master", false, masterCheckCb, null);
+}
+    {% endhighlight %}
+    <li>
+        构建元数据
+    </li>
+    <li>
+        <span class="highlight">Master-Worker</span>架构中，我需要初始化一些元数据，如
+        <span class="highlight">/workers</span>，
+        <span class="highlight">/tasks</span>，
+        <span class="highlight">/assign</span>
+    </li>
+    {% highlight java %}
+public void bootstrap() {
+    // 存放可用的Worker
+    createParent("/workers", new byte[0]);
+    // 存放Worker下存放的任务
+    createParent("/assign", new byte[0]);
+    // 待执行和新提交的任务
+    createParent("/tasks", new byte[0]);
+    createParent("/status", new byte[0]);
+}
+
+private void createParent(String path, byte[] data) {
+    zk.create(path,
+        data,
+        ZooDefs.Ids.OPEN_ACL_UNSAFE,
+        CreateMode.PERSISTENT, // 持久节点
+        createParentCb,
+        data); // 将data传给ctx，这样可以在Callback中继续尝试创建节点
+}
+
+private AsyncCallback.StringCallback createParentCb  = new AsyncCallback.StringCallback() {
+    @Override
+    public void processResult(int rc, String path, Object ctx, String name) {
+        switch (KeeperException.Code.get(rc)) {
+            case CONNECTIONLOSS:
+                createParent(path, (byte[]) ctx); //取出data
+                break;
+            case OK:
+                System.out.println("Parent created");
+                break;
+            case NODEEXISTS:
+                System.out.println("Parent already registered: " + path);
+                break;
+            default:
+                System.err.println("Something went wrong: " + KeeperException.create(KeeperException.Code.get(rc), path));
+        }
+    }
+};
+    {% endhighlight %}
+    <li>
+        <h3>注册工作者(Worker)</h3>
+    </li>
+    <li>
+        接下来我们会在/workers建立起可用的Worker节点，Worker实现
+    </li>
+    {% highlight java %}
+import org.apache.zookeeper.*;
+import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import java.io.IOException;
+import java.util.Random;
+
+/**
+* Author: haolin
+* On: 3/5/15
+*/
+public class Worker implements Watcher {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Worker.class);
+
+    private ZooKeeper zk;
+
+    private String connnectHost;
+
+    private Random random = new Random();
+
+    private String serverId = Integer.toHexString(random.nextInt());
+
+    private String status;
+
+    private String name;
+
+    public Worker(String connnectHost) {
+        this.connnectHost = connnectHost;
+    }
+
+    public void startZK() throws IOException {
+        zk = new ZooKeeper(connnectHost, 15000, this);
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        LOG.info(event.toString() + ", " + connnectHost);
+    }
+
+    /**
+    * 注册自己为Worker
+    */
+    public void register() {
+        name = "worker-" + serverId;
+        zk.create(
+            "/workers/worker-" + name, // worker标识
+            "Idle".getBytes(), //状态空闲
+            ZooDefs.Ids.OPEN_ACL_UNSAFE,
+            CreateMode.EPHEMERAL, //临时节点
+            createWorkerCallback,
+            null
+        );
+    }
+
+    private AsyncCallback.StringCallback createWorkerCallback = new AsyncCallback.StringCallback() {
+        public void processResult(int rc, String path, Object ctx, String name) {
+            switch (KeeperException.Code.get(rc)) {
+                case CONNECTIONLOSS:
+                    register();
+                    break;
+                case OK:
+                    LOG.info("Registered successfully: " + serverId);
+                    break;
+                case NODEEXISTS:
+                    LOG.warn("Already registered: " + serverId);
+                    break;
+                default:
+                    LOG.error("Something went wrong: "
+                        + KeeperException.create(KeeperException.Code.get(rc), path));
+            }
+
+        }
+    };
+
+    private AsyncCallback.StatCallback statusUpdateCallback = new AsyncCallback.StatCallback() {
+        public void processResult(int rc, String path, Object ctx, Stat stat) {
+            switch(KeeperException.Code.get(rc)) {
+                case CONNECTIONLOSS:
+                    updateStatus((String)ctx);
+                    return;
+            }
+        }
+    };
+
+    synchronized private void updateStatus(String status) {
+        if (status == this.status) {
+            zk.setData(
+                "/workers/" + name,
+                status.getBytes(),
+                -1, // -1将不会检查版本
+                statusUpdateCallback,
+                status
+            );
+        }
+    }
+
+    /**
+    * 设置状态
+    * @param status 新状态
+    */
+    public void setStatus(String status) {
+        this.status = status;
+        updateStatus(status);
+    }
+
+    public static void main(String args[]) throws Exception {
+        Worker w = new Worker("localhost:2181");
+        w.startZK();
+        w.register();
+        Thread.sleep(60000);
+    }
+}
+    {% endhighlight %}
+    <li>
+        为了保证状态更新的最终一致性，上面Worker实现中需要着重注意的是<span class="highlight">updateStatus()</span>方法，需要使用
+        <span class="highlight">synchronized</span>
+        和<span class="highlight">status == this.status</span>判断，否则会出现本地和服务器状态不一致的情况，
+        比如下面的场景
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">Worker</span>开始执行任务task-1，因此调用
+        <span class="highlight">setStatus("working")</span>(即this.status = "working")。 <br />
+        2. Client API发起<span class="highlight">setData()</span>调用，但是此时发生网络错误。 <br />
+        3. 于是Client API认为与Server失去连接，但在调用<span class="highlight">statusUpdateCallback</span>回调之前，
+            <span class="highlight">Worker</span>完成了任务，变得空闲。<br />
+        4. 因此调用<span class="highlight">setStatus("idle")</span>(即this.status = "idle")。<br />
+        5. 然而，现在Client开始处理第二步中产生的网络错误回调<span class="highlight">statusUpdateCallback</span>，
+           若不判断<span class="highlight">status == this.status</span>，<span class="highlight">Worker</span>的状态将被设置为
+        <span class="highlight">"working"</span>，这就会造成Client和Server状态不一致。
+    </p>
+    <li>
+        <h3>任务排队</h3>
     </li>
 </ul>
 
