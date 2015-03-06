@@ -528,6 +528,12 @@ public class Worker implements Watcher {
         <span class="highlight">"working"</span>，这就会造成Client和Server状态不一致。
     </p>
     <li>
+        似乎觉得将<span class="highlight">synchronized</span>放到<span class="highlight">setStatus()</span>前更合理一些，
+        会不会出现<span class="highlight">setStatus("working")</span>后，执行第一条<span class="highlight">this.status = status</span>之前，
+        CPU时间片切换，<span class="highlight">Worker</span>就完成了任务，并<span class="highlight">setStatus("idle")</span>，即
+        <span class="highlight">setData("idle")</span>调用在<span class="highlight">setData("working")</span>之前。
+    </li>
+    <li>
         <h3>任务排队</h3>
     </li>
 </ul>
