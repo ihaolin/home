@@ -215,6 +215,14 @@ mvn clean package -Pdev
 mvn clean package -Ptest
         {% endhighlight %}
         <p>通过这种方式我们就可以灵活的切换不同的环境, 甚至可以在不同的环境切换不同的实现等。</p>
+        <p class="wrap">
+            若properties文件中有<span class="highlight">中文值</span>出现，则会出现乱码，
+            猜测<span class="highlight">maven-resource-plugin</span>读取properties文件时采用的是<span class="highlight">二进制流</span>的方式，
+            查阅后发现该插件的<span class="highlight">PropertiesUtil.loadPropertyFile()</span>方法中确实使用
+            <span class="highlight">FileInputStream</span>读取properties。要解决中文乱码，可以将中文值进行
+            <span class="highlight">Unicode转码</span>，或者使用<span class="highlight">Reader</span>(如InputStreamReader)读取properties文件，
+            则需修改插件源码。
+        </p>
         <li><h2>使Spring感知到当前环境</h2></li>
         <p>
             既然我们已经能通过maven编译打包不同的环境配置了, 那要怎么告知Spring当前是什么环境呢?
