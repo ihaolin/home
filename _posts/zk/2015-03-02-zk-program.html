@@ -536,6 +536,127 @@ public class Worker implements Watcher {
     <li>
         <h3>任务排队</h3>
     </li>
+    <li>
+        最后的组件则是<span class="highlight">Client</span>，
+        我们将把任务创建在<span class="highlight">/tasks</span>节点下，
+        并且为每个任务分配唯一的序号。
+    </li>
+    {% highlight java %}
+public class Client implements Watcher {
+
+    private ZooKeeper zk;
+
+    private String connnectHost;
+
+    public Client(String connnectHost) { this.connnectHost = connnectHost; }
+
+    public void startZK() throws Exception {
+        zk = new ZooKeeper(connnectHost, 15000, this);
+    }
+
+    public String queueCommand(String command) throws Exception {
+        String name = null;
+        while (true) {
+            try {
+                // 新节点名称
+                name = zk.create("/tasks/task-",
+                command.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT_SEQUENTIAL); // 持久临时节点
+                return name;
+            } catch (KeeperException.NodeExistsException e) {
+                throw new Exception(name + " already appears to be running");
+            } catch (KeeperException.ConnectionLossException e) {
+            }
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+
+    }
+
+    public static void main(String args[]) throws Exception {
+        Client c = new Client("localhost:2181");
+        c.startZK();
+        String name = c.queueCommand("some cmd");
+        System.out.println("Created " + name);
+    }
+}
+    {% endhighlight %}
+    <li>
+        创建任务节点时，如果创建失败，我们就尝试重新创建，但当有多个应用都在创建该任务时，
+        有可能同一个任务会被创建多次，若要控制某个任务最多创建一次，可以为任务分配唯一的ID。
+    </li>
+    <li>
+        <h3>管理员Client</h3>
+    </li>
+    <li>
+        我们还需要一个管理员Client来查看系统的状态，通常使用<span class="highlight">getData()</span>和<span class="highlight">getChildren()</span>方法。
+    </li>
+    {% highlight java %}
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.Stat;
+import java.util.Date;
+
+/**
+* Author: haolin
+* On: 3/9/15
+*/
+public class AdminClient implements Watcher {
+
+    private ZooKeeper zk;
+
+    private String connnectHost;
+
+    public AdminClient(String connnectHost) { this.connnectHost = connnectHost; }
+
+    public void start() throws Exception {
+    zk = new ZooKeeper(connnectHost, 15000, this);
+    }
+
+    public void listState() throws KeeperException, InterruptedException {
+    try {
+        Stat stat = new Stat();
+            // master状态
+            byte masterData[] = zk.getData("/master", false, stat);
+            Date startDate = new Date(stat.getCtime()); //master创建时间
+            System.out.println("Master: " + new String(masterData) + " since " + startDate);
+        } catch (KeeperException.NoNodeException e) {
+            System.out.println("No Master");
+        }
+        // worker状态
+        System.out.println("Workers:");
+        for (String w: zk.getChildren("/workers", false)) {
+        byte data[] = zk.getData("/workers/" + w, false, null);
+        String state = new String(data);
+            System.out.println("\t" + w + ": " + state);
+        }
+        // 任务分配状态
+        System.out.println("Tasks:");
+        for (String t: zk.getChildren("/assign", false)) {
+            System.out.println("\t" + t);
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+
+    }
+
+    public static void main(String args[]) throws Exception {
+        AdminClient c = new AdminClient("localhost:2181");
+        c.start();
+        c.listState();
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h2>处理状态改变</h2>
+    </li>
+
 </ul>
 
 
