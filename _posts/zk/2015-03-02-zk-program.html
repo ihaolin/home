@@ -654,9 +654,44 @@ public class AdminClient implements Watcher {
 }
     {% endhighlight %}
     <li>
-        <h2>处理状态改变</h2>
+        <h2>处理状态变化</h2>
     </li>
-
+    <li>
+        应用需要关注Zookeeper的状态变化，这并不少见，比如
+        <span class="highlight">Master-Worker</span>架构中，
+        <span class="highlight">备份master</span>需要知道<span class="highlight">主master</span>是否崩溃，
+        <span class="highlight">Workers</span>需要知道是否有新的任务分配给自己，在Zookeeper中，
+        可以通过<span class="highlight">Watcher</span>机制来实现状态变化监听。
+    </li>
+    <li>
+        <h3>一次性触发</h3>
+    </li>
+    <li>
+        <span class="highlight">Watches</span>是连接
+        <span class="highlight">Znode</span>和<span class="highlight">事件类型</span>
+        (Znode数据变化，或节点被删除)的一种<span class="highlight">一次性触发器</span>。
+        <span class="highlight">Watches</span>是同Client的连接会话想关联的，一旦会话过期了，
+        该会话创建的<span class="highlight">Watches</span>将被移除。
+        <span class="highlight">Watches</span>可以在多个Server之前跨连接，
+        比如，当Client与集群中的一个Server断开，然后重连到另一个Server，Client将发送未处理的<span class="highlight">Watches</span>
+        到该Server，当注册一个<span class="highlight">Watch</span>时，该Server会检查该<span class="highlight">Watch</span>
+        监听的节点是否发生变化，如发生变化，将通知该Client，否则Client就将该<span class="highlight">Watch</span>注册到新的Server上。
+    </li>
+    <li>
+        <h3>一次性触发器会丢失事件吗?</h3>
+    </li>
+    <li>
+        答案是<span class="highlight">肯定的</span>。然而，这种问题值得讨论。
+        但对于在<span class="highlight">收到通知</span>
+        和<span class="highlight">注册新的Watch</span>
+        之间丢失事件，我们都可以通过主动读取Zookeeper状态来解决。
+        比如，<span class="highlight">Worker</span>收到有新的任务分配通知后，
+        可以通过<span class="highlight">getChildren()</span>获取所有分配的任务(即使在收到通知后，又有新任务分配)，
+        再对任务分配节点进行<span class="highlight">Watch</span>。
+    </li>
+    <li>
+        <h3>如何设置Watches</h3>
+    </li>
 </ul>
 
 
