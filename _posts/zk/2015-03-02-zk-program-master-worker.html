@@ -1,10 +1,10 @@
 ---
-title : Zookeeper深入理解(二)(编程实践)
+title : Zookeeper深入理解(二)(编程实践之Master-Worker)
 category : [zookeeper]
-tags : [zookeeper, program]
+tags : [zookeeper, master, worker]
 layout : post
 show : 1
-keywords: zookeeper，编程，实践
+keywords: zookeeper，master，worker
 ---
 
 <ul>
@@ -692,6 +692,237 @@ public class AdminClient implements Watcher {
     <li>
         <h3>如何设置Watches</h3>
     </li>
+    <li>
+        Zookeeper API所有读操作--
+        <span class="highlight">getData()</span>，
+        <span class="highlight">getChildren()</span>，
+        <span class="highlight">exists()</span>
+        都提供<span class="highlight">Watch</span>的设置，
+        为了实现<span class="highlight">watch</span>机制，
+        我们需要实现<span class="highlight">Watcher</span>接口，
+        实现<span class="highlight">process()</span>方法
+    </li>
+    {% highlight java %}
+public void process(WatchedEvent event);
+    {% endhighlight %}
+    <li>
+        <span class="highlight">WatchedEvent</span>主要属性
+    </li>
+    {% highlight java %}
+public class WatchedEvent {
+    // 事件通知状态
+    final private KeeperState keeperState;
+    // 事件类型
+    final private EventType eventType;
+    // 节点路径
+    private String path;
+
+    ...
+}
+    {% endhighlight %}
+    <li>
+        事件状态<span class="highlight">KeeperState</span>分为
+    </li>
+    {% highlight java %}
+public enum KeeperState {
+    // Client没有连接到任何集群中的Server
+    Disconnected (0),
+
+    // Client与集群中的某个Server连接
+    SyncConnected (3),
+
+    // 认证失败
+    AuthFailed (4),
+
+    // Client连接到一个只读Server，只能执行读操作
+    ConnectedReadOnly (5),
+
+    // 通知Client已经通过了Sasl认证
+    SaslAuthenticated(6),
+
+    // Client会话已经过期
+    Expired (-112);
+}
+    {% endhighlight %}
+    <li>
+        事件类型<span class="highlight">EventType</span>分为
+    </li>
+    {% highlight java %}
+public enum EventType {
+    // Zookeeper会话状态改变时的事件
+    None (-1),
+    // 节点创建，通过exists调用
+    NodeCreated (1),
+    // 节点删除，通过exists或getData调用
+    NodeDeleted (2),
+    // 节点数据改变，通过exists或getData调用
+    NodeDataChanged (3),
+    // 节点的子节点创建或删除，通过getChildren调用
+    NodeChildrenChanged (4),
+    // 节点数据监听器被删除，通过exists或getData调用
+    DataWatchRemoved (5),
+    // 节点的子节点监听器被删除，通过getChildren调用
+    ChildWatchRemoved (6);
+}
+    {% endhighlight %}
+    <li>
+        <h3>通用模式</h3>
+    </li>
+    <li>
+        在Zookeeper应用中，一个比较通用的代码片段
+    </li>
+    {% highlight java %}
+// 1. 异步调用
+zk.exists("/myZnode", myWatcher,existsCallback, null);
+// 2. 实现回调对象
+StatCallback existsCallback = new StatCallback() {
+    public void processResult(int rc, String path, Object ctx, Stat stat) {
+        // Process the result of the exists call
+    }
+};
+// 3. 如果操作需要设置监听，则实现一个监听类
+Watcher myWatcher = new Watcher() {
+    public void process(WatchedEvent e) {
+        // Process the watch event
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h3>Master-Worker案例</h3>
+    </li>
+    <li>
+        <span class="highlight">Master-Worker</span>架构中涉及到几个主要状态变化的地方
+    </li>
+    <p class="wrap">
+        1. 领导权(Master)改变 <br />
+        2. Master监听Worker列表改变 <br />
+        3. Master监听新的任务提交 <br />
+        4. Worker监听任务分配 <br />
+        5. Client等待任务执行结果
+    </p>
+    <li>
+        <span class="highlight">领导权(Master)改变</span>，
+        当<span class="highlight">主Master</span>崩溃时，
+        <span class="highlight">备份Master</span>需要立即转变为
+        <span class="highlight">主Master</span>，
+        所以<span class="highlight">备份Master</span>需要监听
+        <span class="highlight">主Master</span>节点删除时，
+        自己就要尝试创建创建<span class="highlight">主Master</span>节点。
+        为了设置监听，我们创建一个叫<span class="highlight">masterExistsWatcher</span>的监听器
+    </li>
+    {% highlight java %}
+
+// 选举自己为master
+public void runForMaster(){
+    zk.create("/master", serverId.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE,
+        CreateMode.EPHEMERAL, masterCreateCb, null);
+}
+
+private AsyncCallback.StringCallback masterCreateCb = new AsyncCallback.StringCallback() {
+    public void processResult(int rc, String path, Object ctx, String name) {
+        switch (KeeperException.Code.get(rc)) {
+            case CONNECTIONLOSS:
+                // 检查Master状态
+                checkMaster();
+                break;
+            case OK:
+                // 自己成为了Master
+                state = MasterStates.ELECTED;
+                // 获取领导权
+                takeLeadership();
+                break;
+            case NODEEXISTS:
+                // Master已经存在，自己没被选上
+                state = MasterStates.NOTELECTED;
+                // 监听master存在性
+                masterExists();
+                break;
+            default:
+                state = MasterStates.NOTELECTED;
+                LOG.error("Something went wrong when running for master.");
+        }
+    }
+};
+
+private MasterStates state;
+
+// Master状态
+private enum MasterStates {
+    RUNNING,
+    ELECTED,
+    NOTELECTED
+}
+
+/**
+* 监听master存在性
+*/
+private void masterExists() {
+    zk.exists("/master",
+        masterExistsWatcher, masterExistsCallback, null);
+}
+
+private AsyncCallback.StatCallback masterExistsCallback = new AsyncCallback.StatCallback() {
+    public void processResult(int rc, String path, Object ctx, Stat stat) {
+        switch (KeeperException.Code.get(rc)) {
+            case CONNECTIONLOSS:
+                // 连接失败，继续监听master存在性
+                masterExists();
+                break;
+            case OK:
+                // master节点已不存在(master节点有可能在执行完masterCreateCb和exists之间被删除了
+                if(stat == null) {
+                    state = MasterStates.RUNNING;
+                    // 选举自己为Master
+                    runForMaster();
+                }
+                break;
+            default:
+                // 检查Master状态
+                checkMaster();
+                break;
+        }
+    }
+};
+
+// Master存在性监听器
+private Watcher masterExistsWatcher = new Watcher() {
+    public void process(WatchedEvent e) {
+        // 若master节点已被删除
+        if(e.getType() == Event.EventType.NodeDeleted) {
+            assert "/master".equals(e.getPath());
+            runForMaster();
+        }
+    }
+};
+
+// 获取领导权
+private void takeLeadership() {
+    // ...
+}
+    {% endhighlight %}
+    <li>
+        下图将更清晰阐述<span class="highlight">创建master</span>时，可能出现的操作
+    </li>
+    <img src="{{site.url}}/images/zk/master-create.jpg">
+    <p class="wrap">
+        <span class="highlight">(a)</span>成功创建<span class="highlight">主Master</span>，不许做其他事情。<br />
+        <span class="highlight">(b)</span>如果由于Master存在而创建失败，将对master节点进行监听。<br />
+        <span class="highlight">(c)</span>在
+        <span class="highlight">runForMaster()</span>和<span class="highlight">正在执行exists()</span>
+        之间，master节点有可能被删除，这种情况下，回调<span class="highlight">masterCreateCb</span>
+        就可能认为master节点仍然存在，于是仅仅调用
+        <span class="highlight">masterExists()</span>来监听master节点的存在性，
+        进而会继续在回调<span class="highlight">masterExistsCallback</span>中，
+        执行<span class="highlight">runForMaster()</span>尝试创建master节点，
+        若创建master节点成功，<span class="highlight">masterExistsWatcher</span>将得到通知，
+        但这并没有什么意义，因为是自己创建master造成了变化。<br />
+        <span class="highlight">(d)</span>若<span class="highlight">(c)</span>中创建master节点失败，
+        我们又继续监听<span class="highlight">Master的存在性</span>。
+    </p>
+    <li>
+        <h3>Master监听Worker列表变化</h3>
+    </li>
+
 </ul>
 
 
