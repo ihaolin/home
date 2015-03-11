@@ -1549,6 +1549,63 @@ public void commit(MultiCallback cb, Object ctx);
         <span class="highlight">/assign</span>下创建任务分配节点，
         这里就可以使用<span class="highlight">multi</span>来完成。
     </li>
+    <li>
+        <h3>使用Watches替代显示的缓存管理器</h3>
+    </li>
+    <li>
+        通常我们不愿意Client需要获取Zookeeper数据时，每次都通过
+        <span class="highlight">API</span>去读取，
+        这既费时又消耗服务端资源，最好是在Client做一些数据缓存，
+        当服务端数据发生变化时，则通知Client作数据更新操作(这也是典型的<span class="highlight">观察者模式</span>)
+    </li>
+    <li>
+        <h3>时序保证</h3>
+    </li>
+    <li>
+        当实现Zookeeper应用时，有几个关键的问题需要注意
+    </li>
+    <li>
+        <h4>写时序</h4>
+    </li>
+    <li>
+        Zookeeper状态是跨集群中所有的Server进行复制的，所有Server的<span class="highlight">状态改变时序</span>应该是保持一致的。
+        比如集群中一个Server先创建了一个节点<span class="highlight">/z</span>，
+        然后删除了一个节点<span class="highlight">/z'</span>，那么集群中的其他Server也会以<span class="highlight">相同的时序</span>更新状态。
+    </li>
+    <li>
+        <h4>读时序</h4>
+    </li>
+    <li>
+        在实际中，多个Client可能在不同的时刻看到Zookeeper状态的变化，比如
+    </li>
+    <p class="wrap">
+        1. Client c1更新了节点/z的数据，并收到了确认信息。<br />
+        2. Client c1直接通过TCP发送信息给Client c2，通知c2节点/z状态发生了改变。<br />
+        3. Client c2读取节点/z的状态，但是确观察到c1更新之前的状态
+    </p>
+    <li>
+        就像如图所示的问题
+    </li>
+    <img src="{{site.url}}/images/zk/client-hidden-channel.jpg">
+    <li>
+        要解决这样的问题，我们应该尽量通过
+        <span class="highlight">Watcher</span>来同步状态的更新，
+        而不是让Client之间直接通信。
+    </li>
+    <li>
+        <h4>通知时序</h4>
+    </li>
+    <li>
+        Zookeeper通知时序是根据状态更新的时序来触发通知的。
+    </li>
+    <li>
+        <h3>Watches的羊群效应和可伸缩性</h3>
+    </li>
+    <li>
+        如果1000个Client都监听这某个节点，那么当对应的事件被触发时，
+        将会为这1000个Client发出通知，这无疑会增大延迟操作。
+        所以对某节点的的某事件监听，最好Client不要太多。
+    </li>
 </ul>
 
 
