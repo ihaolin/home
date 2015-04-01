@@ -1,0 +1,252 @@
+---
+title : Zookeeper深入理解(二)(编程实践之Zookeepr使用警告)
+category : [zookeeper]
+tags : [zookeeper, caveat]
+layout : post
+show : 1
+keywords: zookeeper，caveat，emptor
+---
+
+<ul>
+    <p class="intro">
+        本文将关注Zookeeper中一些比较棘手的方面，主要与<span class="highlight">会话</span>和<span class="highlight">时序</span>相关。
+        虽然不影响我们开发，但当遇到这些问题时，能够有更好的理解。
+    </p>
+
+
+    <li>
+        <h2>使用ACLs</h2>
+    </li>
+    <p>
+        <span class="highlight">访问权限</span>在创建节点时设置，并且不会继承父节点的访问权限设置。
+        Zookeeper通过<span class="highlight">access control lists (ACLs)</span>来控制访问，
+        一个<span class="highlight">ACL实体</span>由<span class="highlight">schema:auth-info</span>组成。
+    </p>
+    <li>
+        Zookeeper通过<span class="highlight">addAuthInfo</span>来添加验证信息
+    </li>
+    {% highlight java %}
+/**
+* scheme: 验证方式
+* auth: 授权信息
+*/
+void addAuthInfo(String scheme, byte auth[])
+    {% endhighlight %}
+    <li>
+        <span class="highlight">schema</span>是一些内置的验证方式，如
+        <span class="highlight">world</span>(只能用anyone作为授权信息)，
+        <span class="highlight">super</span>(任何管理员对应的scheme为super，拥有super的Client不会受ACL控制)，
+        <span class="highlight">digest</span>(摘要)，
+        <span class="highlight">ip</span>，
+        <span class="highlight">sasl</span>等。
+    </li>
+    <li>
+        使用<span class="highlight">digest</span>方式进行验证
+    </li>
+    {% highlight bash %}
+# 使用digest模式，用户名为amy，密码摘要为Iq0onHjzb4KyxPAp8YWOIC8zzwY=，访问控制为READ | WRITE | CREATE | DELETE | ADMIN
+digest:amy:Iq0onHjzb4KyxPAp8YWOIC8zzwY=, READ | WRITE | CREATE | DELETE | ADMIN
+    {% endhighlight %}
+    <li>
+        使用<span class="highlight">ip</span>方式进行验证
+    </li>
+    {% highlight bash %}
+# 对10.11.12.0 ~ 10.11.12.255仅有读权限
+ip:10.11.12.0/24, READ
+    {% endhighlight %}
+    <li>
+        <h3>
+            SASL和Kerberos
+        </h3>
+    </li>
+    <li>
+        上面的验证方式会有一些问题。比如，如果某个用户加入或退出某个组，管理员需要该组修改所有ACLs。
+        又如，我们想要修改某个用户的密码，也要修改所有的ACLs。
+        而<a href="http://baike.baidu.com/link?url=_B4ijYyshxDfslvHbqS2oATE93xEi5XwXW0G2C6Sr55ABJcxt1gGvuGmU6SYF6QEq7cP7CUVLwnbYVgnvzXw9_" target="_blank">SASL</a>验证方式可以解决这种问题。
+        SASL全称Simple Authentication and Security Layer，是一种用来扩充C/S模式验证能力的机制。
+        在Zookeeper中，SASL使用<a href="http://zh.wikipedia.org/wiki/Kerberos" target="_blank">Kerberos</a>验证协议。
+        SASL是一种扩展的Zookeeper验证方式，需要配置才能使用，可以在配置文件中配置
+        <span class="highlight">authProvider.XXX</span>或者在系统属性中配置
+        <span class="highlight">zookeeper.authProvider.XXX</span>，其中<span class="highlight">XXX</span>为全类名，
+        如<span class="highlight">org.apache.zookeeper.server.auth.SASLAuthenticationProvider</span>，这将开启SASL。
+        Zookeeper会在<span class="highlight">ProviderRegistry</span>做Provider初始化
+    </li>
+    {% highlight java %}
+public class ProviderRegistry {
+    ...
+
+    public static void initialize() {
+        synchronized (ProviderRegistry.class) {
+            if (initialized) return;
+            // ip认证方式
+            IPAuthenticationProvider ipp = new IPAuthenticationProvider();
+            // digest认证方式
+            DigestAuthenticationProvider digp = new DigestAuthenticationProvider();
+            authenticationProviders.put(ipp.getScheme(), ipp);
+            authenticationProviders.put(digp.getScheme(), digp);
+            Enumeration<Object> en = System.getProperties().keys();
+            while (en.hasMoreElements()) {
+                String k = (String) en.nextElement();
+                // 扩展的认证方式
+                if (k.startsWith("zookeeper.authProvider.")) {
+                    String className = System.getProperty(k);
+                    try {
+                        Class<?> c = ZooKeeperServer.class.getClassLoader().loadClass(className);
+                        AuthenticationProvider ap = (AuthenticationProvider)c.newInstance();
+                        authenticationProviders.put(ap.getScheme(), ap);
+                    } catch (Exception e) {
+                        LOG.warn("Problems loading " + className,e);
+                    }
+                }
+            }
+            initialized = true;
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h3>扩展新的验证方式</h3>
+    </li>
+    <li>
+        如果想自己扩展新的验证方式，则需要实现AuthenticationProvider接口，并作对应配置。
+    </li>
+    {% highlight java %}
+public interface AuthenticationProvider {
+    /**
+    * 认证方式名称
+    */
+    String getScheme();
+
+    /**
+    * 该方法在Client发送验证信息后调用
+    * @param cnxn
+    *                接收验证信息的连接对象
+    * @param authData
+    *                验证信息
+    */
+    KeeperException.Code handleAuthentication(ServerCnxn cnxn, byte authData[]);
+
+    /**
+    * 验证id是否匹配对应的ACL记录的表达式id
+    */
+    boolean matches(String id, String aclExpr);
+
+    /**
+    * 该Provider的验证是否用来标识节点的创建者
+    */
+    boolean isAuthenticated();
+
+    /**
+    * 验证信息id是否有效
+    */
+    boolean isValid(String id);
+}
+    {% endhighlight %}
+    <li>
+        <h2>
+            会话恢复
+        </h2>
+    </li>
+    <li>
+        想想Zookeeper客户端崩溃和恢复的情形。当恢复时，我们需要考虑几个问题。
+        首先，Zookeeper的状态会和Cient崩溃时的状态不一致，在Client崩溃这段时间内，
+        很有可能有其他Client对Zookeeper进行了更新操作，<span class="highlight">所以不建议Client缓存一些Zookeeper的状态</span>，
+        而是始终通过Zookeeper来进行状态协调。
+        第二个
+        重要的问题，Client发送给Zookeeper的操作请求时，Client崩溃了，但当恢复时，该任务可能已经完成。
+        因此，Client恢复时，应该做一些Zookeeper状态清理工作。比如Master在删除一个被分配的任务前崩溃了，那么在其恢复时，就须要删除该任务。
+    </li>
+    <li>
+        <h2>当节点被重新创建时，版本将被重置</h2>
+    </li>
+    <li>
+        当节点被删除并再次创建时，其版本号将被重置。这可能会出现一些问题，比如，当Client获取的节点(版本为1)的数据，并试图更新节点的数据，但在更新时，该节点被删除并重新创建(version依然是1)，版本号虽然还是匹配了，但可能节点的数据是不正确的。
+    </li>
+    <li>
+        <h3>sync调用</h3>
+    </li>
+    <li>
+        当Client仅仅通过读写Zookeeper进行通信时，
+        就没必要担心<span class="highlight">sync</span>调用。
+        但当Client会在Zookeeper以外进行通信时(比如Client c1通过TCP通道直接与Client c2进行通信，并进行状态更新操作等)，
+        Client会调用<span class="highlight">sync</span>，接着调用<span class="highlight">getData()</span>
+    </li>
+    {% highlight java %}
+zk.sync(path, voidCb, ctx);
+zk.getData(path, watcher, dataCb, ctx);
+    {% endhighlight %}
+    <li>
+        当服务端处理<span class="highlight">sync</span>时，会刷新
+        <span class="highlight">Leader</span>会刷新和Client连接的<span class="highlight">Follower</span>之间的连接,
+        刷新的时候就是<span class="highlight">getData()</span>返回的时候，这样可以同步到Client在发起sync调用时，服务端发生的状态改变。
+    </li>
+    <li>
+        <h2>时序保证</h2>
+    </li>
+    <li>
+        尽管Zookeeper保证一个会话中保证客户端操作是有序的，但非Zookeeper控制范围的情形却有可能改变这种顺序。
+        我们需要注意这些以确保预期的行为, 这里会讨论三种情况。
+    </li>
+    <li>
+        <h3>连接失败的时序</h3>
+    </li>
+    <li>
+        一旦发生连接失败的事件，Zookeeper将取消请求处理，对于<span class="highlight">同步调用</span>，将会抛出异常，
+        而<span class="highlight">异步调用</span>，则会在回调函数中返回错误码。下面的例子，也表明了
+        <span class="highlight">ConnectionLoss</span>会引起的问题：
+    </li>
+    <p class="wrap">
+        1. Client提交了执行op1的请求。
+        2. Client发现了<span class="highlight">ConnectionLoss</span>发生，并尝试取消执行op1的请求。
+        3. 在会话过期前，Client重连上了Server。
+        4. Client提交了执行op2的请求。
+        5. op2被成功执行。
+        6. op1返回了<span class="highlight">ConnectionLoss</span>。
+        7. Client又重新提交op2。
+    </p>
+    <li>
+        上面这种情况，Client先提交op1，再提交op2，然而却先获取到op2的结果。
+        在一个提交出现<span class="highlight">ConnectionLoss</span>，
+        我们可能在回调处理中尝试重新提交，这可能造成无限的重试，这时可以设置重试次数，
+        而要保证op1和op2执行顺序，则可以在op1成功执行后，再提交op2，
+        但这同时限制了任务只能串行执行。
+    </li>
+    <li>
+        <h3>同步API和多线程的时序</h3>
+    </li>
+    <li>
+        当我们在多线程应用中使用通过API时，需要注意时序问题。
+        意味着当我们在多个线程中提交同步操作时，有可能以不一样的顺序获取到返回结果，
+    </li>
+    <li>
+        <h3>同步和异步调用的时序</h3>
+    </li>
+    <li>
+        当混合使用同步是异步API时，同样有可能造成时序问题。
+        比如Client执行了两个异步调用Aop1和Aop2，在Aop1的回调处理函数中有执行同步调用Sop1，
+        Sop1将阻塞Zookeeper Client的分发线程，直到Sop1返回，这样获取的结果顺序就为Aop1，Sop1，Aop2了。
+    </li>
+    <li>
+        <h3>数据和子节点限制</h3>
+    </li>
+    <li>
+        Zookeeper默认限制每个请求传输的数据大小为<span class="highlight">1MB</span>，
+        这也限制了节点的最大数据量和父节点的子节点数目，
+        <span class="highlight">1MB</span>的限制看起来有点不合理，
+        但这也是为了保证高性能。当某个节点的数据量太大时，在传输数据时，很可能会延迟，
+        同样获取子节点时也有可能出现这样的情况。
+    </li>
+    <li>
+        <h3>嵌入Zookeeper服务器</h3>
+    </li>
+    <li>
+        将Zookeeper嵌入到应用中，似乎看起来很有意思，这样可以减少外部环境依赖，
+        但是，当Zookeeper发生异常时，我们同样需要处理，这也使得应用和Zookeeper耦合在一起，
+        所以不建议这样做。如果确实需要这么做，可以尝试<span class="highlight">ZooKeeper tests</span>
+    </li>
+</ul>
+
+
+
+
+
