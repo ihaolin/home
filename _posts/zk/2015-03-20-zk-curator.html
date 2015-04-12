@@ -1,0 +1,435 @@
+---
+title : Zookeeper深入理解(二)(编程实践之高级API:Curator)
+category : [zookeeper]
+tags : [zookeeper, curator]
+layout : post
+show : 1
+keywords: zookeeper，curato
+---
+
+<ul>
+    <p class="intro">
+        <span class="highlight">Curator</span>是基于Zookeeper Client的一套高级API集，
+        其主要目的是隐藏Zookeeper复杂的连接管理细节，其实现了一些基本的工具，如<span class="highlight">锁</span>，
+        <span class="highlight">缓存</span>等，像
+        <span class="highlight">create</span>，
+        <span class="highlight">delete</span>，
+        <span class="highlight">getData</span>等操作，允许我们<span class="highlight">链式调用</span>，
+        被称为<span class="highlight">fluent</span>，同时也提供了如
+        <span class="highlight">命名空间</span>，
+        <span class="highlight">自动重连</span>等功能。本文将使用
+        <span class="highlight">Curator</span>来实现之前的<span class="highlight">Master</span>。
+    </p>
+
+
+    <li>
+        <h2>
+            Curator客户端
+        </h2>
+    </li>
+    <li>
+        在使用Curator客户端前，我们需要先通过工厂方法创建客户端
+    </li>
+    {% highlight java %}
+/**
+ * connectString: zookeeper服务器列表
+ * retryPolicy: 当发生连接失败时，采取的策略
+ */
+CuratorFramework zkc = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
+    {% endhighlight %}
+    <li>
+        <h2>
+            Fluent API
+        </h2>
+    </li>
+    <li>
+        <span class="highlight">Fluent API</span>允许我们执行链式调用。比如之前，
+        我们创建节点的操作为
+    </li>
+    {% highlight java %}
+zk.create("/mypath", new byte[0],
+            ZooDefs.Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+    {% endhighlight %}
+    <li>
+        而通过<span class="highlight">Fluent API</span>大概为
+    </li>
+    {% highlight java %}
+zkc.create().withMode(CreateMode.PERSISTENT).forPath("/mypath", new byte[0]);
+    {% endhighlight %}
+    <li>
+        <span class="highlight">create()</span>方法将返回一个
+        <span class="highlight">CreateBuilder</span>实例，
+        后续调用将会对<span class="highlight">CreateBuilder</span>进行扩展，
+        Builders也支持<span class="highlight">delete</span>，
+        <span class="highlight">setData</span>，
+        <span class="highlight">checkExists</span>，
+        <span class="highlight">getChildren</span>等操作。
+        同时，我们也可以通过<span class="highlight">inBackground()</span>方法进行异步调用
+    </li>
+    {% highlight java %}
+zkc.create().inBackground().withMode(CreateMode.PERSISTENT).forPath("/mypath", new byte[0]);
+    {% endhighlight %}
+    <li>
+        我们也可以通过<span class="highlight">watched()</span>方法进行进行监听
+    </li>
+    {% highlight java %}
+zkc.getData().inBackground().watched().forPath("/mypath");
+    {% endhighlight %}
+    <li>
+        <h2>监听器</h2>
+    </li>
+    <li>
+        <span class="highlight">监听器</span>将处理Curator库生成的事件，我们仅需要将通过Curator客户端注册这些监听器即可。
+        我们需要实现一个<span class="highlight">CuratorListener</span>
+    </li>
+    {% highlight java %}
+CuratorListener masterListener = new CuratorListener() {
+
+    public void eventReceived(CuratorFramework client, CuratorEvent event) {
+        try {
+            switch (event.getType()) {
+                case CHILDREN:
+                    //...
+                    break;
+                case CREATE:
+                    //...
+                    break;
+                case DELETE:
+                    //...
+                    break;
+                case WATCHED:
+                    //...
+                    break;
+            }
+        } catch(Exception e){
+            //...
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        然后我们需要注册监听器
+    </li>
+    {% highlight java %}
+client = CuratorFrameworkFactory.newClient(hostPort, retryPolicy);
+client.getCuratorListenable().addListener(masterListener);
+    {% endhighlight %}
+    <li>
+        有一个专门用于监听后台线程发生异常时的监听器<span class="highlight">UnhandledErrorListener</span>
+    </li>
+    {% highlight java %}
+UnhandledErrorListener errorsListener = new UnhandledErrorListener() {
+    public void unhandledError(String message, Throwable e) {
+        LOG.error("Unrecoverable error: " + message, e);
+        try {
+            //...
+        } catch (IOException ioe) {
+            LOG.warn( "Exception when closing.", ioe );
+        }
+    }
+};
+client.getUnhandledErrorListenable().addListener(errorsListener);
+    {% endhighlight %}
+    <li>
+        <h2>Curator中的状态改变</h2>
+    </li>
+    <li>
+        Curator暴露了一些不同于Zookeeper的状态集，比如有
+        <span class="highlight">SUSPENDED</span>状态，
+        使用<span class="highlight">LOST</span>状态表示会话过期，下面是Curator中的连接状态机
+    </li>
+    <img src="{{site.url}}/images/zk/curator-conn-states.jpg">
+    <li>
+        还有一个额外的<span class="highlight">READ_ONLY</span>状态，
+        但和我们的案例无关，当Zookeeper只读模式被开启，并且Client连接的Server进入只读模式时，
+        连接将变成只读的，只读的Server将不能参与投票，
+        这时，Client将丢失任何Zookeeper集群的状态更新。
+        如果Client发出了更新操作，并且集群中的部分Server能够达到投票数，
+        那么这种更新操作是可以的。
+    </li>
+    <li>
+        <h2>两个边界问题</h2>
+    </li>
+    <li>
+        有两个有意思的错误，Curator处理得很好。
+        第一个是<span class="highlight">创建有序节点</span>时出现的错误，
+        第二个则是<span class="highlight">删除节点</span>时发生的错误。
+    </li>
+    <p class="wrap">
+        <span class="highlight">有序节点</span>:
+        如果Client在获取到Server返回的有序节点的名称之前，Server崩溃或者Client连接断开了，
+        那么Client将不能知道创建的节点的名称，这时可能Client需要重新发起调用，为了解决这个问题，
+        <span class="highlight">CreateBuilder</span>提供了
+        <span class="highlight">withProtection</span>方法，
+        来告诉Curator客户端用一个唯一标识符作为有序节点的前缀，当Client创建有序节点失败，重试的时候，
+        就能根据该标识符判断有序节点是否创建成功。
+    </p>
+    <p class="wrap">
+        <span class="highlight">删除保证</span>:
+        同样，当Client执行delete操作后断开了连接，
+        那么将不能知道该节点是否被成功删除，
+        当该节点的存在性关乎到某些资源的请求和释放时，
+        这就比较关键了，Curator客户端提供了一个
+        <span class="highlight">DeleteBuilder</span>接口来保证节点被成功删除(只要Curator客户端实例是有效的)。
+    </p>
+    <li>
+        <h2>代码实例</h2>
+    </li>
+    <li>
+        Curator提供了多种工具，可见<a href="http://curator.apache.org/curator-recipes/index.html" target="_blank">这里</a>。这里主要介绍
+        <span class="highlight">LeaderLatch</span>，
+        <span class="highlight">LeaderSelector</span>，
+        <span class="highlight">PathChildrenCache</span>。
+    </li>
+    <li>
+        <h3>Leader Latch</h3>
+    </li>
+    <li>
+        <span class="highlight">LeaderLatch</span>可用于选举Master，如
+    </li>
+    {% highlight java %}
+leaderLatch = new LeaderLatch(client, "/master", myId);
+    {% endhighlight %}
+    <li>
+        之后我们还需要注册一个<span class="highlight">LeaderLatchListener</span>监听器，
+        实现<span class="highlight">isLeader</span>和<span class="highlight">notLeader</span>
+        方法
+    </li>
+    {% highlight java %}
+/**
+ * 当Client变成Leader时调用
+ */
+public void isLeader() {            
+    try{
+        // 启动wokers
+        workersCache.getListenable().addListener(workersCacheListener);
+        workersCache.start();
+        // 恢复未分配的任务
+        (new RecoveredAssignments(client.getZookeeperClient().getZooKeeper())).recover( new RecoveryCallback() {
+            public void recoveryComplete (int rc, List<String> tasks) {
+                try{
+                    if(rc == RecoveryCallback.FAILED) {
+                        LOG.warn("Recovery of assigned tasks failed.");
+                    } else {
+                        LOG.info( "Assigning recovered tasks" );
+                        // 等待恢复的任务数，设置一个Latch
+                        recoveryLatch = new CountDownLatch(tasks.size());
+                        // 分配任务
+                        assignTasks(tasks);
+                    }
+
+                    new Thread( new Runnable() {
+                        public void run() {
+                            try{
+                                // 等待所有任务恢复完成
+                                recoveryLatch.await();
+                                // 启动任务，并监听任务缓存
+                                tasksCache.getListenable().addListener(tasksCacheListener);
+                                tasksCache.start();
+                            } catch (Exception e) {
+                                LOG.warn("Exception while assigning and getting tasks.", e  );
+                            }
+                        }
+                    }).start();
+                } catch (Exception e) {
+                    LOG.error("Exception while executing the recovery callback", e);
+                }
+            }
+        });
+    } catch (Exception e) {
+        LOG.error("Exception when starting leadership", e);
+    }
+}
+
+/**
+ * Client未能成为Leader时调用
+ */
+@Override
+public void notLeader() {
+    LOG.info( "Lost leadership" );
+    try{
+        close();
+    } catch (IOException e) {
+        LOG.warn("Exception while closing", e);
+    }
+}
+    {% endhighlight %}
+    <li>
+        上述代码片段我们放在实现了
+        <span class="highlight">LeaderLatchListener</span>接口的
+        <span class="highlight">CuratorMasterLatch</span>中，
+        所以我们还需要注册将自己到<span class="highlight">LeaderLatch</span>的监听器中
+    </li>
+    {% highlight java %}
+ public void runForMaster() throws Exception {
+    // 注册监听器
+    client.getCuratorListenable().addListener(masterListener);
+    client.getUnhandledErrorListenable().addListener(errorsListener);
+
+    LOG.info( "Starting master selection: " + myId);
+    // 开始Master选举
+    leaderLatch.addListener(this);
+    leaderLatch.start();
+}
+    {% endhighlight %}
+    <li>
+        <h3>Leader Selector</h3>
+    </li>
+    <li>
+        <span class="highlight">LeaderSelector</span>也是用来选举Master的。
+        但其使用的是监听器接口是<span class="highlight">LeaderSelectorListener</span>，
+        我们需要实现<span class="highlight">takeLeadership</span>
+        和<span class="highlight">stateChanged</span>方法
+    </li>
+    {% highlight java %}
+leaderSelector = new LeaderSelector(client, "/master", this);
+    {% endhighlight %}
+    <li>
+        实现<span class="highlight">takeLeadership</span>
+        和<span class="highlight">stateChanged</span>
+    </li>
+    {% highlight java %}  
+/**
+ * 获取到领导权后被调用
+ */
+@Override
+public void takeLeadership(CuratorFramework client) throws Exception {
+    // 启动Worker
+    workersCache.getListenable().addListener(workersCacheListener);
+    workersCache.start();
+
+    // 恢复之前Master未分配的任务
+    (new RecoveredAssignments(client.getZookeeperClient().getZooKeeper())).recover( new RecoveryCallback() {
+        public void recoveryComplete (int rc, List<String> tasks) {
+            try{
+                if(rc == RecoveryCallback.FAILED) {
+                    LOG.warn("Recovery of assigned tasks failed.");
+                } else {
+                    LOG.info( "Assigning recovered tasks" );
+                    recoveryLatch = new CountDownLatch(tasks.size());
+                    assignTasks(tasks);
+                }
+
+
+                new Thread( new Runnable() {
+                    public void run() {
+                        try{
+                            //等待所有任务恢复完成
+                            recoveryLatch.await();
+                            // 启动任务
+                            tasksCache.getListenable().addListener(tasksCacheListener);
+                            tasksCache.start();
+                        } catch (Exception e) {
+                            LOG.warn("Exception while assigning and getting tasks.", e  );
+                        }
+                    }
+                }).start();
+
+                // 表明Client获取到了Leader权
+                leaderLatch.countDown();
+            } catch (Exception e) {
+                LOG.error("Exception while executing the recovery callback", e);
+            }
+        }
+    });
+
+    // 阻止Master关闭前，就释放了Leader权
+    closeLatch.await();
+
+}
+
+/**
+ * 连接状态发生变化时被调用
+ */
+@Override
+public void stateChanged(CuratorFramework client, ConnectionState newState)
+{
+    switch(newState){
+        case CONNECTED:
+            //Nothing to do in this case.
+            break;
+        case RECONNECTED:
+            // 再次成为Leader
+            break;
+        case SUSPENDED:
+            
+            break;
+        case LOST:
+            try{
+                // 断开连接，就关闭自己
+                close(); 
+            } catch (IOException e) {
+                LOG.warn( "Exception while closing", e );
+            }
+            break;
+        case READ_ONLY:
+            // ...
+            break;
+    } 
+}
+    {% endhighlight %}
+    <li>
+        类似需要<span class="highlight">runForMaster</span>
+    </li>
+    {% highlight java %}
+public void runForMaster() {
+    client.getCuratorListenable().addListener(masterListener);
+    client.getUnhandledErrorListenable().addListener(errorsListener);
+    leaderSelector.setId(myId);
+    leaderSelector.start();
+}
+    {% endhighlight %}
+    <li>
+        <h3>Children Cache</h3>
+    </li>
+    <li>
+        代码中我们使用<span class="highlight">PathChildrenCache</span>获取worker列表和task列表。
+        <span class="highlight">PathChildrenCache</span>会保存一份本地缓存，当有变化时，
+        会通过我们注册的监听器通知我们。
+    </li>
+    <li>
+        监听Worker列表有Worker删除时
+    </li>
+    {% highlight java %}
+    PathChildrenCacheListener workersCacheListener = new PathChildrenCacheListener() {
+        public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) {
+            if(event.getType() == Type.CHILD_REMOVED) {
+                try{
+                    // 将分配给该Worker的task列表重新进行分配
+                    getAbsentWorkerTasks(event.getData().getPath().replaceFirst("/workers/", ""));
+                } catch (Exception e) {
+                    LOG.error("Exception while trying to re-assign tasks", e);
+                }
+            } 
+        }
+    };
+    {% endhighlight %}
+    <li>
+        对于任务列表，我们需要监听有新的任务提交时，需要进行分配
+    </li>
+    {% highlight java %}
+PathChildrenCacheListener tasksCacheListener = new PathChildrenCacheListener() {
+    public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) {
+        if(event.getType() == Type.CHILD_ADDED) {
+            try{
+                assignTask(event.getData().getPath().replaceFirst("/tasks/", ""),
+                        event.getData().getData());
+            } catch (Exception e) {
+                LOG.error("Exception when assigning task.", e);
+            }   
+        }
+    }
+};
+    {% endhighlight %}
+    <li>
+        以上代码可见
+        <a href="{{site.url}}/codes/CuratorMasterLatch.java">CuratorMasterLatch</a>，
+        <a href="{{site.url}}/codes/CuratorMasterSelector.java">CuratorMasterSelector</a>，
+        <a href="{{site.url}}/codes/CuratorMaster.java">CuratorMaster</a>。
+    </li>
+</ul>
+
+
+
+
+
