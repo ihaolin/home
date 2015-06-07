@@ -33,6 +33,14 @@ h1, h2, h3, h4, h5, h6 {
     height: 100px;
 }
 
+.sidebar .alipay{
+    padding: 10px 0px 10px 55px;
+}
+.sidebar .alipay img{
+    width: 150px;
+    height: 150px;
+}
+
 #sidebar-menu a{
     color: #00B5AD;
     line-height: 20px;
