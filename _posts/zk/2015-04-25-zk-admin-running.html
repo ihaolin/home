@@ -1,0 +1,610 @@
+---
+title : Zookeeper深入理解(三)(Zookeeper管理之运维)
+category : [zookeeper]
+tags : [zookeeper, admin, maintain]
+layout : post
+show : 1
+keywords: zookeeper，维护
+---
+
+<ul>
+    <p class="intro">
+       当Zookeeper集群在生产中变得愈发庞大时，如何能更好的管理和维护这些服务器，将是本文所要探讨的。
+    </p>
+
+
+    <li>
+        <h1>配置Zookeeper</h1>
+    </li>
+    <p class="wrap">
+        Zookeeper基本的配置都放在<span class="highlight">zoo.cfg</span>文件中，
+        没有特别需求，每个Server可以共享同一份该文件。为了多个Server能够彼此区别，
+        在Zookeeper的<span class="highlight">data</span>目录下会放置一个<span class="highlight">myid</span>文件，
+        用一个唯一数字标识自己。<span class="highlight">配置参数</span>通常可以配置在文件中，或者通过
+        <span class="highlight">-D</span>的形式来指定，但配置文件的的属性具有更高的优先级。
+    </p>
+    <li>
+        <h2>基本配置</h2>
+    </li>
+    <li>
+        <h3>clientPort</h3>
+    </li>
+    <p class="wrap">
+        Client连接Server使用的端口，如果Server没有设置<span class="highlight">clientPortAddress</span>，
+        Server将监听在所有网卡上，默认端口为<span class="highlight">2181</span>。
+    </p>
+    <li>
+        <h3>dataDir和dataLogDir</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">dataDir</span>用于存储内存DB的快照和Server的id，快照是在后台线程中进行写入的，不会锁住DB，
+        因此<span class="highlight">dataDir</span>没有必要使用专门的设备。
+        <span class="highlight">dataLogDir</span>用于存储事务日志，事务日志的写操作是十分敏感的，通常应该使用专门的设备。
+    </p>
+    <li>
+        <h3>tickTime</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">tick</span>是Zookeeper的基本时间测量单位(毫秒)，它也决定了会话超时的桶(bucket)大小，默认为3000ms。
+    </p>
+    <li>
+        <h2>存储配置</h2>
+    </li>
+    <li>
+        <h3>preAllocSize</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">preAllocSize</span>事务日志文件的预分配大小(kb)(<span class="highlight">zookeeper.preAllocSize</span>)。当Server写入事务日志时，
+        会一次性申请<span class="highlight">preAllocSize</span>大小的文件块，这会减少磁盘空间分配和元数据更新的开销，更重要的是减少了寻址的次数。
+        <span class="highlight">preAllocSize</span>默认为64M。事务日志文件会随每一次快照后，新建另一个日志文件，如每次快照之间产生的事务不是很多，
+        那64M大小确实偏大，比如每1000个事务就进行一次快照，每个事务大概100字节，那<span class="highlight">preAllocSize</span>设置为100KB要合理得多。
+        而默认的<span class="highlight">preAllocSize</span>对于默认的<span class="highlight">snapCount</span>，及事务日志平均512字节的情况是合理的。
+    </p>
+    <li>
+        <h3>snapCount</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">snapCount</span>即快照间的事务数量(zookeeper.snapCount)，默认值为100000。
+        因为快照是比较影响性能的，但只要集群中的Server不是同时进行快照，就不会出现性能问题，出于这个原因，
+        实际快照的事务日志数将是一个接近<span class="highlight">snapCount</span>的随机数。
+        如果上一次快照还没有结束，本次快照将等待上一次快照结束再开始。
+    </p>
+    <li>
+        <h3>autopurge.snapRetainCount</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">autopurge.snapRetainCount</span>表示Zookeeper清理快照时，需要保留的快照数。
+        Zookeeper会每隔一段时间，对快照进行垃圾回收，
+        <span class="highlight">autopurge.snapRetainCount</span>指定了需要保留多少个快照，默认值为<span class="highlight">3</span>。
+    </p>
+    <li>
+        <h3>autopurge.purgeInterval</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">autopurge.purgeInterval</span>表明了旧快照和日志清理工作的间隔时间(小时)，
+        默认设置为0，这时必须手动执行<span class="highlight">zkCleanup.sh</span>脚本进行清理工作。
+    </p>
+    <li>
+        <h3>fsync.warningthresholdms</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">fsync.warningthresholdms</span>表明同步存储变化的时间超过该值，
+        如果系统同步调用<span class="highlight">sync</span>花费太多时间，将严重影响系统性能，当花费的时间超过该值时，将发出一个提醒。
+    </p>
+    <li>
+        <h3>weight.x=n</h3>
+    </li>
+    <p class="wrap">
+        和<span class="highlight">group</span>选项一起使用，当正在形成法定人数时，
+        这将分配一个权重n给Server x，n将作为投票的权重值，默认为1。
+    </p>
+    <li>
+        <h3>traceFile</h3>
+    </li>
+    <p class="wrap">
+        用于记录Zookeeper操作的跟踪文件，格式为<span class="highlight">traceFile.year.month.day</span>，
+        须设置为<span class="highlight">requestTraceFile</span>才能生效，这可能会引起CPU和磁盘争用，
+        应避免与日志文件<span class="highlight">dataLogDir</span>一样，该配置不用加上<span class="highlight">zookeeper</span>前缀。
+    </p>
+    <li>
+        <h2>网络配置</h2>
+    </li>
+    <li>
+        <h3>globalOutstandingLimit</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">globalOutstandingLimit</span>(zookeeper.globalOutstandingLimit)限制Zookeeper最大的未完成请求数，默认为1000。
+        Client提交请求的速度可以比Server处理请求的速度快，这将导致请求被排队，最终导致Server内存溢出，为了防止这种情况发生，
+        一旦客户端排队请求达到该值，Server将对客户端请求进行控制。但<span class="highlight">globalOutstandingLimit</span>
+        并不是一个硬性限制，每个Client必须至少有一个未完成的请求，或者连接正开始超时。因此，在未完成请求数达到该值后，
+        只要Client没有挂起的请求，Server则会读取来自Client的连接。
+    </p>
+    <li>
+        <h3>maxClientCnxns</h3>
+    </li>
+    <p class="wrap">
+        允许每个IP最大的并发Socket连接数，默认是60，但这个限制是针对某个Server，而不是整个集群。
+    </p>
+    <li>
+        <h3>clientPortAddress</h3>
+    </li>
+    <p class="wrap">
+        Client连接Server的网络地址，通常是内网。
+    </p>
+    <li>
+        <h3>minSessionTimeout</h3>
+    </li>
+    <p class="wrap">
+        当Client创建了Connection，并设置了特定的超时时间，但超时时间不将低于<span class="highlight">minSessionTimeout</span>(ms)，
+        默认为<span class="highlight">2 * tickTime</span>，该值过低会导致错误地判断Client崩溃，同理，过高将延迟判断Client崩溃。
+    </p>
+    <li>
+        <h3>maxSessionTimeout</h3>
+    </li>
+    <p class="wrap">
+        当Client创建了Connection，并设置了特定的超时时间，但超时时间不将高于<span class="highlight">maxSessionTimeout</span>(ms)，
+        默认为<span class="highlight">20 * tickTime</span>
+    </p>
+    <li>
+        <h2>集群配置</h2>
+    </li>
+    <li>
+        请保证集群中的每个Server都具有一致的集群配置。
+    </li>
+    <li>
+        <h3>initLimit</h3>
+    </li>
+    <p class="wrap">
+        Follower初始化连接Leader的超时时间(<span class="highlight">initLimit * tickTime</span>)。
+        当Follower落后Leader很多时，将需要传输很多数据，会耗费比较多的时间，因此
+        <span class="highlight">initLimit</span>大小应该取决于Follower和Leader的
+        <span class="highlight">数据传输量</span>和<span class="highlight">网络传输速度</span>。
+    </p>
+    <li>
+        <h3>syncLimit</h3>
+    </li>
+    <p class="wrap">
+        Follower同步Leader的超时时间(<span class="highlight">initLimit * tickTime</span>)，
+        这将取决于网络延迟和吞吐量。
+    </p>
+    <li>
+        <h3>leaderServes</h3>
+    </li>
+    <p class="wrap">
+        通过<span class="highlight">yes或no</span>指明Leader是否可以接受Client连接(zookeeper.leaderServes)。
+    </p>
+    <li>
+        <h3>server.x=[hostname]:n:n[:observer]</h3>
+    </li>
+    <p class="wrap">
+        配置集群中的Server。(<span class="highlight">该配置所有Server应保持一致</span>)
+        <span class="highlight">x</span>表示Server ID，
+        <span class="highlight">hostname</span>表示Server主机名，
+        <span class="highlight">n</span>表示连接端口，第一个表示发送事务的端口(默认2888)，第二个表示Leader选举使用的端口(默认3888)，
+        <span class="highlight">observer</span>标识该Server为Observer。
+    </p>
+    <li>
+        <h3>cnxTimeout</h3>
+    </li>
+    <p class="wrap">
+        在Leader选举期间，打开连接的超时时间(<span class="highlight">zookeeper.cnxTimeout</span>)。
+        在Leader选举过程，Server互相连接，该值将决定Server在尝试重新连接之前，需要等待的时间。
+    </p>
+    <li>
+        <h2>日志配置</h2>
+    </li>
+    <p class="wrap">
+        Zookeeper使用<span class="highlight">SLF4J</span>作为日志抽象层，默认使用
+        <span class="highlight">Log4J</span>作为日志实现，需在类路径下放置log4j.properties。
+    </p>
+    <li>下面是一份简单的配置</li>
+    {% highlight java %}
+zookeeper.root.logger=INFO, CONSOLE
+zookeeper.console.threshold=INFO
+zookeeper.log.dir=.
+zookeeper.log.file=zookeeper.log
+zookeeper.log.threshold=DEBUG
+zookeeper.tracelog.dir=.
+zookeeper.tracelog.file=zookeeper_trace.log
+log4j.rootLogger=${zookeeper.root.logger}
+log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender
+log4j.appender.CONSOLE.Threshold=${zookeeper.console.threshold}
+log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout
+log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] -
+...
+log4j.appender.ROLLINGFILE=org.apache.log4j.RollingFileAppender
+log4j.appender.ROLLINGFILE.Threshold=${zookeeper.log.threshold}
+log4j.appender.ROLLINGFILE.File=${zookeeper.log.dir}/${zookeeper.log.file}
+log4j.appender.ROLLINGFILE.MaxFileSize=10MB
+log4j.appender.ROLLINGFILE.MaxBackupIndex=10
+log4j.appender.ROLLINGFILE.layout=org.apache.log4j.PatternLayout
+    {% endhighlight %}
+    <li>
+        <h2>配置Zookeeper集群</h2>
+    </li>
+    <li>
+        <h3>主要规则</h3>
+    </li>
+    <p class="wrap">
+        当一个集群有足够的Zookeeper Server开始处理请求时，我们称该服务器集为一个<span class="highlight">Quorum</span>。
+        我们必须要求一个<span class="highlight">Quorum</span>至少一半数的Server构成，
+        若要构成多个<span class="highlight">Quorum</span>，那这些<span class="highlight">Quorum</span>必须有相交的Server，这一点是显然满足的。
+    </p>
+    <li>
+        <h3>可配置的Quorum</h3>
+    </li>
+    <p class="wrap">
+        为了构成一个<span class="highlight">Quorum</span>，投票时需要来自过半的服务器组及过半的服务器的投票数，
+        也就是说，假若集群中有3个服务器组，每个组有3个服务器，每个Server的权重为1，为了形成一个<span class="highlight">Quorum</span>，
+        则需要4个Server的投票：来自组1的两个Server和2个来自不同组的Server。用数学描述就是，
+        假若有G个Server组，需要的Server来自G的一个子集G'(<span class="highlight">|G'| > |G|/2</span>)，
+        另外，对于G'中的每个g，需要g的子集g'的权重W'，至少是g的总权重W一半(<span class="highlight">Wʹ > W/2</span> )。
+    </p>
+    <li>
+        可通过下面的配置创建服务器组
+    </li>
+    {% highlight java %}
+group.x=n[:n] // x代表服务器组编号，n标识server ID(用:隔开)
+    {% endhighlight %}
+    <li>
+        如下配置，有3个Server组，每个Server权重为1，需要2个Server组的2个Server，或者4个Server才能形成一个<span class="highlight">Quorum</span>，
+        若要构成多个<span class="highlight">Quorum</span>，则需要5个Server：
+    </li>
+    {% highlight java %}
+group.1=1:2:3
+group.2=4:5:6
+group.3=7:8:9
+    {% endhighlight %}
+    <p class="wrap">
+        通常在部署Zookeeper时，一个组作为一个数据中心是比较合理的。比如我们有三个数据中心，
+        其中两个都部署3个Server，另外一个只部署1个Server，若其中一个数据中心不可用了，
+        另外两个也能构成一个<span class="highlight">Quorum</span>，
+        这种配置的优点是7台Server中任意4台都能构成一个<span class="highlight">Quorum</span>，
+        缺点是，不同数据中心的服务器数目不均衡，另一个缺点就是，一旦其中一个数据中心不可用，
+        则不容许其他数据中心出现崩溃。
+    </p>
+    <li>
+        为了防止上面的情况发生，可以通过<span class="highlight">weight(权重)</span>来实现(即使只有一个数据中心，仍然可以形成一个<span class="highlight">Quorum</span>)：
+    </li>
+    <p class="highlight">
+        比如，为两个数据中心分别部署3个Server，并将它们分为同一组<span class="highlight">group.1=1:2:3:4:5:6</span>，
+        每个Server权重都默认为1，这时只要有4个Server就能构成一个<span class="highlight">Quorum</span>，
+        但若其中一个数据中心崩溃，即使其他3个Server正常，也不能构成<span class="highlight">Quorum</span>。
+        但假如分配给Server 1更大的权重(<span class="highlight">weight.1=2</span>)，假如Server 1在D1数据中心上，
+        即便其他数据中心都崩溃了，Server 1仍能得到其他2个Server的投票，总共4票，同样能构成<span class="highlight">Quorum</span>。
+    </p>
+    <li>
+        <h3>观察者(Observers)</h3>
+    </li>
+    <p class="wrap">
+        观察者在Zookeeper集群中并不参与保证状态有序更新的投票协议，要配置一个Observers，需在Observers Server的配置文件中加入：
+    </p>
+    {% highlight java %}
+peerType=observer
+    {% endhighlight %}
+    <li>
+        并在每个Server中配置：
+    </li>
+    {% highlight java %}
+server.1:localhost:2181:3181:observer
+    {% endhighlight %}
+    <li>
+        <h2>重配置</h2>
+    </li>
+    <li>
+        当Zookeeper集群不足以支撑Client的请求时，这时需要扩展更多的Zookeeper Server来提供服务，但这并不是很容易，如下面的情况:
+    </li>
+    <img src="{{site.url}}/images/zk/ensemble-extend.png">
+    <li>
+        这时可以停掉集群，重新配置A,B,C,D,E，再启动集群，但这可能发生问题，A,B由于启动慢，C,D,E形成了一个
+        <span class="highlight">Quorum</span>
+    </li>
+    <img src="{{site.url}}/images/zk/ensemble-restart.png">
+    <li>
+        而当A,B启动完成后，C已经成为了Leader，C将告诉A,B删除事务<span class="highlight"><1, 4>，<1, 5>，<1, 6></span>，
+        并同步新的事务<span class="highlight"><2, 1>，<2, 2></span>:
+    </li>
+    <img src="{{site.url}}/images/zk/ensemble-restart-ok.png">
+    <li>
+        然而，Zookeeper提供了重配置的操作，通过将部分配置移到一个动态文件(<span class="highlight">dynamicConfigFile</span>)中来实现重配置，
+        如之前的静态配置为:
+    </li>
+    {% highlight java %}
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir=./data
+dataLogDir=./txnlog
+clientPort=2182
+server.1=127.0.0.1:2222:2223
+server.2=127.0.0.1:3333:3334
+server.3=127.0.0.1:4444:4445
+    {% endhighlight %}
+    <li>
+        可以将需要动态配置的属性放到动态文件中，如clientPort，server等，这时静态文件配置为:
+    </li>
+    {% highlight java %}
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir=./data
+dataLogDir=./txnlog
+dynamicConfigFile=./dyn.cfg
+    {% endhighlight %}
+    <li>
+        dyn.cfg文件:
+    </li>
+    {% highlight java %}
+server.1=127.0.0.1:2222:2223:participant;2181
+server.2=127.0.0.1:3333:3334:participant;2182
+server.3=127.0.0.1:4444:4445:participant;2183
+    {% endhighlight %}
+    <li>
+        这时就可以通过以下命令来移除或增加新的Server:
+    </li>
+    {% highlight java %}
+reconfig -remove 2,3 -add server.4=localhost:2111:2112;2113,6=localhost:2114:2115:observer;2116
+    {% endhighlight %}
+    <li><span class="highlight">重配置在Zookeeper3.5.0后被支持</span></li>
+    <li>
+        <h2>管理客户端连接字符串</h2>
+    </li>
+    <li>
+        当服务器集群数目发生变化时，客户端的连接配置仍然是之前的Server列表，因此只能连接到已配置的Server列表，如:
+    </li>
+    <img src="{{site.url}}/images/zk/client-conn-string1.png">
+    <li>
+        但可以通过DNS，利用其一个<span class="highlight">hostname对应多个IP</span>的特性，来实现客户端能访问集群中所有的Server，如:
+    </li>
+    <img src="{{site.url}}/images/zk/client-conn-string2.png">
+    <li>
+        <h2>配额(Quotas)</h2>
+    </li>
+    <p class="wrap">
+        Zookeeper对节点的数量及其存储的数据量会有一定的限制，并且也允许自由配置这些限制，
+        一旦超过这些限制，日志中将记录警告信息，但是操作还是会被继续执行。
+        为了创建应用<span class="highlight">/application/superApp</span>的配额，
+        需要为节点/application/superApp创建两个子节点:
+        <span class="highlight">zookeeper_limits</span>和
+        <span class="highlight">zookeeper_stats</span>。
+        节点数量的限制叫做<span class="highlight">计数(count)</span>，
+        数据量的限制叫做<span class="highlight">字节(bytes)</span>。
+        <span class="highlight">zookeeper_limits</span>和
+        <span class="highlight">zookeeper_stats</span>
+        的配额都被定义为<span class="highlight">count=n,bytes=m</span>，
+        <span class="highlight">zookeeper_limits</span>时，
+        n和m表示警告被触发的级别(如果其中一个为-1，则不将被触发)，
+        <span class="highlight">zookeeper_stats</span>时，
+        n表示子树中节点的数量，m表示子树中节点的数据量(不包括节点元数据)。
+    </p>
+    <li>
+        我们可以通过<span class="highlight">zkCli</span>来设置配额，如:
+    </li>
+    {% highlight java %}
+[zk: localhost:2181(CONNECTED) 2] create /application ""
+Created /application
+[zk: localhost:2181(CONNECTED) 3] create /application/superApp super
+Created /application/superApp
+[zk: localhost:2181(CONNECTED) 4] setquota -b 10 /application/superApp
+Comment: the parts are option -b val 10 path /application/superApp
+[zk: localhost:2181(CONNECTED) 5] listquota /application/superApp
+absolute path is /zookeeper/quota/application/superApp/zookeeper_limits
+Output quota for /application/superApp count=-1,bytes=10
+Output stat for /application/superApp count=1,bytes=5
+    {% endhighlight %}
+    <li>
+        当再次创建超额的数据时:
+    </li>
+    {% highlight java %}
+create /application/superApp/lotsOfData ThisIsALotOfData
+    {% endhighlight %}
+    <li>
+        日志中将会有提醒信息:
+    </li>
+    {% highlight java %}
+2015-06-20 23:57:15 DataTree [WARN] Quota exceeded: /application/superApp bytes=21 limit=10
+    {% endhighlight %}
+    <li>
+        <h2>文件系统布局和格式</h2>
+    </li>
+    <p class="wrap">
+        之前已经介绍过，Zookeeper中通过两种方式存储数据: <span class="highlight">事务日志</span>和<span class="highlight">快照</span>，
+        这都将以文件存储在本地文件系统中，事务日志文件是事务处理的关键步骤，所以强烈建议为事务日志指定特定的目录。
+    </p>
+    <li>
+        <h3>事务日志</h3>
+    </li>
+    <li>
+        Zookeeper会为事务日志预分配文件大小(<span class="highlight">即preAllocSize</span>)，如:
+    </li>
+    {% highlight java %}
+-rw-r--r--  1 haolin  staff    64M Jun 21 20:50 log.2300000001
+    {% endhighlight %}
+    <li>
+        日志文件名称前缀数字代表epoch(如上面的23)，后缀数字代表第一个zxid的十六进制。
+        对于日志文件中的内容，可以通过Zookeeper中的<span class="highlight">org.apache.zookeeper.server.LogFormatter</span>来查看:
+    </li>
+    {% highlight java %}
+java -classpath zookeeper-3.4.6/zookeeper-3.4.6.jar:zookeeper-3.4.6/lib/log4j-1.2.16.jar:zookeeper-3.4.6/lib/slf4j-log4j12-1.6.1.jar:zookeeper-3.4.6/lib/slf4j-api-1.6.1.jar org.apache.zookeeper.server.LogFormatter log.2300000001
+ZooKeeper Transactional Log File with dbid 0 txnlog format version 2
+6/21/15 8:15:27 PM CST session 0x14e160a4a720000 cxid 0x0 zxid 0x2300000001 createSession 30000
+
+6/21/15 8:16:58 PM CST session 0x14e160a4a720000 cxid 0x3 zxid 0x2300000002 error -101
+
+6/21/15 8:17:03 PM CST session 0x14e160a4a720000 cxid 0x4 zxid 0x2300000003 create '/test,#2222,v{s{31,s{'world,'anyone}}},F,6
+
+6/21/15 8:17:20 PM CST session 0x14e160a4a720000 cxid 0x5 zxid 0x2300000004 create '/test/test1,#2249,v{s{31,s{'world,'anyone}}},F,1
+
+6/21/15 8:50:32 PM CST session 0x14e160a4a720000 cxid 0x0 zxid 0x2300000005 closeSession null
+    EOF reached after 5 txns
+    {% endhighlight %}
+    <li>
+        <h2>快照</h2>
+    </li>
+    <li>
+        快照文件命名格式类似于事务日志文件，如:
+    </li>
+    {% highlight java %}
+-rw-r--r--  1 haolin  staff   308B Sep 30  2014 snapshot.600000001
+-rw-r--r--  1 haolin  staff   296B Sep 30  2014 snapshot.700000001
+    {% endhighlight %}
+    <p class="wrap">
+        快照文件是不用预分配的，其大小真实反映了数据大小，后缀名标识了快照开始时的zxid，
+        当Serer从快照进行恢复时，必须通过zxid进行重新事务广播。
+    </p>
+    <li>
+        类似事务日志文件查看，可以通过<span class="highlight">org.apache.zookeeper.server.SnapshotFormatter</span>查看快照文件
+    </li>
+    {% highlight java %}
+    java -classpath zookeeper-3.4.6/zookeeper-3.4.6.jar:zookeeper-3.4.6/lib/log4j-1.2.16.jar:zookeeper-3.4.6/lib/slf4j-log4j12-1.6.1.jar:zookeeper-3.4.6/lib/slf4j-api-1.6.1.jar org.apache.zookeeper.server.SnapshotFormatter snapshot.600000001
+    ZNode Details (count=4):
+    ----
+    /
+    cZxid = 0x00000000000000
+    ctime = Thu Jan 01 08:00:00 CST 1970
+    mZxid = 0x00000000000000
+    mtime = Thu Jan 01 08:00:00 CST 1970
+    pZxid = 0x00000000000000
+    cversion = 0
+    dataVersion = 0
+    aclVersion = 0
+    ephemeralOwner = 0x00000000000000
+    dataLength = 0
+    ----
+    ...
+    Session Details (sid, timeout, ephemeralCount):
+    0x148c24ebbad0000, 40000, 0
+    {% endhighlight %}
+    <li>
+        <h3>Epoch文件</h3>
+    </li>
+    <li>
+        除了事务日志，快照文件外，额外还有<span class="highlight">acceptedEpoch</span>和<span class="highlight">currentEpoch</span>，
+        记录Server正处于的epoch，如:
+    </li>
+    {% highlight java %}
+    cat currentEpoch
+    35
+    {% endhighlight %}
+    <li>
+        正好和事务日志文件的前缀名一致。
+    </li>
+    <li>
+        <h3>四字母命令</h3>
+    </li>
+    <li>
+       Zookeeper提供了一些四字母命令来监控和监控系统，需通过<span class="highlight">telnet</span>或<span class="highlight">nc</span>来执行命令。
+    </li>
+    <li>
+        <h3>ruok</h3>
+    </li>
+    <p class="wrap">
+        查询Server的状态信息，只要Server运行着就会返回imok，即使其不能与其他Server互连, 仍然会返回imok，因此建议使用
+        <span class="highlight">stat</span>。
+    </p>
+    <li>
+        <h3>stat</h3>
+    </li>
+    <p class="wrap">
+        查询Server的状态和当前的连接信息，如果是Learder或者Follower，会包含最近的zxid。
+    </p>
+    <li>
+        <h3>srvr</h3>
+    </li>
+    <p class="wrap">
+        和<span class="highlight">stat</span>类似，但不提供连接信息。
+    </p>
+    <li>
+        <h3>dump</h3>
+    </li>
+    <p class="wrap">
+        获取当前激活的会话信息，及其过期时间，该命令只能在Leader使用。
+    </p>
+    <li>
+        <h3>conf</h3>
+    </li>
+    <p class="wrap">
+        查看Server启动时的基本配置信息
+    </p>
+    <li>
+        <h3>envi</h3>
+    </li>
+    <p class="wrap">
+        查看Java环境参数
+    </p>
+    <li>
+        <h3>mntr</h3>
+    </li>
+    <p class="wrap">
+        查看比<span class="highlight">stat</span>更详细的信息，对于Leader会更有
+    </p>
+    <li>
+        <h3>wchs</h3>
+    </li>
+    <p class="wrap">
+        查看Server跟踪的监听器简要信息。
+    </p>
+    <li>
+        <h3>wchc</h3>
+    </li>
+    <p class="wrap">
+        查看Server跟踪的监听器详细信息。
+    </p>
+    <li>
+        <h3>wchp</h3>
+    </li>
+    <p class="wrap">
+        查看Server跟踪的监听器，并按照节点路径分组。
+    </p>
+    <li>
+        <h3>cons, crst</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">cons</span>查看Server的详细连接信息，
+        <span class="highlight">crst</span>重置所有的连接计数为0。
+    </p>
+    <li>
+        <h2>JMX监控</h2>
+    </li>
+    <p class="wrap">
+        Java自带的监控工具<span class="highlight">jconsole</span>就可以对Zookeeper进行线程，类实例，VM状态等进行很友好地监控，如:
+    </p>
+    <img src="{{site.url}}/images/zk/zk-jmx-monitor.png">
+    <li>
+        若要进行远程JMX监控，可以在zkServer.sh中加入参数配置，如:
+    </li>
+    {% highlight java %}
+    SERVER_JVMFLAGS="-Dcom.sun.management.jmxremote.password.file=passwd -Dcom.sun.management.jmxremote.port=55555 Dcom.sun.management.jmxremote.ssl=false \Dcom.sun.management.jmxremote.access.file=access"
+    {% endhighlight %}
+    <li>
+        passwd文件，如:
+    </li>
+    {% highlight java %}
+# user password
+admin <password>
+    {% endhighlight %}
+    <li>
+        <h2>工具</h2>
+    </li>
+    <li>
+        在Zookeeper的发行包中，<span class="highlight">contrib</span>就自带了很多有用的工具。
+    </li>
+    <li>
+        <h3>zktreeutil</h3>
+    </li>
+    <p class="highlight">
+        导入和导出Zookeeper数据。
+    </p>
+    <li>
+        <h3>zktop</h3>
+    </li>
+    <p class="wrap">
+        查看Zookeeper的负载情况，类似*nix的<span class="highlight">top</span>。
+    </p>
+    <li>
+        <h3>loggraph</h3>
+    </li>
+    <p class="wrap">
+        日志可视化。
+    </p>
+</ul>
