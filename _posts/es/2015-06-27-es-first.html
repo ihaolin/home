@@ -1,0 +1,264 @@
+---
+title : ElasticSearch深入理解(一)：初探
+category : [elasticsearch]
+tags : [elasticsearch, install, elasticsearch]
+layout : post
+show : 1
+keywords: elasticsearch, install, cluster
+---
+
+<ul>
+    <p class="intro">
+        在现实生活中，大多数面向用户的系统，都应该提供一些基本的查询搜索功能，
+        这将更好帮助用户找到自己想要的数据，不论从性能还是查询能力，
+        都会比DB更强大，从而也是减轻DB压力的一种途径，
+        本文将对ES进行一些初探。
+    </p>
+
+
+    <li>
+        <h2>简介</h2>
+    </li>
+    <p class="wrap">
+        <a href="https://www.elastic.co/" target="_blank">ElasticSearch</a>(下文称ES)是一款分布式且高可扩展的全文搜索和分析引擎，本身是基于Lucene进行开发，
+        同类的应该还有<a href="http://lucene.apache.org/solr/" target="_blank">Solr</a>，<a href=http://hibernate.org/search/"" target="_blank">Hibernate Search</a>等，
+        但ES足够简单易用，提供丰富的API，部署容易。
+    </p>
+    <li>
+        <h2>常用案例</h2>
+    </li>
+    <li>
+        这是一些常用的案例
+    </li>
+    <p class="wrap">
+        1. 典型的<span class="highlight">电商网站</span>，可以让用户搜索商品，类目等。<br>
+        2. 日志查询及分析，ES有一套专门的日志收集，分析，聚合的技术栈:<span class="highlight">Elasticsearch/Logstash/Kibana</span>。<br>
+        3. 预警平台，比如商品价格预警，用户希望在某类某件商品价格降到某个价位时得到通知，可以利用ES的<span class="highlight">Percolator</span>来实现。<br>
+        ...
+    </p>
+    <li>
+        <h2>基本概念</h2>
+    </li>
+    <li>
+        ES中有一些关键的抽象及概念，理解它们也是十分必要的。
+    </li>
+    <li>
+        <h3>
+            Near Realtime(NRT)
+        </h3>
+    </li>
+    <p class="wrap">
+        ES是一个<span class="highlight">近似实时</span>的搜索平台，也就是说，从你索引一个文档开始，到其能被搜索，延迟会很低(通常是1s)。
+    </p>
+    <li>
+        <h3>集群(Cluster)</h3>
+    </li>
+    <p class="wrap">
+        一个集群由多个节点(Server)构成，共同对外提供索引和查询服务。集群默认以<span class="highlight">elasticsearch</span>作为标识，
+        该标识将决定一个节点属于哪一个集群，通常开发和测试保持默认，生产环境再进行定义。
+    </p>
+    <li>
+        <h3>节点(Node)</h3>
+    </li>
+    <p class="wrap">
+        节点是集群中的单个Server，可以存储数据，并提供索引和查询服务。同集群一样，节点也会用字符串来标识自己，
+        若局域网内多个节点以相同的集群名称配置启动，将会自动形成一个集群。
+    </p>
+    <li>
+        <h3>索引(Index)</h3>
+    </li>
+    <p class="wrap">
+        索引就是一些具有相似属性的文档集合。一个索引也通过名称来唯一标识，可以类比为数据库中的Scheme。
+    </p>
+    <li>
+        <h3>类型(Type)</h3>
+    </li>
+    <p class="wrap">
+        类型就是文档所属的类，可以类比为数据库中的表。
+    </p>
+    <li>
+        <h3>文档(Document)</h3>
+    </li>
+    <p class="wrap">
+        文档是索引信息的基本单位，并以JSON格式进行表示。
+    </p>
+    <li>
+        <h3>分片(Shards)及备份(Replicas)</h3>
+    </li>
+    <p class="wrap">
+        单个索引本质上可以存储大量数据(可能超出单个节点的硬件限制)，比如，一个索引里包含了十亿个文档，
+        并占用了1TB磁盘空间，这将不利于单个节点提供查询服务。为了解决这种问题，
+        ElasticSearch具有将索引细分为多个分片(<span class="highlight">Shards</span>)的能力。
+        当你创建索引时，可以定义想要的分片数。分片即是一个具有独立功能的"索引"，可以位于集群中的任何节点上。
+        分片主要有两个原因:
+    </p>
+    <p class="wrap">
+        1. 水平分割扩展容量。<br>
+        2. 跨分片(本质是节点)分发和并行操作，因此提升性能和吞吐量。
+    </p>
+    <p class="wrap">
+        分片如何被分布以及它的文档如何被聚合到搜索请求中，都被ElasticSearch隐藏起来，对用户完全透明。
+        在分布式网络环境中，故障任何时候都可能发生，通过分片实现容错机制是十分有用并被推荐的。为此，
+        ElasticSearch允许对索引分片进行备份，即<span class="highlight">备份分片</span>。备份主要有两个原因:
+    </p>
+    <p class="wrap">
+        1. 当分片失败时提供高可用，需要注意备份分片永远不会和其主分片分配在同一节点上。<br>
+        2. 这将扩展集群的搜索吞吐量，因为所有搜索可以在备份分片上并行执行。
+    </p>
+    <li>
+        大致的总结就是
+    </li>
+    <p class="wrap">
+        每个索引可以分割为多个分片，也可以有0个或多个备份，一旦备份，
+        每个索引将有<span class="highlight">主分片</span>和<span class="highlight">备份分片</span>，
+        分片数和备份数可以在索引被创建时定义，索引创建后，可以动态更新备份数，但不能更新分片数。
+        ElasticSearch默认将每个索引分成5个分片，作1个备份，也就是说，集群中至少有2个节点，
+        那么索引将有5个主分片，5个备份分片。如
+    </p>
+    <img src="{{site.url}}/images/es/1.png">
+    <li>
+        两个节点分别有5个分片，粗线表示的是主分片，细线表示的是备份分片。
+    </li>
+    <li>
+        <h2>安装部署</h2>
+    </li>
+    <li>
+        ElasticSearch(1.5.2)的安装部署比较简单，只需<span class="highlight">JAVA</span>环境(1.7以上)，
+        将安装包解压缩，进入<span class="highlight">bin</span>，执行<span class="highlight">elasticsearch</span>即可，
+        这是自己使用的一个<a href="{{site.url}}/files/es-std-1.5.2.zip">标准包</a>，其中集成了
+        <span class="highlight">Bigdesk</span>，<span class="highlight">Head</span>，
+        <span class="highlight">IK分词器</span>。
+    </li>
+    <li>
+        下面是一份简明的ES脚本
+    </li>
+    {% highlight bash %}
+#!/usr/bin/env bash
+
+ES_HOME=~/Envir/server/es/es1
+ES_PID_FILE=~/Envir/server/es/es1/es.pid
+# java options such as: -Xmx512m -Xms512m
+JAVA_OPTIONS="-Xmx512m -Xms512m"
+# -d run in background
+BACKGROND="-d"
+REST_URL="localhost:9200"
+
+start()
+{
+    local script=$ES_HOME/bin/elasticsearch
+    $script -p $ES_PID_FILE  $JAVA_OPTIONS $BACKGROND
+    echo "Started"
+    return 0
+}
+
+stop()
+{
+    if [ ! -f $ES_PID_FILE ]; then
+        echo "$ES_PID_FILE isn't exist, maybe elasticsearch isn't running."
+        return 1
+    fi
+    local pid=$(cat $ES_PID_FILE)
+    if [ "$pid" = "" ]; then
+        echo "pid is empty in file $ES_PID_FILE, maybe elasticsearch isn't running."
+        return 1
+    fi
+    kill -9 $pid
+    rm $ES_PID_FILE
+    echo "Stopped."
+    return 0
+}
+
+nodes()
+{
+    curl "$REST_URL/_cat/nodes?v"
+    return 0
+}
+
+indexs()
+{
+    curl "$REST_URL/_cat/indices?v"
+    return 0
+}
+
+master()
+{
+    curl "$REST_URL/_cat/master?v"
+    return 0
+}
+
+alloc()
+{
+    curl "$REST_URL/_cat/allocation?v"
+    return 0
+}
+
+kat()
+{
+    curl -XGET "$REST_URL/$1?pretty"
+    return 0
+}
+
+case "$1" in
+
+    'start')
+        start
+        ;;
+
+    'stop')
+        stop
+        ;;
+
+    'restart')
+        stop
+        start
+        ;;
+
+    'nodes')
+        nodes
+        ;;
+
+    'indexs')
+        indexs
+        ;;
+
+    'master')
+        master
+        ;;
+
+    'alloc')
+        alloc
+        ;;
+
+    'kat')
+        kat $2
+        ;;
+    *)
+        echo "Usage:
+        start   : start es.
+        stop    : stop es.
+        restart : restart es.
+        nodes   : nodes informations.
+        indexes : all index informations.
+        master  : master information.
+        alloc   : disk allocation informastions.
+        kat     : cat an document, such as: kat /persons/person/{document ID}
+        "
+esac
+
+unset ES_HOME
+unset ES_PID_FILE
+unset JAVA_OPTIONS
+unset BACKGROND
+unset REST_URL
+
+    {% endhighlight %}
+    <li>
+        初探到此为止。
+    </li>
+</ul>
+
+
+
+
+
+
