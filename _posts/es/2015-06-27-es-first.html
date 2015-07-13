@@ -255,6 +255,112 @@ unset REST_URL
     <li>
         此外封装了一个简明的<a href="https://github.com/ihaolin/men/blob/master/searchman/client/src/main/java/org/h0/men/searchman/client/Searcher.java" target="_blank">Java客户端工具</a>，初探到此为止。
     </li>
+    <li>
+        <h2>一些常见的配置建议</h2>
+    </li>
+    <li>
+        <h3>节点类型</h3>
+    </li>
+    <li>
+        在配置集群中的节点时, 应该明确指定各节点的角色类型。如
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">node.mater:true & node.data:true</span>: 既为master，也为data节点，负责集群协调工作和数据存储等<br>
+        2. <span class="highlight">node.mater:true & node.data:false</span>: 为master节点，负责集群协调工作等。<br>
+        3. <span class="highlight">node.mater:false & node.data:true</span>: 为data节点，负责索引数据和搜索等。<br>
+        4. <span class="highlight">node.mater:false & node.data:false</span>: 既不是master，也不是data节点，负责搜索负载均衡(从data节点抓取数据并作处理)。
+    </p>
+    <li>
+        <h3>启用mlockall</h3>
+    </li>
+    <li>
+        启用mlockall后，ES使用的内存将不会进入Swap分区，这将大大降低磁盘I/O带来的性能问题，
+        但需保证ES具有足够的内存，可通过下面的API查询是否启用mlockall:
+    </li>
+    {% highlight bash %}
+    http://localhost:9200/_nodes/process?pretty
+    {% endhighlight %}
+    <li>
+        <h3>discovery.zen配置集群发现机制</h3>
+    </li>
+    <li>
+        <span class="highlight">Zen discover</span>作为ES集群中节点间进行发现和交流的协议，
+        可通过<span class="highlight">discovery.zen.*</span>等属性进行配置，
+        <span class="highlight">单播</span>和<span class="highlight">广播</span>都作为发现协议的一部分
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">广播</span>是指集群中的节点向其他所有节点发送请求。<br>
+        2. <span class="highlight">单播</span>是指在
+           <span class="highlight">discovery.zen.ping.unicast.hosts</span>指定的主机列表之间进行通信。
+    </p>
+    <li>
+        为了开启<span class="highlight">单播</span>，需要设置
+        <span class="highlight">discovery.zen.ping.multicast.enabled</span>为
+        <span class="highlight">false</span>。
+    </li>
+    <p class="wrap">
+        对于单播，必须指定属性<span class="highlight">discovery.zen.ping.unicast.hosts</span>(单播的主机列表)，
+        <span class="wrap">discovery.zen.minimum_master_nodes</span>
+        用于设置一个节点在操作集群时能看到的最小的maser节点数，建议设置为
+        <span class="highlight">N/2+1</span>(N为master节点数)。
+    </p>
+    <li>
+        数据节点和主节点通过两种方式发现彼此:
+    </li>
+    <p class="wrap">
+        1. 主节点ping集群中的所有节点，以验证它们是否状态正常。<br>
+        2. 其他节点ping主节点，验证它们是否状态正常，或者是否须要启动选举进程。
+    </p>
+    <li>
+        <h3>
+            小心删除所有索引
+        </h3>
+    </li>
+    <li>
+        为了防止误操作删除掉所有索引，应该禁止该这种操作
+    </li>
+    {% highlight bash %}
+    action.disable_delete_all_indices: true
+    {% endhighlight %}
+    <li>
+        <h3>限制Field数据缓存</h3>
+    </li>
+    <li>
+        Field数据缓存主要用于某个字段的排序和集合，应该作一定的限制，如
+    </li>
+    {% highlight bash %}
+    # 缓存大小30%
+    indices.fielddata.cache.size: 30%
+    # 5分钟过期
+    indices.fielddata.cache.expire: 5m
+    {% endhighlight %}
+    <li>
+        <span class="highlight">该值设置不合理，将影响查询和排序性能，或者ES对大量索引进行facet查询时内存溢出。</span>
+    </li>
+    <li>
+        <h3>索引优化</h3>
+    </li>
+    <li>
+        索引相关的配置可见<a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules.html">这里</a>，根据实际生产环境可做相应变动。
+    </li>
+    <li>
+        <h3>
+            索引分片刷新时间
+        </h3>
+    </li>
+    <li>
+        当Document被建立之后，仅当索引分片刷新后，该文档才可被搜索，可通过<span class="highlight">index.refresh_interval</span>分片刷新时间。
+    </li>
+    <li>
+        <h3>事务日志刷新</h3>
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">index.translog.flush_threshold_ops</span>: 多少次操作后刷新事务日志，默认无限制。<br>
+        2. <span class="highlight">index.translog.flush_threshold_size</span>: 一旦日志文件超出该大小，将刷新日志，默认512m。<br>
+        3. <span class="highlight">index.translog.flush_threshold_period</span>: 当一段时间没有发生过刷新时，超过该时间将强制刷新一次。<br>
+        4. <span class="highlight">index.translog.interval</span>: 多久检查一次是否刷新事务日志，将随机取值
+           <span class="highlight">interval ~ interval * 2</span>，默认5s。
+    </p>
 </ul>
 
 
