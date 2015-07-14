@@ -329,10 +329,10 @@ unset REST_URL
         Field数据缓存主要用于某个字段的排序和集合，应该作一定的限制，如
     </li>
     {% highlight bash %}
-    # 缓存大小30%
-    indices.fielddata.cache.size: 30%
-    # 5分钟过期
-    indices.fielddata.cache.expire: 5m
+# 缓存大小30%
+indices.fielddata.cache.size: 30%
+# 5分钟过期
+indices.fielddata.cache.expire: 5m
     {% endhighlight %}
     <li>
         <span class="highlight">该值设置不合理，将影响查询和排序性能，或者ES对大量索引进行facet查询时内存溢出。</span>
