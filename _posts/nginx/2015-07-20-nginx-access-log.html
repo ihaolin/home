@@ -1,0 +1,106 @@
+---
+title : Nginx访问日志统计
+category : [nginx]
+tags : [server, nginx, access_log, count]
+layout : post
+show : 1
+keywords: nginx,访问日志,统计
+---
+
+<div class="content">
+    <ul>
+        <p class="intro">
+            生产中，我们需要Nginx访问日志，查一些需要的数据，这里作一些收集。
+        </p>
+
+        <li>
+            <h2>假定配置nginx日志格式为</h2>
+        </li>
+        {% highlight nginx %}
+log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                  '$status $body_bytes_sent "$http_referer" '
+                  '"$http_user_agent" "$http_x_forwarded_for" $request_length $request_time $bytes_sent '
+                  '"$upstream_cache_status"';
+        {% endhighlight %}
+
+        <li>
+            <h2>响应码</h2>
+        </li>
+        <li>
+            <h3>统计各种响应码数量并降序</h3>
+        </li>
+        {% highlight ruby %}
+cat access.log | cut -d '"' -f3 | cut -d ' ' -f2 | sort | uniq -c | sort -r
+        {% endhighlight %}
+
+        <li>
+            <h3>查询某类响应码请求</h3>
+        </li>
+        {% highlight ruby %}
+awk '($9 ~ /504/)' access.log | awk '{print $7}' | sort | uniq -c | sort -r
+        {% endhighlight %}
+
+        <li>
+            <h2>URL</h2>
+        </li>
+        <li>
+            <h3>某个URL访问量</h3>
+        </li>
+        {% highlight ruby %}
+awk '{print $7}' access.log | grep "/pay_success.html" | wc -l
+        {% endhighlight %}
+        <li>
+            <h3>按URL请求量排序</h3>
+        </li>
+        {% highlight ruby %}
+awk '{print $7}' access.log | sort | uniq -c |sort -n -k 1 -r | more
+        {% endhighlight %}
+
+        <li>
+            <h2>GoAccess</h2>
+        </li>
+        <li>
+            也可以使用<a href="http://goaccess.io/" target="_blank">GoAccess</a>工具对nginx访问日志进行分析
+        </li>
+        <li>
+            <h3>
+                安装
+            </h3>
+        </li>
+        {% highlight ruby %}
+sudo yum -y install geoip-devel ncurses ncurses-devel glib2-devel
+wget http://tar.goaccess.io/goaccess-0.9.2.tar.gz
+tar -xzvf goaccess-0.9.2.tar.gz
+cd goaccess-0.9.2/
+./configure --enable-geoip --enable-utf8
+make && make install
+        {% endhighlight %}
+        <li>
+            <h3>
+                配置(<a href="http://goaccess.io/man#configuration" target="_blank">文档可见这里</a>)
+            </h3>
+        </li>
+        {% highlight ruby %}
+vim /usr/local/etc/goaccess.conf
+        {% endhighlight %}
+        <li>
+            <h3>
+                分析日志文件
+            </h3>
+        </li>
+        {% highlight ruby %}
+goaccess -f access.log
+        {% endhighlight %}
+        <li>
+            <h3>生成分析报告</h3>
+        </li>
+        {% highlight ruby %}
+goaccess -f access.log -a > report.html
+        {% endhighlight %}
+    </ul>
+</div>
+
+
+
+
+
