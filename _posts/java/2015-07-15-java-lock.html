@@ -185,7 +185,7 @@ public class ReentrantLock {
     <li>
         上面通过<span class="highlight">Thread.currentThread() != locking</span>判断当前线程是否是已经加锁的线程，
         若是，就不必要再等待，而是通过<span class="highlight">locks</span>计数被同一线程加锁几次，
-        在<span class="highlight">unlock</span>时，也需判断locks为0时再解锁，也就是统一线程
+        在<span class="highlight">unlock</span>时，也需判断locks为0时再解锁，也就是同一线程
         <span class="highlight">lock()</span>次数与<span class="highlight">unlock()</span>次数一致。
     </li>
     <li>
