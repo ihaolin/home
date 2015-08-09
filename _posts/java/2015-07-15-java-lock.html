@@ -1,0 +1,555 @@
+---
+title : Java锁
+category : [java]
+tags : [java, concurrent, lock]
+layout : post
+show : 1
+keywords: java, concurrent, lock, 并发, 锁
+---
+
+<ul>
+    <p class="intro">
+        <span class="highlight">并发问题</span>，总是一个比较<span class="highlight">值得探究和有趣的</span>话题，
+        有时候并发问题看起来会很简单，有时又让人迷惑，不出问题则已，一出问题则难揪诱因，
+        只能靠个人小心为慎，来尽量降低这种威胁，并发中，
+        <span class="highlight">锁</span>则起到了至关重要的作用，
+        用得好谢天谢地，用得不好只能等待问题出现，所以觉得，还是有必要对锁进行一番整理记忆，
+        可能其中，我也会头脑发晕，感谢邮件指出。
+    </p>
+
+    <li>
+        <h2>并发问题</h2>
+    </li>
+    <li>
+        <h3>什么是并发问题</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">并发问题</span>总结即为，在<span class="highlight">多线程环境</span>下，
+        程序运行出现预料之外的错误，如
+        <span class="highlight">状态不一致</span>，
+        <span class="highlight">死锁</span>，
+        甚至<span class="highlight">程序崩溃</span>等等。
+    </p>
+    <li>
+        <h3>要引起并发问题，事必也是由于几个条件下引起的，个人总结为</h3>
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">多个线程</span>: 当然得在多线程环境下。<br/>
+        2. <span class="highlight">共享变量</span>: 若不存在共享变量(即存在本地变量)，多个线程只能访问本地线程栈的数据。<br/>
+        3. <span class="highlight">可变变量</span>: 即使存在共享变量，但是该变量不可变(即初始化后，就不会更新状态)。<br/>
+        4. <span class="highlight">写操作</span>: 即使共享变量可变，但是多个线程不存在更新操作(仅读操作)，此时依然是线程安全的。<br/>
+    </p>
+    <li>
+        <h3>为什么有了上述条件成立后，就有可能出现并发问题</h3>
+    </li>
+    <li>
+        归根结底，还是由于<span class="highlight">Java内存模型</span>和<span class="highlight">硬件架构</span>引起的，
+        摘得一张好图，共赏之:
+    </li>
+    <img src="{{site.url}}/images/java/jmm-cpu.png">
+    <p class="wrap">
+        类似这种情形，跑在CPU上的一个线程将这个共享对象读到CPU缓存中，然后修改了这个对象。
+        只要CPU缓存没有被刷新会主存，对象修改后的版本对跑在其它CPU上的线程都是不可见的。
+        这种方式可能导致每个线程拥有这个共享对象的私有拷贝，每个拷贝停留在不同的CPU缓存中。
+    </p>
+    <li>
+        而Java中<span class="highlight">volatile</span>的作用就是，
+        让线程从主内存中读取变量，当这个变量被修改时，总会被写会到主内存中，
+        这样就能保证多个线程能看到共享变量最新的值了(Java同步块(<span class="highlight">synchronized</span>)也能达到同样的效果)。
+    </li>
+    <li>
+        <h2>Java锁</h2>
+    </li>
+    <li>
+        <span class="highlight">锁</span>在并发中，无疑是基础而直观重要的组件，是避免并发问题的好帮手。
+    </li>
+    <li>
+        <h3>Java内置锁(synchronized)</h3>
+    </li>
+    <li>
+        Java内置的同步块(<span class="highlight">synchronized</span>)就是最简单的锁工具，并且并发大师
+        <a href="http://gee.cs.oswego.edu/" target="_blank">Doug Lea</a>也建议，
+        在<span class="highlight">synchronized</span>能满足并发程序需求时，尽量就使用它，
+        因为它足够简单明了，大部分开发人员都知道该关键字的用意，并且其性能问题，有可能随JVM优化而得到提升，其基本用法
+    </li>
+    {% highlight java %}
+synchronized (sharedObj){
+    // 临界区
+}
+    {% endhighlight %}
+    <li>
+        <h3>普通锁</h3>
+    </li>
+    <li>
+        当然，我们也可以通过<span class="highlight">synchronized</span>关键字实现一个简单的锁:
+    </li>
+    {% highlight java %}
+public class Lock {
+
+    private Boolean locked = Boolean.FALSE;
+
+    public void lock() throws InterruptedException {
+        synchronized (this){
+            while (locked){ // 自旋转，防止假唤醒
+                this.wait();
+            }
+            locked = Boolean.TRUE;
+        }
+    }
+
+    public void unlock(){
+        synchronized (this){
+            if (!Thread.holdsLock(this)){
+                throw new IllegalMonitorStateException("current thread not locked me.");
+            }
+            locked = Boolean.FALSE;
+            this.notify();
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        在lock()方法中，我们通过<span class="highlight">synchronized(this)</span>对当前锁对象加锁，
+        若<span class="highlight">locked=true</span>，当前线程将进行<span class="highlight">wait()</span>，
+        等待被<span class="highlight">notify()</span>，这里之所以<span class="highlight">white(locked)</span>，
+        是为了防止操作系统的<a href="highlight" target="_blank">假唤醒</a>，
+        避免locked=FALSE时，等待线程也穿过<span class="highlight">wait()</span>继续往下执行，其基本的使用模式就是
+    </li>
+    {% highlight java %}
+lock.lock();
+try{
+    // do sth.
+} finally {
+    lock.unlock();
+}
+    {% endhighlight %}
+    <li>
+        <h3>可重入锁</h3>
+    </li>
+    <li>
+        当<span class="highlight">同一线程</span>对<span class="highlight">同一对象锁</span>进行多次(重入)加锁时，
+        如上述的锁，将发生永久阻塞
+    </li>
+    {% highlight java %}
+lock.lock();
+lock.lock();
+lock.unlock();
+lock.unlock();
+    {% endhighlight %}
+    <li>
+        将上述锁改版为可重入锁(<span class="highlight">synchronized</span>原生支持重入):
+    </li>
+    {% highlight java %}
+public class ReentrantLock {
+
+    /**
+    * 是否已被加锁
+    */
+    private Boolean locked = Boolean.FALSE;
+
+    /**
+    * 当前加锁线程
+    */
+    private Thread locking = null;
+
+    /**
+    * 记录被同一线程加锁几次
+    */
+    private Integer locks = 0;
+
+    public void lock() throws InterruptedException {
+        synchronized (this){
+            while (locked && (Thread.currentThread() != locking)){
+                this.wait();
+            }
+            locked = Boolean.TRUE;
+            locking = Thread.currentThread();
+            ++ locks;
+        }
+    }
+
+    public void unlock(){
+        synchronized (this){
+            if (Thread.currentThread() != locking){
+                throw new IllegalMonitorStateException("current thread not locked me.");
+            }
+            if (--locks == 0){
+                locked = Boolean.FALSE;
+                locking = null;
+                this.notify();
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        上面通过<span class="highlight">Thread.currentThread() != locking</span>判断当前线程是否是已经加锁的线程，
+        若是，就不必要再等待，而是通过<span class="highlight">locks</span>计数被同一线程加锁几次，
+        在<span class="highlight">unlock</span>时，也需判断locks为0时再解锁，也就是统一线程
+        <span class="highlight">lock()</span>次数与<span class="highlight">unlock()</span>次数一致。
+    </li>
+    <li>
+        <h3>公平锁</h3>
+    </li>
+    <li>
+        有时，我们需要严格要求锁的公平性，即先发起请求锁的等待线程，优先被执行。
+        由于我们无法控制锁上的哪个线程被唤醒，只能在某个线程被唤醒时，来判断该线程是否是应该被执行，
+        是则不需<span class="highlight">wait()</span>，否则继续<span class="highlight">wait()</span>，
+        如下面的公平锁:
+    </li>
+    {% highlight java %}
+public class FairLock {
+
+    /**
+    * 是否已被加锁
+    */
+    private Boolean locked = Boolean.FALSE;
+
+    /**
+    * 当前加锁线程
+    */
+    private Thread locking = null;
+
+    /**
+    * 记录被同一线程加锁几次
+    */
+    private Integer locks = 0;
+
+    /**
+    * 等待线程队列
+    */
+    private List<Object> waitings = new ArrayList<>();
+
+    public void lock() throws InterruptedException {
+        // 使用占位符来进行线程等待和唤醒
+        Object placeholder = new Object();
+
+        synchronized (this){
+            // 占位(优先进入等待队列的线程，优先被执行)
+            waitings.add(placeholder);
+        }
+
+        synchronized (this) {
+            while ((locked && Thread.currentThread() != locking)    // 是否已经被锁且可重入
+                    || waitings.get(0) != placeholder){             // 是否为最先请求锁的线程
+                System.out.println(Thread.currentThread().getName() + " is waiting.");
+                this.wait();
+            }
+            // 线程不需要等待
+            System.out.println(Thread.currentThread().getName() + " is locking.");
+            locked = Boolean.TRUE;
+            locking = Thread.currentThread();
+            ++ locks;
+            // 加锁成功后，移除占位符
+            waitings.remove(placeholder);
+        }
+    }
+
+    public void unlock(){
+        synchronized (this){
+            if (Thread.currentThread() != locking){
+                throw new IllegalMonitorStateException("current thread not locked me.");
+            }
+
+            if (--locks == 0){
+                System.out.println(Thread.currentThread().getName() + " is unlocking.");
+                locked = Boolean.FALSE;
+                locking = null;
+                // 通知所有等待的线程
+                this.notifyAll();
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        在<span class="highlight">lock()</span>中，通过
+        <span class="highlight">(locked && Thread.currentThread() != locking) || waitings.get(0) != placeholder</span>
+        来判断当前线程是否须要等待，<span class="highlight">waitings.get(0) != placeholder</span>则判断是否是优先等待的线程，
+        一旦线程加锁成功，就将占位符从等待队列移除。一旦<span class="highlight">unlock()</span>后，所有等待线程将得到通知。但是，
+        此处<span class="highlight">this.notify()</span>是在锁对象上通知，其实最终只有那个优先等待的线程才会能继续执行，
+        其他线程都得到一次无用的通知。可以让每个线程在其占位符上进行等待，线程解锁时，仅是在该占位符对象上通知，
+        这样就能准确通知那个优先进入等待队列的线程，如下的实现
+    </li>
+    {% highlight java %}
+public class FairLock {
+
+    /**
+    * 是否已被加锁
+    */
+    private Boolean locked = Boolean.FALSE;
+
+    /**
+    * 当前加锁线程
+    */
+    private Thread locking = null;
+
+    /**
+    * 记录被同一线程加锁几次
+    */
+    private Integer locks = 0;
+
+    /**
+    * 等待线程队列
+    */
+    private List<PlaceHolder> waitings = new ArrayList<>();
+
+    public void lock() throws InterruptedException {
+        // 使用占位符来进行线程等待和唤醒
+        PlaceHolder placeholder = new PlaceHolder();
+
+        synchronized (this){
+            // 占位(优先进入等待队列的线程，优先被执行)
+            waitings.add(placeholder);
+        }
+
+        Boolean needWait = Boolean.TRUE;
+        while (needWait){
+            synchronized (this) {
+                needWait = (locked && Thread.currentThread() != locking)    // 是否已经被锁且可重入
+                    || waitings.get(0) != placeholder;                      // 是否为最先请求锁的线程
+                if (!needWait){
+                    // 线程不需要等待
+                    System.out.println(Thread.currentThread().getName() + " is locking.");
+                    locked = Boolean.TRUE;
+                    locking = Thread.currentThread();
+                    ++ locks;
+                    // 加锁成功后，移除占位符
+                    waitings.remove(placeholder);
+                    return;
+                }
+            }
+            System.out.println(Thread.currentThread().getName() + " is waiting.");
+            // 线程等待在自己占位符上, 不是this
+            placeholder.doWait();
+        }
+    }
+
+    public void unlock(){
+        synchronized (this){
+            if (Thread.currentThread() != locking){
+                throw new IllegalMonitorStateException("current thread not locked me.");
+            }
+
+            if (--locks == 0){
+                System.out.println(Thread.currentThread().getName() + " is unlocking.");
+                locked = Boolean.FALSE;
+                locking = null;
+                if (waitings.size() > 0){
+                    // 通知优先等待的线程
+                    waitings.get(0).doNotify();
+                }
+            }
+        }
+    }
+
+    class PlaceHolder {
+
+        private boolean isNotified = false;
+
+        public synchronized void doWait() throws InterruptedException {
+            while (!isNotified) {
+                this.wait();
+            }
+            this.isNotified = false;
+        }
+
+        public synchronized void doNotify() {
+            this.isNotified = true;
+            this.notify();
+        }
+
+        public boolean equals(Object o) {
+            return this == o;
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        <h3>读写锁</h3>
+    </li>
+    <li>
+        在<span class="highlight">读写锁</span>中，
+        其基本需求就是<span class="highlight">读-读能共存，读-写不能共存，写-写不能共存</span>，
+        并且<span class="highlight">写请求比读请求优先级更高</span>。如下面简易的读写锁
+    </li>
+    {% highlight java %}
+public class ReadWriteLock {
+
+    /**
+    * 读线程数
+    */
+    private Integer readCount = 0;
+
+    /**
+    * 写线程数
+    */
+    private Integer writeCount = 0;
+
+    /**
+    * 写请求数
+    */
+    private Integer writeRequests = 0;
+
+    public void lockRead() throws InterruptedException {
+        synchronized (this){
+            while (writeRequests > 0 || writeCount > 0){
+                // 有写线程或写请求都应该等待
+                System.out.println(Thread.currentThread().getName() + " waiting read");
+                wait();
+            }
+            System.out.println(Thread.currentThread().getName() + " locking read");
+            ++ readCount;
+        }
+    }
+
+    public void unlockRead(){
+        synchronized (this){
+            System.out.println(Thread.currentThread().getName() + " unlock read");
+            -- readCount;
+            notifyAll();
+        }
+    }
+
+    public void lockWrite() throws InterruptedException {
+        synchronized (this){
+            ++ writeRequests; // 记录写请求, 保证写请求优先
+            while (writeCount > 0 || readCount > 0){
+                System.out.println(Thread.currentThread().getName() + " waiting write");
+                wait();
+            }
+            System.out.println(Thread.currentThread().getName() + " locking write");
+            -- writeRequests;
+            ++ writeCount;
+        }
+    }
+
+    public void unlockWrite(){
+        synchronized (this){
+            System.out.println(Thread.currentThread().getName() + " unlock write");
+            -- writeCount;
+            notifyAll();
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        上面的<span class="highlight">读写锁</span>并不能保证可重入
+        (<span class="highlight">读锁重入</span>和<span class="highlight">写锁重入</span>)，
+        可以先满足<span class="highlight">读锁重入</span>，
+        在进行<span class="highlight">lockRead()</span>时，若线程已获取过读锁，则不需等待，如下的读锁重入
+    </li>
+    {% highlight java %}
+/**
+* <读线程, 读线程请求数>
+*/
+private final Map<Thread, Integer> readings = new HashMap<>();
+
+public void lockRead() throws InterruptedException {
+    synchronized (this){
+        Thread current = Thread.currentThread();
+        while (needWaitRead()){
+            // 有写线程或写请求都应该等待
+            System.out.println(current.getName() + " waiting read");
+            wait();
+        }
+        System.out.println(current.getName() + " locking read");
+        if (readings.get(current) != null){
+            readings.put(current, readings.get(current) + 1);
+        } else {
+            readings.put(current, 1);
+        }
+    }
+}
+
+/**
+* 是否需要等待读锁
+*/
+private Boolean needWaitRead(){
+    if(writeCount > 0) {
+        // 有写线程已加锁
+        return Boolean.TRUE;
+    }
+    if(readings.get(Thread.currentThread()) != null) {
+        // 当前线程已经获取过读锁
+        return Boolean.FALSE;
+    }
+    if(writeRequests > 0) {
+        // 有写请求
+        return Boolean.TRUE;
+    }
+    return Boolean.FALSE;
+}
+
+public void unlockRead(){
+    synchronized (this){
+        Thread current = Thread.currentThread();
+        System.out.println(current.getName() + " unlock read");
+        Integer readCount = readings.get(current);
+        if (readCount == 1){
+            readings.remove(current);
+            notifyAll();
+        } else {
+            readings.put(current, --readCount);
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        对于<span class="highlight">写重入</span>，只要当前线程已经获得写锁，就不需要再等待，只需记录其重入次数即可:
+    </li>
+    {% highlight java %}
+public void lockWrite() throws InterruptedException {
+    synchronized (this){
+        Thread current = Thread.currentThread();
+        ++ writeRequests; // 记录写请求, 保证写请求优先
+        while (needWaitWrite()){
+            System.out.println(current.getName() + " waiting write");
+            wait();
+        }
+        System.out.println(current.getName() + " locking write");
+        -- writeRequests;
+        ++ writeCount;
+        writing = current;
+    }
+}
+
+private Boolean needWaitWrite(){
+    if (readings.size() > 0){
+        // 已经有读线程
+        return Boolean.TRUE;
+    }
+    if (writing == null){
+        // 还没有写线程
+        return Boolean.FALSE;
+    }
+    if (Thread.currentThread() == writing){
+        // 当前线程已经获得写锁
+        return Boolean.FALSE;
+    } else {
+        // 当前线程没有获得写锁
+        return Boolean.TRUE;
+    }
+}
+
+public void unlockWrite(){
+    synchronized (this){
+        System.out.println(Thread.currentThread().getName() + " unlock write");
+        if(-- writeCount == 0){
+            writing = null;
+            notifyAll();
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        基本的锁原理也就在此，JDK1.5之后<a>java.util.concurrent</a>包中已经提供足够多的并发工具，已经不需要我们造了，但了解原理还是有必要的，
+        有兴趣可以翻一翻源码，也提供了一些常用的并发数据结构，如<a href="http://my.oschina.net/indestiny/blog/209458" target="_blank">ConcurrentHashMap</a>等。
+        本文也并非空穴来风，得益于<a href="http://tutorials.jenkov.com/java-concurrency/index.html" target="_blank">这里</a>。
+    </li>
+</ul>
+
+
+
+
+
