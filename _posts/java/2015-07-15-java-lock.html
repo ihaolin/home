@@ -543,6 +543,33 @@ public void unlockWrite(){
 }
     {% endhighlight %}
     <li>
+        <h3>乐观锁 & 悲观锁</h3>
+    </li>
+    <li>
+        <span class="highlight">乐观锁</span>允许在多线程并发时，不使用同步阻塞的方式来保证线程安全，
+        比如<span class="highlight">CAS</span>(Compare and Set)，
+        在如<span class="highlight">AtomicInteger</span>等数据结构都大量使用<span class="highlight">CAS</span>:
+    </li>
+    {% highlight java %}
+public final int incrementAndGet() {
+    for (;;) {
+        int current = get();
+        int next = current + 1;
+        if (compareAndSet(current, next))
+            return next;
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        该方法虽然没有进行加锁操作，但通过<span class="highlight">compareAndSet()</span>方法(该方法比较current与变量内存中的值，若相等，将变量值设置为next，虽然是先比较后设置"两步"操作，
+        但该方法利用CPU的<span class="highlight">compare-and-swap</span>指令达到了原子操作，所以不会有线程安全问题)，这样就能在不加锁的情况下实现线程安全，也叫<span class="highlight">非阻塞算法</span>。
+        还有一种叫复制后再更新的非阻塞线程安全的实现方式，如CopyOnWriteArrayList，
+        利用<span class="">volatile</span>关键字和更新前拷贝副本的方式实现线程安全。
+    </p>
+    <p class="wrap">
+        而<span class="highlight">悲观锁</span>则相反，每次进行访问都会有加锁请求，直到获取到对象锁才进行后续操作，如上面实现的各种锁。
+    </p>
+    <li>
         基本的锁原理也就在此，JDK1.5之后<a>java.util.concurrent</a>包中已经提供足够多的并发工具，已经不需要我们造了，但了解原理还是有必要的，
         有兴趣可以翻一翻源码，也提供了一些常用的并发数据结构，如<a href="http://my.oschina.net/indestiny/blog/209458" target="_blank">ConcurrentHashMap</a>等。
         本文也并非空穴来风，得益于<a href="http://tutorials.jenkov.com/java-concurrency/index.html" target="_blank">这里</a>。
