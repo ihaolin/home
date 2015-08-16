@@ -1,0 +1,308 @@
+---
+title : 指令重排序和Happen-Before
+category : [java]
+tags : [java, reorder, happne-before]
+layout : post
+show : 1
+keywords: java, 重排序, Happen-Before
+---
+
+<ul>
+    <p class="intro">
+        在<span class="highlight">并发问题</span>中，
+        还有一个比较关键的问题就是<span class="highlight">指令重排序</span>
+        (在不改变程序语义的前提下，CPU为了更高效地利用缓存或寄存器)，
+        但这同时会带来一些并发问题，造成一些数据不完整，不一致等问题，
+        因此JMM(Java Memory Model)就规范了一些<span class="highlight">Happen-Before</span>的偏序关系，
+        以避免这些并发问题。
+    </p>
+
+
+    <li>
+        <h2>
+            指令重排序
+        </h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">重排序</span>通常是编译器或运行时环境为了优化程序性能而采取的对指令进行重新排序执行的一种手段。重排序分为两类：<span class="highlight">编译期重排序</span>和<span class="highlight">运行期重排序</span>，分别对应编译时和运行时环境。
+    </li>
+    <li>
+        <h3>编译器重排序</h3>
+    </li>
+    <p class="wrap">
+        编译源代码时，编译器依据对上下文的分析，对指令进行重排序。
+    </li>
+    <li>
+        <h3>运行期重排序</h3>
+    </li>
+    <p class="wrap">
+        CPU在执行命令过程中，对指令进行重排序。
+    </li>
+    <li>
+        详细的重排序讲述<a href="https://en.wikipedia.org/wiki/Memory_ordering" target="_blank">这里</a>可以有。
+    </li>
+    <li>
+        <h2>Happen-Before</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Happen-Before</span>指的是两个操作之前的一种偏序关系，比如，操作A happen-before 操作B，
+        那么操作A对于操作B是可见的(即操作A产生的影响会作用于操作B，如共享变量更新，消息发送，方法调用等)，记作<span class="highlight">hb(A, B)</span>。
+    </p>
+    <li>
+        比如，下面的代码:
+    </li>
+    {% highlight java %}
+1. i = 1; // T1
+2. j = i; // T2
+3. i = 2; // T3
+    {% endhighlight %}
+    <p class="wrap">
+        操作1, 2, 3分别在线程T1, T2, T3中执行，若有偏序关系<span class="highlight">hb(1, 2)</span>，即T1的操作1对T2的操作2是可见的，
+        那么，T2的操作2执行后，变量j的值一定为1(此时T3的操作3还未执行)，但若T3的操作3发生在操作1，2之间，
+        就不能确定最终i的值是多少，因为操作3，2并没有偏序关系，因此操作3的结果有可能影响操作2，也有可能不会。
+    </p>
+    <li>
+        <h3>JMM中的happen-before</h3>
+    </li>
+    <li>
+        JMM中已经规范出一些典型的<span class="highlight">hb关系</span>，摘自周志明的<a>&lt;&lt;深入理解Java虚拟机&gt;&gt;331页</a>，也可查看官方<a href="https://docs.oracle.com/javase/specs/jls/se7/html/jls-17.html#jls-17.4.5" target="_blank">JLS</a>:
+    </li>
+    <p class="wrap">
+        1. <span class="highlight">程序次序规则</span>: 同一线程内，前面的动作<span class="highlight">hb</span>后面的动作。<br/>
+        2. <span class="highlight">管程锁定规则</span>: 对于同一个锁，<span class="highlight">unlock()</span>操作<span class="highlight">hb</span>下一次<span class="highlight">lock()</span>操作。<br/>
+        3. <span class="highlight">volatile变量规则</span>: volatile变量的写操作<span class="highlight">hb</span>之后的读操作。<br/>
+        4. <span class="highlight">线程启动规则</span>: 同一线程的start()方法<span class="highlight">hb</span>其他方法。<br/>
+        5. <span class="highlight">线程终止规则</span>: 同一线程的任何方法都<span class="highlight">hb</span>其他操作。<br/>
+        6. <span class="highlight">线程中断规则</span>: 对线程interrupt()方法的调用<span class="highlight">hb</span>
+            发生于被中断线程的代码检测到中断事件发生。<br/>
+        7. <span class="highlight">对象终结规则</span>: 一个对象的初始化完成<span class="highlight">hb</span>该对象的finalize()方法。<br/>
+        8. <span class="highlight">传递性</span>: A操作<span class="highlight">hb</span>操作B，操作B<span class="highlight">hb</span>操作C，那么A操作<span class="highlight">hb</span>操作C。     
+    </p>
+    <li>
+        <h3>DCL(Double Checking Locked)问题</h3>
+    </li>
+    <li>
+        对于<span class="highlight">hb</span>关系的理解，<span class="highlight">DCL</span>算是一个比较典型的问题，
+        它被广泛运用于多线程环境中的懒加载，但在没额外同步约束下，是不能可靠地运行的。如下面的代码片段:
+    </li>
+    {% highlight java %}
+class Foo { 
+  
+  private Helper helper = null;
+  
+  public Helper getHelper() {
+    if (helper == null) 
+        helper = new Helper();
+    return helper;
+  }
+}
+    {% endhighlight %}
+    <li>
+        在多线程环境中，上面的代码有可能会实例化两个Helper实例，因此需要必要的同步操作:
+    </li>
+    {% highlight java %}
+class Foo { 
+  private Helper helper = null;
+  public synchronized Helper getHelper() {
+    if (helper == null) 
+        helper = new Helper();
+    return helper;
+  }
+}
+    {% endhighlight %}
+    <li>
+        上面的代码在每次<span class="highlight">getHelper()</span>都进行加锁，
+        <span class="highlight">Double-Checked-Locking</span>则尝试去掉这样的加锁方式:
+    </li>
+    {% highlight java %}
+class Foo {
+
+  private Helper helper = null;
+
+  public Helper getHelper() {
+    if (helper == null) 
+      synchronized(this) {
+        if (helper == null) 
+          helper = new Helper();
+      }    
+    return helper;
+  }
+}
+    {% endhighlight %}
+    <li>
+        然而，这段代码在<span class="highlight">优化型编译器</span>或<span class="highlight">共享的内存处理器</span>上可能不会正常工作。
+    </li>
+    <li>
+        <h2>为何上面的代码不能正常工作?</h2>
+    </li>
+    <li>
+        上面的代码不能正常工作的原因很多，有一些比较明显，而有一次可能就比较难发现。
+    </li>
+    <li>
+        <h3>第一个原因</h3>
+    </li>
+    <p class="wrap">
+        最明显的原因是<span class="highlight">Helper对象的构造函数执行操作</span>
+        和<span class="highlight">helper字段的赋值操作</span>有可能被重排序。
+        因此，调用<span class="highlight">getHelper()</span>方法的线程虽然看到helper对象为非null，
+        但仅看到了helper对象各字段的默认值，而没有看到构造函数执行后的helper对象。
+    </p>
+    <p class="wrap">
+        如果编译器内联地调用构造函数，只要构造函数不抛出异常或者进行同步操作，
+        <span class="highlight">Helper对象的构造函数执行操作</span>
+        和<span class="highlight">helper字段的赋值操作</span>就可以自由排序，
+        即使编译器不排序这些写操作，在多处理器系统中也有可能进行排序。
+    </p>
+    <li>
+        比如，在赛门铁克(名字略感亲切)的JIT编译器(使用基于句柄的对象分配系统)中，下面的代码就不能正常工作:
+    </li>
+    {% highlight java %}
+singletons[i].reference = new Singleton();
+    {% endhighlight %}
+    <li>
+        编译后的指令为:
+    </li>
+    {% highlight ruby %}
+0206106A   mov         eax,0F97E78h
+0206106F   call        01F6B210                  ; allocate space for
+                                                 ; Singleton, return result in eax
+02061074   mov         dword ptr [ebp],eax       ; EBP is &singletons[i].reference 
+                                                 ; store the unconstructed object here.
+02061077   mov         ecx,dword ptr [eax]       ; dereference the handle to
+                                                 ; get the raw pointer
+02061079   mov         dword ptr [ecx],100h      ; Next 4 lines are
+0206107F   mov         dword ptr [ecx+4],200h    ; Singleton's inlined constructor
+02061086   mov         dword ptr [ecx+8],400h
+0206108D   mov         dword ptr [ecx+0Ch],0F84030h
+    {% endhighlight %}
+    <li>
+        可见，<span class="highlight">singletons[i].reference</span>的分配动作发生在<span class="highlight">Singleton构造函数调用</span>之前。针对上述问题，进行一些修复后:
+    </li>
+    {% highlight java %}
+class Foo { 
+  
+    private Helper helper = null;
+  
+    public Helper getHelper() {
+        if (helper == null) {
+            Helper h;
+            synchronized(this) {
+                h = helper;
+                if (h == null) {
+                    synchronized (this) {
+                        h = new Helper();
+                    } // monitor被释放
+                    helper = h;
+                }    
+            } 
+        }    
+        return helper;
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        这里将Helper对象的构造过程放在<span class="highlight">内部锁</span>中，
+        目的就是阻止
+        <span class="highlight">Helper对象初始化操作</span>和
+        <span class="highlight">helper字段被赋值操作</span>被重排序。
+        然而，上面的代码仍然不能正常工作，<span class="highlight">同步规则</span>并不会以那种方式工作，
+        <span class="highlight">monitorexit</span>字节码指令的规则(如,<span class="highlight">释放锁</span>)是，
+        在<span class="highlight">monitor</span>被释放前，monitorexit之前的动作必须被执行，但却没有规则说，
+        <span class="highlight">monitorexit</span>之后的动作不可能在<span class="highlight">monitor</span>被释放前被执行，
+        也就是说，对于编译器而言，移动<span class="highlight">helper = h;</span>声明完全是合理的。
+        很多处理器都提供这种<span class="highlight">单向内存屏障</span>，若将请求锁的语义改变为<span class="highlight">完全内存屏障</span>将带来性能损失。
+    </p>
+    <p class="wrap">
+        虽然可以强制使用<span class="wrap">完全内存屏障</span>，但这效率性能极低，并且一旦JMM被修改，很有可能不能正常工作，
+        所以<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/BidirectionalMemoryBarrier.html" target="_blank">不要这么做</a>。然而即便在初始化<span class="highlight">helper</span>字段时，使用了<span class="wrap">完全内存屏障</span>，仍然不能正常工作。
+        因为，CPU都有自己本地的内存缓存副本，在某些处理器上，即便写操作通过<span class="highlight">内存屏障</span>直接写到主内存中，
+        读操作也必须需要执行<span class="highlight">缓存一致性指令</span>，否则读操作将从CPU缓存中读取，
+        比如<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/AlphaReordering.html" target="_blanck">Alpha</a>处理器。
+    </p>
+    <li>
+        <h2>使用静态变量</h2>
+    </li>
+    <li>
+        假如使用的单例是静态的，则可以将单例定义为某个类的静态字段，Java会保证直到静态字段被引用，才会对字段进行初始化，
+        任何访问该字段的线程将看到对该字段初始化的写操作，如:
+    </li>
+    {% highlight java %}
+class HelperSingleton {
+  static Helper singleton = new Helper();
+}
+    {% endhighlight %}
+    <li>
+        <h3>使用ThreadLocal</h3>
+    </li>
+    <li>
+        可以通过<span class="highlight">ThreadLocal</span>来存放单例的引用，解决DCL问题，如:
+    </li>
+    {% highlight java %}
+class Foo {
+    
+     private final ThreadLocal perThreadInstance = new ThreadLocal();
+     
+     private Helper helper = null;
+     
+     public Helper getHelper() {
+         if (perThreadInstance.get() == null) createHelper();
+         return helper;
+     }
+
+     private final void createHelper() {
+         synchronized(this) {
+             if (helper == null)
+                 helper = new Helper();
+         }
+         perThreadInstance.set(perThreadInstance);
+     }
+}
+    {% endhighlight %}
+    <li>
+        但需注意<span class="highlight">ThreadLocal</span>再不同jdk版本的性能不同。
+    </li>
+    <li>
+        <h3>使用volitale关键字</h3>
+    </li>
+    <li>
+        jdk1.5之后有了<span class="highlight">volitale</span>关键字，如之前提到的，其能保证变量的任何写操作对之后的读操作可见，并且禁止重排序，
+        所以可以使用<span class="highlight">volitale</span>来解决DCL问题:
+    </li>
+    {% highlight java %}
+class Foo {
+    private volatile Helper helper = null;
+    public Helper getHelper() {
+        if (helper == null) {
+            synchronized(this) {
+                if (helper == null)
+                    helper = new Helper();
+            }
+        }
+        return helper;
+    }
+}
+    {% endhighlight %}
+    <li>
+        本文参考如下:
+    </li>
+    <p class="wrap">
+        <a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">
+            http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html
+        </a><br/>
+        <a href="http://www.cs.umd.edu/~pugh/java/memoryModel/BidirectionalMemoryBarrier.html" target="_blank">
+            http://www.cs.umd.edu/~pugh/java/memoryModel/BidirectionalMemoryBarrier.html
+        </a><br/>
+        <a href="http://www.cs.umd.edu/~pugh/java/memoryModel/AlphaReordering.html" target="_blank">
+            http://www.cs.umd.edu/~pugh/java/memoryModel/AlphaReordering.html
+        </a>
+        <a href="http://blog.csdn.net/ns_code/article/details/17348313" target="_blank">
+            http://blog.csdn.net/ns_code/article/details/17348313
+        </a><br/>
+        <a>&lt;&lt;深入理解Java虚拟机&gt;&gt;</a>
+    </p>
+</ul>
+
+
+
+
+
