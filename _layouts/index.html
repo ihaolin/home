@@ -8,15 +8,17 @@
         {% include sidebar.html %}
         <div class="pusher">
                 {% include sidebar-toggle.html %}
-                <div class="ui grid">
+                <div class="ui grid">       
                         {% include banner.html %}
+                        {% include top_ad.html %}       
                         <div class="row">
                                 <div class="two wide column">
                                 </div>
                                 <div class="twelve wide column">
                                         {{ content }}
                                 </div>
-                                <div class="two wide column"></div>
+                                <div class="two wide column">   
+                                </div>
                         </div>
                         <div class="row">
                                 {% include pagination.html %}
