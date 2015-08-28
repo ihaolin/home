@@ -1,0 +1,332 @@
+---
+title : React前端组件化开发
+category : [web]
+tags : [web, react, gulp, webpack, component]
+layout : post
+show : 1
+keywords: react, gulp, component, webpack, 组件化
+---
+
+<ul>
+    <p class="intro">
+        最近重写WAP项目，为了使前端和后端完全分离，需要完全摒弃原始的JSP页面，采用传统的
+        <span class="highlight">HTML+CSS+JS</span>(不乏也会涉及部分HTML5，CSS3，
+        如 <span class="highlight">Storage</span>， <span class="highlight">Location</span>等)作为前端基础，
+        后端仅需提供数据交互API，
+        也就几乎类似<span class="highlight">APP + API</span>的交互模式，
+        这样就能清晰地独立前端和后端项目，独立部署分发。与此同时，前端展现数据将显得力不从心，
+        没有JSP中丰富的JSTL标签，于是，我们需要一些纯前端的展现，如模板技术，框架技术，
+        听闻过如<a href="http://www.angularjs.cn/" target="_blank">AngularJS</a>，但其略显繁重，
+        在了解到<a href="http://facebook.github.io/react/" target="_blank">React</a>之后，
+        决定用其来作为前端主力。
+    </p>
+
+
+    <li>
+    	<h2>React特性</h2>
+    </li>
+    <li>
+    	相比其他一些JS框架，React更佳精巧，React眼里一切都是组件，让开发人员使用组件化的思想去构建网页。
+    </li>
+    <li>
+    	<h3>
+    		仅仅是UI
+    	</h3>
+    </li>
+    <p class="wrap">
+    	通常我们会使用<span class="highlight">React</span>作为<span class="highlight">MVC</span>中的
+    	<span class="highlight">V</span>，<span class="highlight">React</span>能够很轻松地融入项目中，
+    	并不需要很复杂的技术。
+    </p>
+    <li>
+    	<h3>
+    		虚拟DOM
+    	</h3>
+    </li>
+    <p class="wrap">
+    	在HTML中的DOM节点，对于节点的事件处理，UI更新，都需要我们手动监听事件，再在事件中去更新UI或其他操作，
+    	为此<span class="highlight">React</span>抽象出一层<span class="highlight">虚拟DOM</span>，
+    	使得节点事件处理和UI更新更佳轻松，而且性能更佳。
+    </p>
+    <li>
+    	<h3>
+    		数据流
+    	</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">React</span>实现了单向数据流，以减少模板的使用，因此比传统的数据绑定更简单。
+    </p>
+    <li>
+    	<h2>React几个重要概念</h2>
+    </li>
+    <li>
+    	<h3>组件(Component)</h3>
+    </li>
+    <li>
+    	在React中，都以<span class="highlight">组件</span>为最小单元，比如一个简单的组件:
+    </li>
+    {% highlight javascript %}
+var HelloMessage = React.createClass({
+  render: function() {
+    return <div>Hello {this.props.name}</div>;
+  }
+});
+    {% endhighlight %}
+    <li>
+    	上面的代码就是一个简单的React组件，采用<span class="highlight">JSX</span>语法进行编写，
+    	既然有了组件，我们需要将组件渲染到页面当中(即<span class="highlight">挂载到某个真实DOM节点</span>):
+    </li>
+    {% highlight javascript %}
+var mountNode = document.getElementById('hello');
+React.render(<HelloMessage name="John" />, mountNode);
+    {% endhighlight %}
+    <li>
+    	<h3>组件状态(State)</h3>
+    </li>
+    <li>
+    	React中的每个组件都有自己的<span class="highlight">状态</span>，即一个Object对象。
+    	可以通过<span class="highlight">this.state.keyName</span>获取状态变量
+    	<span class="highlight">keyName</span>的值，
+    	通过<span class="highlight">this.state.setState({keyName: '...'})</span>
+    	设置状态变量<span class="highlight">keyName</span>的值，这将引起组件被重新渲染(<span class="highlight">render</span>)。
+    </li>
+    <li>
+    	<h3>组件规范(Component Specs)</h3>
+    </li>
+    <li>
+    	<h4>render</h4>
+    </li>
+    <p class="wrap">
+    	该方法是<span class="highlight">必须的</span>。当该方法被调用时，
+    	会检查当前组件的<span class="highlight">this.props</span>和
+    	<span class="highlight">this.state</span>，
+    	意味你可以在该方法中开始访问
+    	<span class="highlight">props</span>和<span class="highlight">state</span>。
+    	你不应该在该方法中更新当前组件状态(State)，这将导致组件重新被render，
+    	因此，render方法应保持清晰干净，仅仅组装各种组件，设置组件属性即可。
+    </p>
+    <li>
+    	<h4>getInitialState</h4>
+    </li>
+    <p class="wrap">
+    	该方法在组件被挂载前调用，仅调用一次，返回Object作为组件的初始状态，
+    	可通过<span class="highlight">this.state.keyName</span>访问这些状态变量，
+    	并且可以通过<span class="highlight">this.state.setState({keyName: '...'})</span>更新组件状态。
+    </p>
+    <li>
+    	<h4>getDefaultProps</h4>
+    </li>
+    <p class="wrap">
+    	该方法用于返回默认属性，即当父组件没有传入属性值时，将使用这些默认值，
+    	并且这些默认属性将被缓存，即所有该组件的实例共享该这些默认属性。
+    </p>
+    <li>
+    	<h4>mixins</h4>
+    </li>
+    <p class="wrap">
+    	该属性用于多个组件公用一些方法，但并不推荐，毕竟React提倡的是组件开发，
+    	使用可见<a href="http://facebook.github.io/react/docs/reusable-components.html" target="_blank">这里</a>。
+    </p>
+    <li>
+    	<h4>statics</h4>
+    </li>
+    <p class="wrap">
+    	顾名思义，<span class="highlight">statics</span>用于定义组件的静态方法，如
+    </p>
+    {% highlight javascript %}
+var MyComponent = React.createClass({
+  statics: {
+    customMethod: function(foo) {
+      return foo === 'bar';
+    }
+  },
+  render: function() {
+  }
+});
+
+MyComponent.customMethod('bar');  // true
+    {% endhighlight %}
+     <li>
+    	<h4>displayName</h4>
+    </li>
+    <p class="wrap">
+    	组件名称，可用于调试。
+    </p>
+    <li>
+    	<h3>一些主要的组件生命周期方法</h3>
+    </li>
+    <li>
+    	在组件的生命周期中，不同的时间点将对应执行不同的方法。
+    </li>
+    <li>
+    	<h4>componentWillMount</h4>
+    </li>
+    <p class="wrap">
+    	仅调用一次，在初始化render前被执行，因此，若在该方法中调用
+    	<span class="highlight">setState</span>，那么render将能看到更新的状态，
+    	并且并不会render只会执行一次，尽管执行了<span class="highlight">setState</span>。
+    </p>
+    <li>
+    	<h4>componentDidMount</h4>
+    </li>
+    <p class="wrap">
+    	仅调用一次，在初始化render后被执行，此时，组件已经有对应的真实DOM节点，
+    	因此可以调用<span class="highlight">React.findDOMNode(this)</span>获取组件的真实DOM节点，
+    	通常会在该方法中去获取数据。
+    </p>
+    <li>
+    	<h4>componentWillReceiveProps</h4>
+    </li>
+    <p class="wrap">
+    	当组件被赋值新的属性时被调用，可以在该方法中根据新的属性，做一些处理，如
+    </p>
+    {% highlight javascript %}
+componentWillReceiveProps: function(nextProps) {
+  this.setState({
+    likesIncreasing: nextProps.likeCount > this.props.likeCount
+  });
+}
+    {% endhighlight %}
+    <li>
+    	<h4>shouldComponentUpdate</h4>
+    </li>
+    <p class="wrap">
+    	该方法在render前调用，若返回false，render方法不将被执行，可以在该方法做一些判断，确认是否需要render组件。
+    </p>
+    {% highlight javascript %}
+shouldComponentUpdate: function(nextProps, nextState) {
+  return nextProps.id !== this.props.id;
+}
+    {% endhighlight %}
+    <li>
+    	<h4>componentDidUpdate</h4>
+    </li>
+    <p class="wrap">
+    	该方法在当组件更新后且被刷新到DOM节点后被调用，不会在初始化render后调用，
+    	可以在该方法中操作最新的DOM节点。
+    </p>
+    <li>
+    	<h2>一个简单的例子</h2>
+    </li>
+    <li>
+    	针对一个简单的登录页面，我们可以将其分为几个组件:
+    </li>
+    <img src="{{site.url}}/images/react-component-01.png">
+    <li>
+    	我们将上面的页面分为几个比较细粒度的组件为:
+    </li>
+    {% highlight javascript %}
+<LoginPage>
+	<Header>
+		<HeaderLink icon="icon icon-left-nav" />
+        	<HeaderTitle title="快捷登录" />
+	</Header>
+	<Body>
+		<Input type="text" cls="mobile" placeholder="请输入手机号" />
+	        <SendCodeBtn mobile={this.state.mobile}/>
+	        <Input type="text" cls="valid-code" placeholder="请输入您的验证码" />
+	        <Button type="button" cls="btn btn-block btn-warning" >登录</button>
+	</Body>
+</LoginPage>    
+    {% endhighlight %}
+    <p class="wrap">
+    	可见，即使是简单的input元素，也用<span class="highlight">Input</span>组件来封装，
+    	也是为了能够进行一些简单的定制化，如样式，事件等。
+    </p>
+    <li>
+    	<h4>组件通信</h4>
+    </li>
+    <li>
+    	对于<span class="wrap">父子级</span>的组件之间，
+    	通过<span class="highlight">属性传递</span>，<span class="highlight">回调</span>等就能较好的通信，如
+    </li>
+    {% highlight javascript %}
+<Button type="button" cls="btn btn-block btn-warning" onTouch={this.onLogin}>登录</button>
+    {% endhighlight %}
+    <li>
+    	而<span class="highlight">Button</span>组件内部会在onTouchStart时回调其父组件传递的属性onTouch:
+    </li>
+    {% highlight javascript %}
+var Button = React.createClass({
+  render: function() {
+    return <button className={this.props.cls} onTouchStart={this.props.onTouch}>{this.props.children}</button>;
+  }
+});    
+    {% endhighlight %}
+    <li>
+    	对于同级别的组件，可以通过其父组件间接通信，即组件1触发事件，调用父组件方法，该方法再调用组件2某方法。
+    </li>
+    <li>
+    	<h4>状态更新</h4>
+    </li>
+    <p class="wrap">
+    	当一个页面比较复杂时，会由很多组件组装起来，建议对于业务组件，将状态抽象到上层组件中进行统一管理，
+    	也便于页面中的组件能够通信，因为一旦状态更新，就会<span class="highlight">render</span>，
+    	状态太混乱，造成不必要的UI渲染，或者错误的UI渲染。在业务组件编写中，
+    	可以尽量用<span class="">props</span>代替不必要的<span class="highlight">state</span>，
+    	即让组件无状态，将状态更新交由外部组件去控制。
+    </p>
+    <li>
+    	<h3>组件依赖</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">React</span>本身并不支持组件依赖管理，
+    	即不能像<a href="http://requirejs.org/" target="_blank">RequireJs</a>等模块化管理工具一样，能维护模块之间的依赖关系，
+    	比较简单的解决办法是将业务组件都<span class="highlight">concat</span>到一个文件中，那么组件就能通过组合来调用其他组件。
+    </p>
+    <li>
+    	<h3>使用webpack管理React组件</h3>
+    </li>
+    <p class="wrap">
+    	React大多<a href="http://react-components.com/" target="_blank">第三方组件</a>是遵循<a href="http://www.npmjs.com/" target="_blank">npm</a>规范，
+    	于是我们可以考虑使用<a href="http://webpack.github.io/docs/" target="_blank">webpack</a>来管理React组件的依赖关系，
+    </p>
+    <li>
+    	对于React组件管理，webpack可能基本配置就是
+    </li>
+    {% highlight javascript %}
+{
+    entry:{
+        login: ['./app/components/login/index.jsx', './app/components/login/main.jsx']
+    },
+    output: {
+        filename: '[name].js'
+    },
+    module: {
+        loaders: [
+            { test: /\.jsx$/, loader: 'babel-loader' }
+        ]
+    },
+    ...
+}
+    {% endhighlight %}
+    <li>
+    	既然选择了<span class="highlgiht">npm</span>规范，因此我们编写的组件也就必须遵循:
+    </li>
+    {% highlight javascript %}
+var React = require('react');
+// require other components
+
+var Login = React.createClass({
+    ...
+});
+
+module.exports = Login;
+    {% endhighlight %}
+    <li>
+    	的确React足够简洁，通过状态来自动进行UI渲染，并且通过<a href="http://baike.baidu.com/link?url=hPbfuxo1lYz6PdMUsF_R2gqXZ1nuebl6WJVCkcwwzUbvWJlqQD5KmUz1x_BVwFZl9FjXPE9jaid46a8U1CG01q" target="_blank">diff</a>算法对组件进行最小化DOM操作，使得性能可观，并且轻松进行组件化，
+    	开发出高可复用代码，值得一试。
+    </li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
