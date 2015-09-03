@@ -33,12 +33,19 @@ keywords: hash, consistent hash, 一致性哈希
         与一般哈希不同，<span class="highlight">一致性哈希</span>是一种特殊的哈希算法，在使用一致性哈希算法后，哈希表槽位数（大小）的改变平均只需要对K/n个关键字重新映射，其中 K是关键字的数量，n是槽位数量。然而在传统的哈希表中，添加或删除一个槽位的几乎需要对所有关键字进行重新映射。
     </p>
     <li>
-        <h3>利用哈希实现缓存负载均衡(Load Balance)</h3>
+        <h2>利用哈希实现缓存</h2>
     </li>
+    <p class="wrap">
+        对于一般哈希而言，当对资源r进行存取时，通过<span>哈希取模</span>公式<span class="highlight">hash(r) mod n</span>就能定位到资源所在的缓存服务器，如
+    </p>
+    <img src="{{site.url}}/images/algo/hash.png">
     <li>
-        首先，需要将缓存节点
+        然而，对于上面的作法本身并没有不对，只是有一些不完善的地方:
     </li>
-
+    <p class="wrap">
+        1. 该哈希算法不能保证<span class="highlight">负载均衡</span>: 即多个缓存服务器所存放的资源会不够均等，一些节点负载肯可能很高，一些则比较低；<br/>
+        2. 在缓存服务器节点数量发生变化时，<span class="highlight">哈希取模</span>公式就得发生变化<span class="highlight">hash(r) mod n'</span>，这时，资源r与原有缓存服务器的映射关系将被打破，并且影响很大。
+    </p>
     <li>
     	<h2>问题</h2>
     </li>
