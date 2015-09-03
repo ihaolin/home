@@ -1,0 +1,45 @@
+---
+title : 一致性哈希
+category : [algorithm]
+tags : [algorithm, hash, consistent hash]
+layout : post
+show : 0
+keywords: hash, consistent hash, 一致性哈希
+---
+
+
+<ul>
+	<p class="intro">
+        如今，<span class="highlight">哈希</span>已经被广泛应用在各种系统及应用中，
+        而<span class="highlight">一致性哈希</span>则是其中一种常用的服务均衡算法，
+        旨在P2P环境中，如何在动态的网络中分布和路由节点，
+    </p>
+
+
+    <li>
+    	<h2>哈希(Hash)</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">哈希</span>，也即<span class="highlight">散列</span>，
+        旨在通过关键字(Key)而直接访问在内存存储位置的数据结构(<span class="highlight">value=hash(key)</span>)，
+        它通过计算一个关于键值的函数(<span class="highlight">hash算法</span>)，将所需查询的数据映射到表中一个位置来访问记录，这加快了查找速度。这个映射函数称做散列函数，
+        存放记录的数组称做<span class="highlight">散列表</span>。
+    </p>
+
+    <li>
+    	<h2>一致性哈希(Consistent Hash)</h2>
+    </li>
+    <p class="wrap">
+        与一般哈希不同，<span class="highlight">一致性哈希</span>是一种特殊的哈希算法，在使用一致性哈希算法后，哈希表槽位数（大小）的改变平均只需要对K/n个关键字重新映射，其中 K是关键字的数量，n是槽位数量。然而在传统的哈希表中，添加或删除一个槽位的几乎需要对所有关键字进行重新映射。
+    </p>
+    <li>
+        <h3>利用哈希实现缓存负载均衡(Load Balance)</h3>
+    </li>
+    <li>
+        首先，需要将缓存节点
+    </li>
+
+    <li>
+    	<h2>问题</h2>
+    </li>
+</ul>

@@ -1,0 +1,72 @@
+---
+title : ElasticSearch深入理解(一)：开始
+category : [elasticsearch]
+tags : [elasticsearch, install, elasticsearch]
+layout : post
+show : 0
+keywords: elasticsearch, install, cluster
+---
+
+<ul>
+    <p class="intro">
+        <span class="highlight">ES</span>作为一款实时分布式的搜索和分析引擎，
+        可以让我们以前所未有的速度和规模来探索数据，比如
+        <span class="highlight">全文搜索</span>，
+        <span class="highlight">结构化搜索</span>，
+        <span class="highlight">分析</span>等。
+    </p>
+
+
+    <li>
+        <span class="highlight">ES</span>本身并没有运用新的技术，
+        如<span class="highlight">全文搜索</span>，
+        <span class="highlight">分析系统</span>，
+        <span class="highlight">分布式数据库</span>等，
+        关键是ES将这些独立技术组合成了一个一致实时的应用，并且学习门槛很低。
+    </li>
+
+    <li>
+        <h2>你应了解的ES</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">ElasticSearch</span>是基于开源的搜索引擎<span class="highlight">Lucene</span>进行构建的，
+        它将Lucene中的一些复杂性进行封装，使得搜索系统能与业务系统独立开来。
+    </p>
+    <li>
+        虽然ES基于Lucene作全文搜索，但ES远不只是全文搜索，还包括
+    </li>
+    <p class="wrap">
+        1. 一个<span class="highlight">分布式</span>的<span class="highlight">实时</span>的文档存储引擎(每个被索引的字段都可以被搜索)。<br>
+        2. 一个分布式的实时<span class="highlight">分析引擎</span>。<br>
+        3. 能够扩展到成百上千台服务器，存储<span class="highlight">海量</span>结构和非结构化数据。
+    </p>
+    <li>
+        <h3>与ES交互</h3>
+    </li>
+    <li>
+        ES提供各种语言的客户端，Java,Python,PHP等，最为简单直白莫过于REST API，ES提供了如下格式的REST API:
+    </li>
+    {% highlight bash %}
+curl -X<VERB> '<PROTOCOL>://<HOST>/<PATH>?<QUERY_STRING>' -d '<BODY>'
+    {% endhighlight %}
+    <p >
+        <span class="highlight">VERB</span>:请求方法(GET, POST, PUT, HEAD, DELETE)。<br>
+        <span class="highlight">PROTOCOL</span>: http或https。<br>
+        <span class="highlight">HOST</span>: ES集群中的任何节点主机名。<br>
+        <span class="highlight">PORT</span>: ES提供HTTP服务的端口，默认为9200。<br>
+        <span class="highlight">QUERY_STRING</span>: 可选的查询参数，如pretty将打印出格式良好的json字符串。<br>
+        <span class="highlight">BODY</span>: 请求Body，如索引mapping。
+    </p>
+    <li>
+        <h3>面向文档</h3>
+    </li>
+    <li>
+        ES是面向文档的，即将整个对象存储为一个文档，并且为了能搜索到文档，还须对文档进行索引。
+    </li>
+</ul>
+
+
+
+
+
+
