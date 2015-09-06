@@ -40,12 +40,16 @@ keywords: hash, consistent hash, 一致性哈希
     </p>
     <img src="{{site.url}}/images/algo/hash.png">
     <li>
-        然而，对于上面的作法本身并没有不对，只是有一些不完善的地方:
+        然而，对于上面的做法并没有不对，只是有一些不完善的地方:
     </li>
     <p class="wrap">
-        1. 该哈希算法不能保证<span class="highlight">负载均衡</span>: 即多个缓存服务器所存放的资源会不够均等，一些节点负载肯可能很高，一些则比较低；<br/>
+        1. 该哈希算法不能保证<span class="highlight">负载均衡</span>: 即多个缓存服务器所存放的资源会不够均衡，一些节点负载肯可能很高，一些则比较低；<br/>
         2. 在缓存服务器节点数量发生变化时，<span class="highlight">哈希取模</span>公式就得发生变化<span class="highlight">hash(r) mod n'</span>，这时，资源r与原有缓存服务器的映射关系将被打破，并且影响很大。
     </p>
+    <li>
+        若使用<span class="highlight">一致性哈希</span>将解决上面的问题。
+        <span class="highlight">一致性哈希</span>首先会将缓存服务器节点分布在一个哈希值范围为<span>0~2^32</span>的圆环内:
+    </li>
     <li>
     	<h2>问题</h2>
     </li>
