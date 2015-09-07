@@ -30,7 +30,7 @@ keywords: hash, consistent hash, 一致性哈希
     	<h2>一致性哈希(Consistent Hash)</h2>
     </li>
     <p class="wrap">
-        与一般哈希不同，<span class="highlight">一致性哈希</span>是一种特殊的哈希算法，在使用一致性哈希算法后，哈希表槽位数（大小）的改变平均只需要对K/n个关键字重新映射，其中 K是关键字的数量，n是槽位数量。然而在传统的哈希表中，添加或删除一个槽位的几乎需要对所有关键字进行重新映射。
+        与一般哈希不同，<span class="highlight">一致性哈希</span>是一种特殊的哈希算法，在使用一致性哈希算法后，哈希表槽位数（大小）的改变平均只需要对K/n个关键字重新映射，其中 K是关键字的数量，n是槽位数量。然而在传统的哈希中，添加或删除一个槽位的几乎需要对所有关键字进行重新映射。
     </p>
     <li>
         <h2>利用哈希实现缓存</h2>
@@ -47,9 +47,23 @@ keywords: hash, consistent hash, 一致性哈希
         2. 在缓存服务器节点数量发生变化时，<span class="highlight">哈希取模</span>公式就得发生变化<span class="highlight">hash(r) mod n'</span>，这时，资源r与原有缓存服务器的映射关系将被打破，并且影响很大。
     </p>
     <li>
-        若使用<span class="highlight">一致性哈希</span>将解决上面的问题。
-        <span class="highlight">一致性哈希</span>首先会将缓存服务器节点分布在一个哈希值范围为<span>0~2^32</span>的圆环内:
+        若使用<span class="highlight">一致性哈希</span>将解决上面的问题，
+        <span class="highlight">一致性哈希</span>首先会将缓存服务器节点分布在一个哈希值范围为<span class="highlight">0~2^32</span>的圆环内:
     </li>
+    <img src="{{site.url}}/images/algo/consistent_hash01.png">
+    <li>
+        再通过同样的<span class="highlight">哈希算法</span>将资源映射到环内，
+        这样r1将存放在s1服务器上，r2存放在s2服务器上，r3,r4存在在s3服务器上:
+    </li>
+    <img src="{{site.url}}/images/algo/consistent_hash02.png">
+    <li>
+        若此时s2服务器发生崩溃，受影响的仅是s1与s2之间的资源，将被映射到s3上:
+    </li>
+    <img src="{{site.url}}/images/algo/consistent_hash03.png">
+    <li>
+        又或s2与s3之间增加了s4，此时受影响的仅是s4与s2之间的资源，将被映射到s4上:
+    </li>
+    <img src="{{site.url}}/images/algo/consistent_hash04.png">
     <li>
     	<h2>问题</h2>
     </li>
