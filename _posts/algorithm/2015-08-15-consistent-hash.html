@@ -61,10 +61,90 @@ keywords: hash, consistent hash, 一致性哈希
     </li>
     <img src="{{site.url}}/images/algo/consistent_hash03.png">
     <li>
-        又或s2与s3之间增加了s4，此时受影响的仅是s4与s2之间的资源，将被映射到s4上:
+        又或者s2与s3之间增加了s4，此时受影响的仅是s4与s2之间的资源，将被映射到s4上:
     </li>
     <img src="{{site.url}}/images/algo/consistent_hash04.png">
     <li>
-    	<h2>问题</h2>
+        那么可以看下如何将<span class="highlight">缓存服务器节点</span>和<span class="highlight">资源</span>哈希到环上:
     </li>
+    {% highlight java %}
+
+// node通常为Server主机地址
+private void addNode(String node) {
+    // 通过md5出一个长度为16的字节数组
+    byte[] digest = md5(node.toString());
+    for (int h = 0; h < 4; h++) {
+        // 将hash值映射到Server节点
+        circle.put(hash(digest, h), node);
+    }
+}
+
+private byte[] md5(String text) {
+    md5Algorithm.update(text.getBytes());
+    return md5Algorithm.digest();
+}
+
+/**
+ * 产生一个32位数
+ */
+private long hash(byte[] digest, int h) {
+    return ((long) (digest[3 + h * 4] & 0xFF) << 24) | 
+            ((long) (digest[2 + h * 4] & 0xFF) << 16) | 
+            ((long) (digest[1 + h * 4] & 0xFF) << 8) | 
+            (digest[h * 4] & 0xFF);
+}
+    {% endhighlight %}
+    <li>
+        当定位资源r时，也会通过同样的hash函数，以下为java实现:
+    </li>
+    {% highlight java %}
+public T get(Object key) {
+    // 由同一hash函数计算出哈希值
+    long hash = hash(key.toString());
+    if (!circle.containsKey(hash)) {
+        // circle 为 TreeMap对象，tailMap将获取Key大于hash的map子集(即环上该hash顺时针后的所有子集)
+        SortedMap tailMap = circle.tailMap(hash);
+        // 若存在后续子集，取最近的hash，否则取环上第一个hash值，也就是第一个Server
+        hash = tailMap.isEmpty() ? circle.firstKey() : tailMap.firstKey();
+    }
+    // 获取hash值映射的Server节点
+    return circle.get(hash);
+}
+    {% endhighlight %}
+    <li>
+        这样就能将资源映射到对应缓存服务器了，但当前的方案还是有一些问题，当缓存服务器节点比较少时，
+        会存在资源映射不均衡的情况，如:
+    </li>
+    <img src="{{site.url}}/images/algo/consistent_hash05.png">
+    <li>
+        显然，s3承担了比s1，s2都多的工作，这时，可以引入虚拟节点，
+        使得一个物理节点能够对应多个虚拟节点，从极限思维，达到节点分布均匀:
+    </li>
+    {% highlight java %}
+
+private void addNode(T node) {
+    // 添加物理节点时，则添加虚拟节点
+    for (int i = 0; i < virtual / 4; i++) {
+        byte[] digest = md5(node.toString() + i);
+        for (int h = 0; h < 4; h++) {
+            circle.put(hash(digest, h), node);
+        }
+    }
+}
+    {% endhighlight %}
+    <li>
+        这样，一致性哈希就弥补了一般哈希的两点不足，<a href="{{site.url}}/codes/Ketama.java" target="_blank">完整代码</a>摘自别人，作了些小调整。
+    </li>
+    <li>
+    	<h2>实际问题</h2>
+    </li>
+    <p class="wrap">
+        最近需要对推送服务支持多节点功能，即客户端注册时，会分配一个clientId，与此同时会返回，通过clientId进行
+        <span class="highlight">一致性哈希</span>获取事先已经建立了哈希环的Server集群中的一个Server，
+        之后客户端就与该Server开始TCP通信，
+        通过<span class="highlight">一致性哈希</span>也比较柔和地解决Server异常崩溃，或者动态增加Server的情况，
+        但还是会由于Server只有2个(服务器资源紧缺)，在其中一个Server重启时，
+        导致该Server之前的Client会全部导向另一个Server，即便第一个Server启动完毕，之前的Client也不会连上该Server，
+        不过通过程序也可以让其重注册，再次使得Client连接分布均匀。
+    </p>
 </ul>
