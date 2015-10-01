@@ -1,0 +1,141 @@
+---
+title : Redis集群
+category : [redis]
+tags : [redis, cluster]
+layout : post
+show : 0
+keywords: redis,cluster,redis集群
+---
+
+<ul>
+    <p class="intro">
+        Redis3.0之前是原生是不支持<span class="highlight">集群功能</span>的，
+        但通过其他一些工具，如<a href="https://github.com/twitter/twemproxy" target="_blank">twenproxy</a>
+        可以将多个Redis实例组合成一个集群，通过该代理实现<span class="highlight">负载均衡</span>等功能，
+        但其本身对某些Redis命令<a href="https://github.com/twitter/twemproxy/blob/master/notes/redis.md" target="_blank">并不支持</a>，如<span class="highlight">BLPOP</span>，
+        <span class="highlight">Pub/Sub</span>，<span class="highlight">Transactions</span>等，
+        Redis3.0之后开始原生支持集群功能，本文将了解下Redis3.0的集群部分。
+    </p>
+
+
+    <li>
+        <h2>主要的设计原理和特性</h2>
+    </li>
+    <li>
+        <h3>Redis集群的实现目标</h3>
+    </li>
+    <p class="wrap">
+       <span class="highlight">Redis集群</span>即Redis的分布式实现，按其目标重要性排序，大概有几个: 
+    </p>
+    <ul>
+        <li>
+        1. <span class="highlight">高性能</span>且支持1000+节点<span class="highlight">线性扩展</span>。
+    集群中不会有<span class="highlight">代理</span>，<span class="highlight">异步复制</span>等操作，在获取值时<span class="highlight">不会有合并操作</span>。</li>
+        <li>
+            2. <span class="highlight">可接受的写安全</span>。系统以最佳的方式保留了所有与多数master节点连接的客户端的写操作，
+    但通常还是有一些小窗口会丢失写操作，并且当客户端在<span class="highlight">少数分区</span>时，丢失的写操作将更多。
+        </li>
+        <li>
+            3. <span class="highlight">可用性</span>。集群可以比多数可用的master节点分区存活更久，
+            并且对每一个不可用的master节点至少有一个可用的slave节点，此外，通过<span class="highlight">replicas migration</span>，不再被任何slave节点复制的master节点将从其对应slave节点中接受一个为master节点。
+        </li>
+    </ul>
+    <li>
+        <h3>Redis集群实现的功能子集</h3>
+    </li>
+    <p class="wrap">
+        Redis集群实现了单机Redis中， 所有处理单个数据库Key的命令。对于一些负责的多Key命令，
+        如Set的并集和交集操作，只要<span class="highlight">所有这些Key都在同一节点上</span>也是可以的。<br/>
+        Redis集群通过一个叫<span class="highlight">hash tags</span>的方式来强制某些Key存储在
+        <span class="higlight">同一个节点</span>上，但是在<span class="">手动分片</span>过程中，
+        多Key操作有时变得不可用，然而单Key操作始终是可用的。<br/>
+        Redis集群不支持像单机Redis中的多数据库，只有<span class="highlight">DB 0</span>可用，
+        即<span class="highlight">SELECT</span>命令在Redis集群中不支持。
+    </p>
+    <li>
+        <h3>Redis集群协议中的客户端和服务器</h3>
+    </li>
+    <li>
+        Redis 集群中的节点有以下责任：
+    </li>
+    <ul>
+        <li>
+            1. 持有键值对数据。
+        </li>
+        <li>
+            2. 记录集群的状态，包括键到正确节点的映射。
+        </li>
+        <li>
+            3. 自动发现其他节点，识别工作不正常的节点，并在有需要时，在从节点中选举出新的主节点。
+        </li>
+    </ul>
+    <p class="wrap">
+        集群中所有的节点都通过一个<span class="highlight">TCP总线</span>和二进制协议
+        (叫做<span class="highlight">Redis集群总线</span>)来完成自己的任务。
+        节点之间通过Gossip协议进行一下工作：
+    </p>
+    <ul>
+        <li>
+            1. 传播（propagate）关于集群的信息，以此来发现新的节点;
+        </li>
+        <li>
+            2. 向其他节点发送 PING 数据包，以此来检查目标节点是否正常运作;
+        </li>
+        <li>
+            3. 在特定事件发生时，发送集群信息;
+        </li>
+        <Li>
+            4. 在集群中发布或订阅信息。
+        </Li>
+    </ul>
+    <p class="wrap">
+        因为集群节点<span class="highlight">不能代理（proxy）</span>命令请求， 所以客户端应该在节点返回
+        <span class="highlight"> -MOVED </span>或者 <span class="highlight">-ASK </span>转向（redirection）错误时， 自行将命令请求转发至其他节点。因为客户端可以自由地向集群中的任何一个节点发送命令请求， 并可以在有需要时， 根据转向错误所提供的信息， 将命令转发至正确的节点， 所以在理论上来说， 客户端是无须保存集群状态信息的。不过， 如果<span class="highlight">客户端可以将键和节点之间的映射信息缓存起来</span>， 可以有效地减少可能出现的转向次数， 籍此提升命令执行的效率。
+    </p>
+    <li>
+        <h3>写安全</h3>
+    </li>
+    <p class="wrap">
+        Redis集群中节点之间使用<span class="highlight">异步复制</span>，
+        并且最终被选举的Master的数据将替换所以其他的副本。
+        在分区过程中，总是有一个<span class="highlight">窗口</span>时间内有可能发生写丢失。
+        但是这些<span>窗口</span>对于连接到多数Master端和少数Master端的客户端却不尽相同，
+        相较于少数Master端的写操作，Redis集群会尽量记住多数Master端的写操作。
+        下面是一些在故障期间，多数分区丢失写操作的场景:
+    </p>
+    <ul>
+        <li>
+            1. 一个写操作到达了Master，且Master回复了客户端，但是该写操作并并没有通过
+            <span class="highlight">异步复制</span>给Slave。如果写操作在达到Slave前，
+            Master崩溃了，并且该Master在新Master出现前还不可用时，该写操作将永久丢失。
+            通常，很难遇到这种情况，但确实是现实中存在的一种故障情形。
+        </li>
+        <li>
+            2. 另外理论上写操作丢失的情形可能有这些:
+        </li>
+        <ul>
+            <li>
+                Master由于分区不可用；
+            </li>
+            <li>
+                Slave发生故障；
+            </li>
+            <li>
+                一段时间后，节点才再次可用；
+            </li>
+            <li>
+                Client使用了过期的路由表，向旧的Master发送请求。
+            </li>
+        </ul>
+    </ul>
+    <li>
+        <h3>可用性</h3>
+    </li>
+    
+</ul>
+
+
+
+
+
+
