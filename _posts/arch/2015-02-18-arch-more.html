@@ -22,7 +22,7 @@ keywords: web, 架构
             记得自己写的第一个web应用，也就是一个最基本的<span class="highlight">Servlet + JSP</span>的小网站，
             那个时候对应用架构也没有什么概念，只是想这那样做而已，应用架构也很简单。
         </li>
-        <img src="{{site.url}}/images/arch/arch1.png">
+        <img src="{{site.url}}/images/arch/arch1.png" width="600">
         <li>
             <h2>代理服务器 + Web服务器 + DB服务器</h2>
         </li>
@@ -31,7 +31,7 @@ keywords: web, 架构
             <span class="highlight">Apache</span>, <span class="highlight">Nginx</span>等，
             这样有便于我们作一些如<span class="highlight">安全</span>，<span class="highlight">缓存</span>，<span class="highlight">静态文件</span>，<span class="highlight">分流</span>等处理，而不是直接在WEB服务器里直接完成。
         </li>
-        <img src="{{site.url}}/images/arch/arch2.png">
+        <img src="{{site.url}}/images/arch/arch2.png" width="600">
         <li>
             <h2>多WEB服务器</h2>
         </li>
@@ -39,11 +39,11 @@ keywords: web, 架构
             当单个web服务器已经很难较快响应用户请求(吞吐量过低)，
             此时我们也许需要多个web服务器，让代理服务器通过<span class="highlight">负载均衡</span>进行分流处理。
         </li>
-        <img src="{{site.url}}/images/arch/arch3.png">
+        <img src="{{site.url}}/images/arch/arch3.png" width="600">
         <li>
             如果当我们WEB服务器数量已经比较多时，这时也许需要扩展多个代理服务器，每个代理服务器映射一个<span class="highlight">WEB服务器组</span>。
         </li>
-        <img src="{{site.url}}/images/arch/arch4.png">
+        <img src="{{site.url}}/images/arch/arch4.png" width="600">
         <li>
             <h2>
                 缓存和数据库
@@ -53,7 +53,7 @@ keywords: web, 架构
             由<a href="http://baike.baidu.com/link?url=QSO1z7Cf974L3UbnD53ZOdIzBil52qCj3tlDYvIGI7Rz-aH5XB4nRsfmEsImWQNbJ1k67xjq_MlAPj2b8oxNL3-JLDrMPlGq7yh2X6_Xa804iSoaJ5R-2gDmrQ7RzMEWnHT662A5tp8rdq1GmCL1VQx0CCe0RcdDnRr-z-ZJ9z_" target="_blank">木桶原理</a>可知，即便WEB服务器能及时收到客户端请求，但是最终可能因为数据源的压力过大，
             同样导致响应时间增长，这时我们也许需要做的就是<span class="highlight">DB Master/Slave</span>部署，基本原理可见<a href="http://my.oschina.net/indestiny/blog/334910" target="_blank">之前的文章</a>，或者提供缓存服务器。
         </li>
-        <img src="{{site.url}}/images/arch/arch5.png">
+        <img src="{{site.url}}/images/arch/arch5.png" width="600">
         <li>
             对于<span class="highlight">缓存</span>，会比较多用一些KV数据库
             (如<span class="highlight">Redis</span>, <span class="highlight">Memcached</span>等)，
@@ -71,7 +71,7 @@ keywords: web, 架构
             <span class="highlight">Zookeeper Watcher</span>，
             <span class="highlight">消息队列</span>等来实现通知。
         </li>
-        <img src="{{site.url}}/images/arch/arch6.png">
+        <img src="{{site.url}}/images/arch/arch6.png" width="600">
         <li>
             <h2>服务化</h2>
         </li>
@@ -82,7 +82,7 @@ keywords: web, 架构
             <a href="http://alibaba.github.io/dubbo-doc-static/User+Guide-zh.htm" target="_blank">Dubbo</a>，
             当当的<a href="http://dangdangdotcom.github.io/dubbox/" target="_blank">DubboX</a>等。
         </li>
-        <img src="{{site.url}}/images/arch/arch7.png">
+        <img src="{{site.url}}/images/arch/arch7.png" width="600">
         <li>
             <h2>搜索</h2>
         </li>
@@ -95,7 +95,19 @@ keywords: web, 架构
             <span class="highlight">Solr</span>，
             <span class="highlight">ElasticSearch</span>(推荐)。
         </p>
-        <img src="{{site.url}}/images/arch/arch8.png">
+        <img src="{{site.url}}/images/arch/arch8.png" width="600">
+        <li>
+            <h2>服务解耦</h2>
+        </li>
+        <li>
+            当服务模块越来越多时，服务之间的依赖关系有可能就变得比较复杂，或者说比较重，一个服务就被多个服务所依赖，
+            那么这个服务将变成一个依赖瓶颈，一旦该服务不可用，则有可能影响比较大，如下面这种:
+        </li>
+        <img src="{{site.url}}/images/arch/arch9.png" width="600">
+        <li>
+            这里<span class="highlight">短信服务</span>已经被多个模块所依赖，这时我们可能就需要进行解耦，即通过一个中间层解除服务之间的，其中<span class="highlight">消息中间件(MQ)</span>无疑是比较好的解决方案:
+        </li>
+        <img src="{{site.url}}/images/arch/arch10.png" width="600">
     </ul>
 
 
