@@ -4,7 +4,7 @@ title : Ha0's Home
 ---
 
 
-{% for post in paginator.posts %}
+{% for post in site.posts %}
     {% if post.show == 1 %}
         {% include post.html post=post %}
     {% endif %}

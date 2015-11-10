@@ -1,0 +1,250 @@
+---
+title : 结算服务中的事务和一致性处理
+category : [java]
+tags : [transaction, consistent, settlement]
+layout : post
+show : 1
+keywords: transaction, consistent, 结算
+---
+
+
+<ul>
+	<p class="intro">
+        在日常开发中，一旦涉及到多个表操作时，便需要考虑事务及数据一致性的问题，
+        通常就是<span class="highlight">事务原子性</span>和
+        <span class="highlight">保证数据能被正确且完整地记录</span>，
+        本文将探讨下遇到的系统结算中碰到的相关问题。
+    </p>
+
+
+    <li>
+    	<h2>事务基础</h2>
+    </li>
+    <li>
+    	<h3>
+    		事务特性ACID:
+    	</h3>
+    </li>
+    <blockquote>
+    	<p>
+    		<span class="highlight">原子性(Atomicity)</span>: 一个事务（transaction）中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。事务在执行过程中发生错误，会被回滚（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。
+    	</p>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		<span class="highlight">一致性(Consistency)</span>: 在事务开始之前和事务结束以后，数据库的完整性没有被破坏。这表示写入的资料必须完全符合所有的预设规则，这包含资料的精确度、串联性以及后续数据库可以自发性地完成预定的工作。
+    	</p>
+    </blockquote>
+     <blockquote>
+    	<p>
+    		<span class="highlight">隔离性(Isolation</span> 两个或者多个事务并发访问（此处访问指查询和修改的操作）数据库的同一数据时所表现出的相互关系。事务隔离分为不同级别，包括读未提交（Read uncommitted）、读提交（read committed）、可重复读（repeatable read）和串行化（Serializable）。
+    	</p>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		<span class="highlight">持久性(Durability</span> 在事务完成以后，该事务对数据库所作的更改便持久地保存在数据库之中，并且是完全的。
+    	</p>
+    </blockquote>
+    <li>
+    	<h3>
+    		四种事务隔离级别:
+    	</h3>
+    </li>
+    <blockquote>
+    	<p>
+    		<span class="highlight">未提交读(READ UNCOMMITTED</span>是最低的隔离级别。允许<span class="highlight">脏读</span>，事务可以看到其他事务“尚未提交”的修改。
+    	</p>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		在<span class="highlight">提交读(READ COMMITTED</span>隔离级别中，基于锁机制并发控制的DBMS需要对选定对象的<span class="highlight">写锁一直保持到事务结束</span>，但是<span class="highlight">读锁</span>在SELECT操作完成后马上释放，因此<span class="highlight">不可重复读</span>现象可能会发生，但不要求“范围锁(range-locks)”。
+    	</p>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		在<span class="highlight">可重复读(REPEATABLE READS)</span>隔离级别中，基于锁机制并发控制的DBMS需要对选定对象的<span class="highlight">读锁和写锁一直保持到事务结束</span>，但不要求“范围锁”，因此可能会发生“幻影读”。
+    	</p>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		<span class="highlight">可序列化(Serializable)</span>是最高的隔离级别，在基于锁机制并发控制的DBMS实现<span class="highlight">可序列化</span>要求在选定对象上的读锁和写锁保持直到事务结束后才能释放。在SELECT的查询中使用一个“WHERE”子句来描述一个范围时应该获得一个“范围锁”。这种机制可以避免“幻影读”现象。
+    	</p>
+    </blockquote>
+    <li>
+    	<h3>
+    		几种读现象:
+    	</h3>
+    </li>
+    <blockquote>
+    	<p>
+    		 <span class="highlight">脏读</span>: 一个事务允许读取另外一个事务修改但未提交的数据:
+    	</p>
+    	<img src="{{site.url}}/images/java/dirty-read.png" width="500">
+    </blockquote>
+    <blockquote>
+    	<p>
+    		 <span class="highlight">不可重复读</span>: 在一次事务中，当一行数据获取两遍得到不同的结果表示发生了不可重复读。在基于锁的并发控制中“不可重复读”现象发生在当执行<span class="highlight">SELECT操作时没有获得读锁</span>或者<span class="highlight">SELECT操作执行完后马上释放了读锁</span>。
+    	</p>
+    	<img src="{{site.url}}/images/java/non-repeatable-read.png" width="500">
+    	<div>事务2提交成功，因此他对id为1的行的修改就对其他事务可见了。但是事务1在此前已经从这行读到了另外一个“age”的值。在<span class="highlight">可序列化和可重复读</span>的隔离级别时，数据库在第二次SELECT请求的时候应该返回事务2更新之前的值。在<span class="highlight">提交读和未提交读</span>，返回的是更新之后的值，这个现象就是<span class="highlight">不可重复读</span>。</div>
+    </blockquote>
+    <blockquote>
+    	<p>
+    		<span class="highlight">幻影读</span>: 在事务执行过程中，当两个完全相同的查询语句执行得到不同的结果
+    	</p>
+    	<img src="{{site.url}}/images/java/phantom-read.png" width="500">
+    	<div>当事务1两次执行SELECT ... WHERE检索一定范围内数据的操作中间，事务2在这个表中创建了(如INSERT)了一行新数据，这条新数据正好满足事务1的“WHERE”子句。</div>
+    </blockquote>
+    <li>
+    	<h3>
+    		隔离级别与读现象关系:
+    	</h3>
+    </li>
+    <img src="{{site.url}}/images/java/iso-appear.png" width="500">
+    <li>
+    	<h3>
+    		隔离级别与锁持续时间(S:锁持续到当前语句执行完毕，C:锁会持续到事务提交):
+    	</h3>
+    </li>
+    <img src="{{site.url}}/images/java/iso-locktime.png" width="500">
+
+    <li>
+    	<h2>
+    		业务场景(假设DB是类似MySQL这类基于锁管理事务的): 用户提现
+    	</h2>
+    </li>
+    <li>
+    	<h3>提现业务逻辑</h3>
+    </li>
+    <li>
+    	用户提现业务逻辑大概为
+    </li>
+{% highlight java %}
+// 1. 查询余额是否足够
+// 2. 保存提现记录
+// 3. 保存账户明细
+// 4. 更新账户
+{% endhighlight %}
+	<p class="wrap">
+		上面的业务逻辑中，我们需要对多个表进行写操作，势必应该将这几个操作放在<span class="highlight">同一事务</span>中，以保证逻辑的<span class="highlight">原子性</span>，由于对数据库进行了分库，为了<span class="highlight">尽量远离到分布式事务</span>，在对上述几张表分库时，则应将同一用户的记录分到同一库中(保证单机DB事务)，比如按照<span class="highlight">用户ID分库</span>，
+		在事务中进行几个操作:
+	</p>
+{% highlight java %}
+
+public Boolean doInTransaction(...) {
+	// 1. 查询余额是否足够
+	// 2. 保存提现记录
+	// 3. 保存账户明细
+	// 4. 更新账户
+}	
+
+{% endhighlight %}	
+	
+	<li>
+		<h3>
+			隔离级别设置
+		</h3>
+	</li>
+	<li>
+		假如我们设置隔离级别为最高级别<span class="highlight">可序列化(Serializable)</span>，如
+	</li>
+{% highlight java %}
+
+@Transactional(isolation = Isolation.SERIALIZABLE)
+public Boolean doInTransaction(...) {
+	
+    // ①. 查询当前账户 
+    Account account = queryAccount(...);
+    
+    // ②. 检查余额是否足够
+    if (withdraw.getAmount() > account.getBalance()){
+        // ... throw Exp
+    }
+    
+    // ③. 添加提现记录
+    insertWithdraw(...)
+    
+    // ④. 添加账户明细
+    insertDetail(...);
+    
+    // ⑤. 更新账户余额
+    updateAccountBalance(...);
+    ...
+}
+
+{% endhighlight %}
+	<p class="wrap">
+		假如现在用户账户里有5000元，事务1要提取3000元，事务2要提取4000元，两个事务都并行着，势必要保证这这两个事务不能都成功。
+		按理，我们已经设置当前事务隔离级别为<span class="highlight">Serializable</span>，按照[上面的隔离级别](#iso-lock-time)特性，那么如果事务1进入了该方法后，在①处就对该账户加上了<span class="highlight">读锁和写锁</span>，即使事务2进来，也会等待在①处，但事实并非如此，在事务中的SELECT操作<span class="highlight">autocommit＝false</span>时)，MySQL会在SELECT语句后加上**``LOCK IN SHARE MODE ``**(即对行加上<span class="highlight">共享锁</span>，其他事务依然可以对该记录进行读取操作)，因此有可能事务1和事务2都同时读到是5000元，这样走下去，那么账户余额有可能就负数了，可以通过在①处查询账户的SELECT语句后加上<span class="highlight">排他锁</span>(**``SELECT .. FROM .. WHERE .. FOR UPDATE``**)，这样事务2在①处将阻塞住，直到事务1结束，这时<span class="highlight">Serializable</span>已没有什么意义，但这种方案是不可取的，这有可能造成<span class="highlight">性能低下</span>和<span class="highlight">隐秘的死锁</span>等问题，我们需要通过程序的方式间接处理上面的问题，如<span class="highlight">在更新账户余额后作再查询一次账户余额作检查</span>，如:
+	</p>
+{% highlight java %}
+
+public Boolean doInTransaction(...) {
+	
+    // ①. 查询当前账户 
+    Account account = queryAccount(...);
+    
+    // ②. 检查余额是否足够
+    if (withdraw.getAmount() > account.getBalance()){
+        // ... throw Exp
+    }
+    
+    // ③. 添加提现记录
+    insertWithdraw(...)
+    
+    // ④. 添加账户明细
+    insertDetail(...);
+    
+    // ⑤. 更新账户余额
+    updateAccountBalance(...);
+    
+    // ⑥. 余额检查
+    // 预计的余额
+    expected = account.getBalance() - withdraw.getAmount()l
+    // 实际的余额
+    account = queryAccount(...);
+    actual = account.getBalance();
+    if (expected != actual){
+    	// 有其他事务更新过余额，throw Exp
+    }
+    ...
+}
+
+{% endhighlight %}
+	<p class="wrap">
+		或者更简单些，在进行余额更新时，就将预计的余额作为条件<span class="highlight">WHERE balance = :actual</span>，类似于<span class="highlight"><a href="http://baike.baidu.com/subview/18179/6777667.htm" target="_blank">CAS(Compare And Set)</a></span>，若更新失败，说明余额发生变化，回滚事务:
+	</p>
+
+{% highlight java %}
+
+public Boolean doInTransaction(...) {
+  
+    // ①. 查询当前账户 
+    Account account = queryAccount(...);
+    
+    // ②. 检查余额是否足够
+    if (withdraw.getAmount() > account.getBalance()){
+        // ... throw Exp
+    }
+    
+    // ③. 添加提现记录
+    insertWithdraw(...)
+    
+    // ④. 添加账户明细
+    insertDetail(...);
+    
+   	// ⑤. 更新账户余额
+    // SQL如: UPDATE accounts SET balance=:newBalance WHERE id=:id AND balance=:oldBalance
+    updateAccountBalance(..., account.getBalance());
+    
+    ...
+
+}
+{% endhighlight %}
+
+	<p class="wrap">
+		这样就通过事务失败来保证数据的正确性，但若是用户账户的操作比较频繁，那失败的几率也会有所增加，
+		这就需要通过其他方式，如<span class="highlight">消息队列</span>等来将用户的账户操作像流水线一样来进行处理。
+	</p>
+	
+ </ul>         
