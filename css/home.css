@@ -241,11 +241,7 @@ figure pre, figure pre code{
 }
 
 div.highlight{
-    margin : 1em 5px;
-}
-
-div.highlight pre{
-    padding-bottom: 0px;
+    margin : 0;
 }
 
 div pre, div pre code{
