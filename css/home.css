@@ -170,13 +170,13 @@ span.highlight{
 }
 
 .post-detail div.highlight pre{
-    border-radius: 20px;
-    background-color: #fdf6e3;
-    border: 5px solid #ffffff;
+    border-radius: 5px;
+    background-color: #2d2d2d;
+    border: 1px solid #ffffff;
 }
 
 .post-detail div.highlight pre code{
-    background-color: #fdf6e3;
+    background-color: #2d2d2d;
 }
 
 .ui.horizontal.divider.green:after, .ui.horizontal.divider.green:before{
