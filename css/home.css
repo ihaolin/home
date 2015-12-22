@@ -240,5 +240,21 @@ figure pre, figure pre code{
     border-radius: 5px;
 }
 
+div.highlight{
+    margin : 1em 5px;
+}
+
+div.highlight pre{
+    padding-bottom: 0px;
+}
+
+div pre, div pre code{
+    color: #E07B53;
+    background-color: #2d2d2d;
+    border-radius: 5px;
+}
+
+
+
 
 
