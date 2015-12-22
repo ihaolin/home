@@ -1,0 +1,310 @@
+---
+title : Ansible实践
+category : [devops]
+tags : [devops, ansible]
+layout : post
+show : 1
+keywords: devops，运维，自动化，IT，ansible
+---
+
+
+<ul>
+    <p class="intro">
+        相信大家对<span class="highlight"></span>运维这个词都比较熟悉，何为<span class="highlight">运维</span>？
+        运维就是<span class="highlight">保障服务器资源安全，稳定，合理</span>。
+        但是<span class="highlight">安全稳定不易，合理更难</span>。在达到该目标之前，
+        运维人员会运用各种工具来方便自己管理服务器资源，最简单基础的就是<a href="https://zh.wikipedia.org/zh-cn/Unix_shell" target="_blank">Shell</a>，在Shell中定义好自己的各种功能，需要时执行即可，
+        但面对大型的运维环境，光靠Shell是有些力不从心的，还需要一些更强大方便的工具，
+        如常用的脚本语言<a href="https://www.ruby-lang.org/" target="_blank">Ruby</a>，<a href="https://www.python.org/" target="_blank">Python</a>等，当然还有些专门为运维人员准备的工具，
+        如<a href="http://www.fabfile.org/" target="_blank">Fabric</a>，
+        <a href="https://docs.saltstack.com/en/latest/" target="_blank">SaltStack</a>，<a href="http://www.ansible.com/" target="_blank">Ansible</a>等，本文将对<span class="highlight">Ansible</span>进行探讨。
+    </p>
+
+    <li>
+        <h2>什么是Ansible</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Ansible</span>是一个基于<span class="highlight">SSH</span>的自动化运维工具，
+        使用<span class="highlight">python</span>编写。由于基于<span class="highlight">SSH</span>，
+        因此不需要在远程主机上安装额外的软件。
+    </p>
+    <li>
+        <h2>安装Ansible</h2>
+    </li>
+    <p class="wrap">
+        安装Ansible之前，需安装<span class="highlight"> Python2.6或2.7</span>，
+        并支持各种<a href="http://docs.ansible.com/ansible/intro_installation.html" target="_blank">安装</a>。
+        如在Centos上，可以直接使用<span class="highlight">yum</span>安装:
+    </p>
+    {% highlight bash %}
+yum install ansible
+    {% endhighlight %}
+
+    <li>
+        <h2>First Ansible</h2>
+    </li>
+    <li>
+        安装好后，可初试一下ansible使用:
+    </li>
+    {% highlight bash %}
+ansible -i hosts haolin-apps -m ping
+haolin-apps | success >> {
+    "changed": false,
+    "ping": "pong"
+}    
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight"> -i hosts</span>指定了主机配置文件, 
+        <span class="highlight"> haolin-apps</span>则为其中的一个主机或主机组，
+        <span class="highlight"> -m ping</span>表示执行<span class="highlight">ping</span>模块。
+    </p>
+
+    <li>
+        <h2>配置文件</h2>
+    </li>
+    <li>
+        <span class="highlight">Ansible</span>启动时，会加载<a href="http://docs.ansible.com/ansible/intro_configuration.html#environmental-configuration" target="_blank">默认配置</a>，会尝试加载以下文件:
+    </li>
+    {% highlight bash %}
+* ANSIBLE_CONFIG (环境变量)    
+* ansible.cfg (当前目录)
+* .ansible.cfg (用户主目录)
+* /etc/ansible/ansible.cfg    
+    {% endhighlight %}
+    <li>
+        <span class="highlight">Ansible 1.5</span>之前加载顺序稍有不同:
+    </li>
+    {% highlight bash %}
+* ansible.cfg (当前目录)    
+* ANSIBLE_CONFIG (环境变量)    
+* .ansible.cfg (用户主目录)
+* /etc/ansible/ansible.cfg    
+    {% endhighlight %}
+
+    <li>
+        <h2>Inventory(清单)</h2>    
+    </li>
+    <p class="wrap">
+        <span class="highlight">Ansible</span>执行任务前，需要先加载<a href="http://docs.ansible.com/ansible/intro_inventory.html" target="_blank">Inventory</a>信息，
+        默认文件为<span class="highlight">/etc/ansible/hosts</span>，
+        可通过<span class="highlight">-i</span>参数指定，格式大概如下:
+    </p>
+    {% highlight python %}
+
+test
+
+[api]
+api01
+api02
+
+[db]
+db01
+db02
+
+[all:children]
+api
+db
+..
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">test</span>定义了一个主机，
+        <span class="highlight">api</span>定义了一个主机组，
+        包含主机<span class="highlight">api01</span>和<span class="highlight">api02</span>
+        <span class="highlight">all</span>定义了一个<span class="highlight">父主机组</span>，
+        其包含了子主机组<span class="highlight">api</span>，<span class="highlight">db</span>。
+    </p>
+
+    <li>
+        <h3>变量</h3>
+    </li>
+    <p class="wrap">
+        主机和主机组均支持定义额外的变量，如
+    </p>
+    {% highlight python %}
+# 主机变量    
+[atlanta]
+host1 http_port=80 maxRequestsPerChild=808
+host2 http_port=303 maxRequestsPerChild=909
+
+# 主机组变量
+[atlanta:vars]
+ntp_server=ntp.atlanta.example.com
+proxy=proxy.atlanta.example.com
+    {% endhighlight %}
+    <li>
+        <h3>多文件存储Inventory</h3>
+    </li>
+    <p class="wrap">
+        当主机信息变得越来越多时，单个文件就比较难以维护，而应该采用<a href="http://docs.ansible.com/ansible/intro_inventory.html#splitting-out-host-and-group-specific-data" target="_blank">多个文件</a>来存储，
+        建议可以在<span class="highlight">Ansible</span>配置文件中添加<span class="highlight">inventory</span>目录:
+    </p>
+    {% highlight python %}
+[defaults]
+# ansible 1.9 之前叫hostfile
+inventory = /path/to/inventory
+    {% endhighlight %}
+    <p class="wrap">
+        这样<span class="highlight">Ansible</span>会合并<span class="highlight">/path/to/inventory</span>目录下的主机文件。    
+    </p>
+
+    <li>
+        <h2>Playbooks(剧本)</h2>
+    </li>
+    <p class="wrap">
+        上面使用<span class="highlight">命令行方式(Ad-Hoc)</span>运行了<span class="highlight">Ansible</span>任务，
+        但实际中这样做是很少的，往往任务不会只有一个，而常会执行多个任务，于是需要一种<span class="highlight">描述语言</span>来描述一些列任务的执行，
+        这就是<a href="http://docs.ansible.com/ansible/playbooks_intro.html" target="_blank">Playbook</a>。
+        <span class="highlight">Playbook</span>使用<a href="https://zh.wikipedia.org/wiki/YAML" target="_blank">YAML</a>文件格式编写，如:
+    </p>
+    {% highlight python %}
+---
+- hosts: webservers     # 主机列表
+  vars:                 # 变量
+    http_port: 80
+    max_clients: 200
+  remote_user: root     # ssh用户
+  tasks:                # 任务列表
+  - name: ensure apache is at the latest version
+    yum: name=httpd state=latest
+  - name: write the apache config file
+    template: src=/srv/httpd.j2 dest=/etc/httpd.conf
+    notify:
+    - restart apache
+  - name: ensure apache is running (and enable it at boot)
+    service: name=httpd state=started enabled=yes
+  handlers:             # 通知处理器
+    - name: restart apache
+      service: name=httpd state=restarted
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">Playbook</span>主要由几部分组成: 
+        <span class="highlight">hosts</span>(任务执行的目标主机)，
+        <span class="highlight">vars</span>(任务执行上下文的变量信息)，
+        <span class="highlight">tasks</span>(任务执行列表)和<span class="highlight">handlers</span>(任务执行完成的通知处理器)。
+        上面的<span class="highlight">Playbook</span>
+        将以<span class="highlight">root</span>用户在<span class="highlight">webservers</span>服务器上执行一些列任务:
+        <span class="highlight">yum安装最新apache包</span>，
+        <span class="highlight">配置httpd</span>，
+        <span class="highlight">重启apache</span>，
+        <span class="highlight">开机自启动apache</span>。
+    </p>
+    <li>
+        <h3>执行Playbook</h3>    
+    </li>
+    <p class="wrap">
+        可以通过<span class="highlight">ansible-playbook</span>执行编写好的<span class="highlight">Playbook</span>:
+    </p>
+    {% highlight python %}
+ansible-playbook -i [inventory] my_playbook.yml
+    {% endhighlight %}
+    
+    <li>
+        <h2>Modules(模块)</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Ansible</span>提供了很多可用的<a href="http://docs.ansible.com/ansible/modules_by_category.html" target="_blank">模块</a>，
+        这些模块可以直接在远程主机上执行，如上面的<span class="highlight">Playbook</span>使用到了
+        <a href="http://docs.ansible.com/ansible/yum_module.html" target="_blank">yum</a>，
+        <a href="http://docs.ansible.com/ansible/template_module.html" target="_blank">template</a>，
+        <a href="http://docs.ansible.com/ansible/service_module.html" target="_blank">service</a>模块。
+    </p>
+
+    <li>
+        <h2>Roles(角色)</h2>
+    </li>
+    <p class="wrap">
+        当编写的<span class="highlight">Playbook</span>越来越多，则需要一种更好的方式来组织这些<span class="highlight">Playbook</span>，这时就需要<a href="http://docs.ansible.com/ansible/playbooks_roles.html" target="_blank">Roles</a>。
+        <span class="highlight">Roles</span>规范出了<span class="highlight">Playbook</span>的一些通用目录，在运行<span class="highlight">Playbook</span>时，会自动加载这些目录中的信息，目录列表大致如:
+    </p>
+    {% highlight python %}
+site.yml
+webservers.yml
+fooservers.yml
+roles/
+   common/
+     files/
+     templates/
+     tasks/
+     handlers/
+     vars/
+     defaults/
+     meta/
+   webservers/
+     files/
+     templates/
+     tasks/
+     handlers/
+     vars/
+     defaults/
+     meta/
+    {% endhighlight %}
+    <p class="wrap">
+        上面目录中，包含两个角色<span class="highlight">common</span>和<span class="highlight">webservers</span>，
+        每个角色包含一些<span class="highlight">可选的</span>目录，在<span class="highlight">Playbook</span>中可以调用角色:
+    </p>
+    {% highlight python %}
+---
+- hosts: webservers
+  roles:
+     - common
+     - webservers
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">Playbook</span>执行中，会使用对应角色目录下的文件，
+        <span class="highlight">tasks/main.yml</span>存放任务列表，
+        <span class="highlight">handlers/main.yml</span>存放处理器列表，
+        <span class="highlight">vars/main.yml</span>存放变量，
+        <span class="highlight">defaults/main.yml</span>存放默认变量(<span class="highlight">优先级最低</span>)，
+        <span class="highlight">meta/main.yml</span>存放角色依赖关系，
+        <span class="highlight">files/</span>存放<span class="highlight">文件复制</span>操作中使用到的文件(<span class="highlight">此时可以仅指定文件名，而不需要绝对路径</span>)，
+        <span class="highlight">templates/</span>存放<a href="http://docs.ansible.com/ansible/template_module.html" target="_blank">template</a>模块操作的模板文件。
+    </p>
+
+    <li>
+        <h3>角色参数化</h3>
+    </li>
+    <p class="wrap">
+        调用角色时，可以传递一些<span class="highlight">额外参数</span>，如:
+    </p>
+    {% highlight python %}
+- hosts: webservers
+  roles:
+    - common
+    - { role: role_one, dir: '/opt/a',  port: 5000 }            # 定义变量dir，port
+    - { role: role_two, when: "ansible_os_family == 'RedHat'" } # 增加条件限制
+    {% endhighlight %}
+
+    <li>
+        <h3>角色依赖</h3>
+    </li>
+    <p class="wrap">
+        可以在<span class="highlight">meta/main.yml</span>中定义角色依赖关系，如:
+    </p>
+    {% highlight python %}
+---
+dependencies:
+  - { role: common, some_parameter: 3 }
+  - { role: apache, port: 80 }
+  - { role: postgres, dbname: blarg, other_parameter: 12 }
+    {% endhighlight %}
+    <p class="wrap">
+        使用<span class="highlight">Role</span>组织<span class="highlight">脚本</span>是官方强烈推荐的，
+        实际中，应尽量做到<span class="highlight">Role细粒度化</span>，
+        需要执行某些任务时，则将这些<span class="highlight">Role</span>进行自由组合来达到目的，
+        以实现<span class="highlight">复用</span>。
+    </p>
+    <li>
+        <h3>第三方Role</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Ansible</span>提供了一个第三方Role平台<a href="https://galaxy.ansible.com/" target="_blank">Ansible Galaxy</a>，可以通过<span class="highlight">ansible-galaxy</span>安装使用。
+    </p>
+
+    <li>
+        <h2>Ansible最佳实践</h2>
+    </li>
+    <p class="highlight">
+        <span class="highlight">Ansible</span>提供了一个较详细的
+        <a href="http://docs.ansible.com/ansible/playbooks_best_practices.html" target="_blank">最佳实践</a>，可结合实际情况作一些斟酌。
+    </p>
+</ul>

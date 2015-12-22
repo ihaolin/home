@@ -1,0 +1,365 @@
+---
+title : 系统重构的事儿
+category : [architecture]
+tags : [architecture, refactor]
+layout : post
+show : 1
+keywords: architecture，架构，refactor，重构
+---
+
+<ul>
+    <p class="intro">
+        相信每个人都做过系统重构相关的事儿，简单说就是对系统不合理的地方进行修复，
+        比如系统架构，数据库设计，代码规范，或某一行代码等，重构需要更多的思考，
+        而不是一畏地写代码，但又不能考虑太多，做到有的放矢。最近对老系统进行重构，
+        与其说重构，不如说重写，因为涉及到的有
+        <span class="highlight">系统架构</span>，
+        <span class="highlight">数据库设计</span>，
+        <span class="highlight">代码规范</span>等，
+        由于旧代码已经<span class="highlight">烂不忍睹</span>，因此有了这么一次系统地重构，
+        正常的重构应该是每天的事儿，而不是某天的事儿。
+        本文将尽量详细讲述重构中自己主要涉及的部分，但愿对你有所帮助。
+    </p>
+
+
+    <li>
+    	<h2>旧系统</h2>
+    </li>
+
+    <li>
+    	<h3>系统基本架构</h3>
+    </li>
+    <img src="{{site.url}}/images/arch/old_arch.png" width="800">
+    <li>
+    	<h3>SLB</h3>
+    </li>
+    <p class="wrap">
+    	最外层使用的是阿里云提供的<span class="highlight">SLB服务</span>，主要对多台代理云服务器进行
+    	<span class="highlight">流量分发(负载均衡)</span>，并保障系统的<span class="highlight">高可用性</span>。
+    </p>
+    <li>
+    	<h3>Web Proxy(Nginx)</h3>
+    </li>
+    <p class="wrap">
+    	WEB代理服务器使用的是<a href="http://nginx.org/" target="_blank">nginx</a>，将请求分发到后端
+    	<span class="highlight">WEB服务器</span>，对Web服务进行分流，同时保障服务的高可用性。
+    </p>
+    <li>
+    	<h3>Web App(Web服务)</h3>
+    </li>
+    <p class="wrap">
+    	系统中的
+    	<span class="highlight">WEB</span>，
+		<span class="highlight">ADMIN</span>，
+		<span class="highlight">WAP</span>，
+		<span class="highlight">APP</span>
+		等均为Java为主的WEB服务，主要就是业务处理。
+    </p>
+    <li>
+    	<h3>Pay</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Pay</span>作为整个系统的支付网关，提供<span class="highlight">Http</span>服务，
+    	其中主要就是用户
+    	<span class="highlight">支付</span>，
+    	<span class="highlight">充值</span>，
+    	<span class="highlight">账户</span>等相关业务，基本设计大概如图所示(以<span class="highlight">支付宝支付</span>为例):
+    </p>
+    <img src="{{site.url}}/images/arch/pay_arch.png" width="800">
+    <li>
+    	<h3>Push</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Push</span>负责<span class="highlight">消息推送</span>，
+    	即将一些业务数据或消息推送到客户端APP，如今，已经有很多第三方推送系统可供使用，
+    	如<a href="http://xg.qq.com/xg/" target="_blank">腾讯信鸽</a>，<a href="http://push.baidu.com/" target="_blank">百度云推送</a>，这里也是自有的一个不够完善的推送系统，基本设计大概如图所示:
+    </p>
+    <img src="{{site.url}}/images/arch/push_arch.png" width="800">
+    
+    <li>
+    	<h4>建立连接的基本步骤</h4>
+    </li>
+	<p class="wrap">
+		1. <span class="highlight">Client</span>向<span class="highlight">Broker</span>进行注册。<br/>
+		2. <span class="highlight">Broker</span>返回一个
+		<span class="highlight">clientId</span>和其中一个
+		<span class="highlight">Server的TCP连接地址</span>。<br/>
+		3. <span class="highlight">Client</span>向Server发起连接请求。<br/>
+		4. <span class="highlight">Server</span>响应Client，建立连接。
+	</p>
+
+	<li>
+		<h4>消息推送的基本步骤</h4>
+	</li>
+	<p class="wrap">
+		1. 业务系统需要记录Client的<span class="highlight">clientId</span>。<br/>
+		2. 业务系统向某<span class="highlight">clientId</span>推送消息至<span class="highlight">Broker</span>。<br/>
+		3. <span class="highlight">Broker</span>将消息转发至对应<span class="highlight">Server</span>。<br/>
+		4. <span class="highlight">Server</span>将详细推送至Client。
+	</p>
+
+	<li>
+		<h4>消息安全</h4>  
+	</li>
+	<p class="wrap">
+		<span class="highlight">Push</span>系统中使用
+		<span class="highlight">非对称加密</span>和<span class="highlight">对称加密</span>来保障消息的安全性。
+		<span class="highlight">非对称加密</span>用于传输<span class="highlight">对称加密</span>时使用的密钥，
+		<span class="highlight">对称加密</span>则用于对业务数据进行加解密。
+	</p>
+
+	<li>
+		<h4>消息存储</h4>
+	</li>
+	<p class="wrap">
+		为了尽可能保证<span class="highlight">消息可靠</span>，可以通过<span class="wrap">MQ</span>来对消息进行生产消费。
+	</p>
+
+	<li>
+		<h4>Server和消息路由</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Push</span>系统中使用
+		<a href="http://hao0.me/algorithm/2015/08/15/consistent-hash.html" target="_blank">一致性哈希</a>进行Server和消息路由。
+	</p>
+
+	<li>
+		<h4>Broker高可用性</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Push</span>系统中<span class="highlight">Broker</span>的高可用性，
+		可用通过<span class="highlight">Nginx</span>或<span class="highlight">HA-Proxy</span>来保证。
+	</p>
+
+	<li>
+		<h4>Server集群管理</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Push</span>系统使用
+		<span class="highlight">Zookeeper</span>来对Server进行集群管理
+	</p>
+	
+    <li>
+    	<h3>Location</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Location</span>负责用户位置相关的业务，提供<span class="highlight">Http</span>服务，
+    	需要实时记录和查询用户位置，并提供轨迹，附近等基本计算功能，
+    	内部使用<span class="highlight">MongoDB</span>作为存储，
+    	如今有很多开源产品也支持位置计算，如
+    	<a href="http://redis.io/" target="_blank">Redis</a>，
+    	<a href="https://www.elastic.co/" target="_blank">ElasticSearch</a>等。
+    </p>
+
+     <li>
+    	<h3>Coupon</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Coupon</span>负责用户优惠券相关的业务，提供<span class="highlight">Http</span>服务，
+    	主要需要提供
+    	<span class="highlight">优惠券活动</span>，
+    	<span class="highlight">优惠券发放</span>，
+    	<span class="highlight">优惠券消费</span>等基础功能。
+    </p>
+
+	<li>
+		<h3>存储</h3>
+	</li> 
+
+	<li>
+		<h4>RDBMS</h4>
+	</li>
+	<p class="wrap">
+		系统主要使用<a href="http://www.postgresql.org/" target="_blank">Postgresql</a>，
+		对就是世界上<span class="highlight">最先进的开源关系型数据库</span>。然而，系统中出现问题最多就是数据库，
+		当然根本问题不在数据库，而是使用数据库的人，各种杀手级SQL已经被作为炫耀的噱头，该系统使用
+		<a href="http://hibernate.org/" target="_blank">Hibernate</a>作为数据库操作层，然而由于人为因素，对Hibernate没有认真深刻地思考，滥用导致数据库操作及容易出问题。
+	</p>
+
+	<li>
+		<h4>NoSQL</h4>
+	</li>
+	<p class="wrap">
+		系统中使用到一些常见的NoSQL，如<a href="http://redis.io/" target="_blank">Redis</a><span class="highlight">(缓存)</span>，
+		<a href="https://www.mongodb.org/" target="_blank">MongoDB</a><span class="highlight">(位置计算)</span>等。
+	</p>
+
+	<li>
+		<h4>Search</h4>
+	</li>
+	<p class="wrap">
+		系统中的搜索使用的是<a href="https://www.elastic.co/" target="_blank">ElasticSearch</a>，
+		其中用于<span class="highlight">订单查询分析</span>，或者结合
+		<a href="https://www.elastic.co/guide/en/logstash/current/index.html" target="_blank">Logstash</a>，
+		<a href="https://www.elastic.co/guide/en/kibana/current/index.html" target="_blank">Kibana</a>
+		进行系统日志监控分析等。
+	</p>
+
+	<li>
+		<h4>MQ</h4>
+	</li>
+	<p class="wrap">
+		系统中使用<span class="highlight">消息队列</span>来做一些
+		<span class="highlight">数据状态流转</span>和<span class="highlight">业务解耦</span>，
+		如比较轻量的<a href="http://nsq.io/" target="_blank">NSQ</a>。
+	</p>
+
+	<li>
+		<h4>Zookeeper</h4>
+	</li>
+	<p class="wrap">
+		系统中使用<span class="highlight">Zookeeper</span>做一些
+		<span class="highlight">分布式锁</span>，或者<span class="highlight">集群管理(如Push中的Server)</span>。
+	</p>
+
+	<li>
+		<h2>重构的诱因</h2>
+	</li>
+	<li>
+		按照上面的架构，以当前的业务量是完全没有问题的，那为什么还需要这样系统地重构?
+	</li>
+	<p class="wrap">
+		1. 旧系统代码基本
+		<span class="highlight">没有规范</span>，<span class="highlight">代码没有质量</span>，以至他人难以维护。<br>
+		
+		2. <span class="highlight">数据库设计混乱</span>。
+			对于数据库设计没有一些基本规范，只是想当然得加减字段表，没有一个整体规划。
+			各种杀手级SQL居然沦为炫耀的噱头(<span class="highlight">你看，我多么牛逼，能写这么复杂的SQL</span>)。<br>
+		
+		3. 各子系统均以web应用独立开来，可能修改某个地方，就需要重新部署多个应用，这对系统无疑是一种隐形伤害，
+			所以需要将系统进一步拆分，即<span class="highlight">高类聚，低耦合</span>。<br>
+		
+		4. 考虑到未来的业务量增加，需要更<span class="highlight">稳定可靠的服务</span>和<span class="highlight">存储</span>。<br> 
+	</p>
+
+	<li>
+		<h2>新系统</h2>
+	</li>
+	<li>
+		<h3>新系统的基本架构</h3>
+	</li>
+	<img src="{{site.url}}/images/arch/new_arch.png" width="800">
+	
+	<li>
+		<h3>Wep App(Web应用)</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Web应用</span>将变得很轻量，就是所说的<span class="highlight">Controller</span>层，
+		主要负责<span class="highlight">参数接收</span>，<span class="highlight">参数校验</span>，<span class="highlight">调用服务接口</span>，完成各业务逻辑的组装。
+	</p>
+
+	<li>
+		<h3>Rpc服务化</h3>
+	</li>
+	<p class="wrap">
+		系统中的各子模块均以<span class="highlight">Rpc接口</span>的形式提供服务。
+		相比之前简单直观的<span class="highlight">Http服务</span>，
+		Rpc服务从规范和性能方面要更出色。
+		由于主要以Java作为服务端语言，最终选择<a href="http://dubbo.io/" target="_blank">Dubbo</a>作为服务化框架，
+		其他可选方案也有如<a href="https://github.com/apache/thrift" target="_blank">Thrift</a>等。
+	</p>
+	
+	<li>
+		<h4>服务化规范</h4>
+	</li>
+	<p class="wrap">
+		1. 服务接口均需返回<span class="highlight">统一的响应对象</span>(无论失败或成功，切忌抛出异常)。<br>
+		2. 必要接口应保证<a href="" target="_blank">幂等性</a>。<br>
+		3. 服务接口应该尽量保持<span class="highlight">单一职责原则</span>。<br>
+		4. 接口升级应保证<span class="highlight">向后兼容</span>。<br>
+		5. ...
+	</p>
+
+	<li>
+		<h4>基础服务</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">基础服务</span>作为系统最核心的组件，其并不由业务决定，基本属于各系统通用的，比如<span class="highlight">用户服务</span>，<span class="highlight">支付服务</span>等，这类服务应该具有最稳定的特性，不需要时常更新扩展。
+	</p>
+
+	<li>
+		<h4>业务服务</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">业务服务</span>则依赖<span class="highlight">基础服务</span>，作为业务发展中不断更新增加的一部分服务，这样也是为了不影响基础服务的单一稳定性，而独立出来的服务。
+	</p>
+
+	<li>
+		<h4>服务依赖</h4>
+	</li>
+	<p class="wrap">
+		当系统中的<span class="highlight">服务</span>越来越多时，服务之间的<span class="highlight">依赖关系</span>也会变得更复杂，应尽量保证<span class="highlight">基础服务</span>的依赖关系简单稳定，尽量避免出现<span class="highlight">相互依赖</span>，必要时可以通过<span class="highlight">Web</span>层去除服务之间的依赖，也可以通过<span class="highlight">MQ</span>去除依赖。
+	</p>
+
+	<li>
+		<h4>服务异步化</h4>
+	</li>
+	<p class="wrap">
+		系统中除了一些<span class="highlight">主业务逻辑(必须同步执行完成)</span>外，
+		有很多操作都是可以异步调用，或者通过MQ消息消费，
+		还有一些系统调用可能需要调用许多内部服务，也可适当将一些服务通过类似
+		<span class="highlight">Future</span>，<span class="highlight">Fork/Join</span>等模式来异步处理。
+	</p>
+
+	<li>
+		<h4>服务部署</h4>
+	</li>
+	<p class="wrap">
+		可采用<span class="highlight">单机单服务</span>的部署方式，
+		便于<span class="highlight">运维管理</span>和<span class="highlight">调优监控</span>等，
+		如果有条件则可以尝试更轻量的<a href="https://www.docker.com/" target="_blank">docker</a>实例部署。
+	</p>
+
+	<li>
+		<h3>数据存储</h3>
+	</li>
+
+	<li>
+		<h4>关系型数据库(RDBMS)</h4>
+	</li>
+	<p class="wrap">
+		对于大多数RDBMS，到后期都会涉及到<span class="highlight">分库分表</span>，
+		面对的主要问题就是<span class="highlight">数据路由</span>和<span class="highlight">数据聚合</span>，
+		通常的模式就是<span class="highlight">客户端</span>或者<span class="highlight">代理(Proxy)</span>，
+		但基本做法会差不多，根据SQL中的<span class="highlight">路由键</span>，
+		根据配置的<span class="highlight">路由规则</span>将数据插入到目标数据库或表中，
+		在查询时，可以根据<span class="highlight">路由键</span>到对应数据库或表中查询数据，
+		若未指定<span class="highlight">路由键</span>，则需要做<span class="highlight">数据聚合</span>操作，
+		比较麻烦得就是针对一些复杂SQL，如<span class="highlight">Join</span>等的支持，
+		但对于一个大型互联网应用而言，<span class="highlight">Join</span>操作是不明智的。
+		对于<span class="highlight">客户端</span>和<span class="highlight">代理(Proxy)</span>模式，
+		<span class="highlight">客户端</span>更简单方便，并且少了Proxy中间层的性能损耗，但维护要麻烦些，而<span class="highlight">代理</span>则对客户端变得透明，无须维护客户端，增加了中间层性能损耗，且需要单独维护。
+	</p>
+	<p class="wrap">
+		新系统中采用了<a href="http://mycat.io/" target="_blank">Mycat</a>作为<span class="highlight">DB Proxy</span>。
+		对一些数据量比较大的进行<span class="highlight">分库操作</span>，
+		采用叫做<span class="highlight">range-mode</span>分库规则，
+		而后端DB服务器采用<span class="highlight">两套独立的Master-Slave</span>部署:
+	</p>
+	<img src="{{site.url}}/images/arch/db_design.png" width="800">
+
+	<li>
+		<h4>NoSQL</h4>
+	</li>
+	<p class="wrap">
+		想较于<span class="highlight">RDBMS</span>，
+		一些<span class="highlight">NoSQL</span>则天生具有
+		<span class="highlight">集群</span>，<span class="highlight">分区</span>，<span class="highlight">高可用</span>等特性，
+		如<a href="http://cassandra.apache.org/" target="_blank">Cassandra</a>，
+		可能在<span>数据查询</span>，<span class="highlight">事务处理</span>等能力不如<span class="highlight">RDBMS</span>，
+		通过合理的设计，或加上一些索引工具，是可以满足复杂查询的，
+		而<span class="highlight">事务处理</span>，
+		根据不同<span class="highlight">NoSQL</span>产品对事务的支持程度，
+		可能需要做一些额外的程序处理，因此使用<span class="highlight">NoSQL</span>作为存储，未尝不是一种选择。
+	</p>
+
+	<li>
+		<h3>运维部署</h3>
+	</li>
+	<p class="wrap">
+		新系统中使用<span class="highlight">服务化</span>，新增了很多服务实例，
+		为了能快速方便进行分发部署，势必需要一些自动化工具， 如<a href="http://www.fabfile.org/" target="_blank">Fabric</a>，
+        <a href="https://docs.saltstack.com/en/latest/" target="_blank">SaltStack</a>，<a href="http://www.ansible.com/" target="_blank">Ansible</a>等，最终使用更轻量的<a href="" target="_blank">Ansible</a>，
+        介绍可见<a href="/devops/2015/12/01/ansible-practice.html" target="_blank">这里</a>。
+	</p>
+</ul>

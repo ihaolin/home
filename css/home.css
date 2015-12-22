@@ -130,13 +130,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .post-detail .post-detail-content p{
-    border-radius: 20px;
+    border-radius: 5px;
     padding: 10px;
 }
 
 .post-detail .post-detail-content p.intro, p.wrap{
     background-color: #fdf6e3;
-    border: 5px solid #ffffff;
+    border: 2px solid #ffffff;
 }
 
 .post-detail .post-detail-content p.quote{
@@ -152,15 +152,17 @@ h1, h2, h3, h4, h5, h6 {
 
 span.highlight{
     color: #c7254e;
-    background-color: #e8e8e8;
+    /* background-color: #e8e8e8;*/
+    background: transparent;
     font-size: 19px;
-    padding: 3px;
-    border-radius: 5px;
+    /* padding: 3px; */
+    /* border-radius: 5px;*/
+    font-weight: 500;
 }
 
 .post-detail img{
-    border: 5px solid #fdf6e3;
-    border-radius: 20px;
+    border: 2px solid #fdf6e3;
+    border-radius: 5px;
 }
 
 .post-detail div.highlight{
@@ -228,7 +230,12 @@ figure.highlight{
     margin : 1em 5px;
 }
 
+figure.highlight pre{
+    padding-bottom: 0px;
+}
+
 figure pre, figure pre code{
+    color: #E07B53;
     background-color: #2d2d2d;
     border-radius: 5px;
 }
