@@ -152,11 +152,8 @@ h1, h2, h3, h4, h5, h6 {
 
 span.highlight{
     color: #c7254e;
-    /* background-color: #e8e8e8;*/
     background: transparent;
     font-size: 19px;
-    /* padding: 3px; */
-    /* border-radius: 5px;*/
     font-weight: 500;
 }
 
