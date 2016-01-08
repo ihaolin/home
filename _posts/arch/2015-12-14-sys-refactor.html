@@ -333,7 +333,7 @@ keywords: architecture，架构，refactor，重构
 	<p class="wrap">
 		新系统中采用了<a href="http://mycat.io/" target="_blank">Mycat</a>作为<span class="highlight">DB Proxy</span>。
 		对一些数据量比较大的进行<span class="highlight">分库操作</span>，
-		采用叫做<span class="highlight">range-mode</span>分库规则，
+		采用了<span class="highlight">range-mode</span>，<span class="highlight">partition-pattern</span>分库规则，
 		而后端DB服务器采用<span class="highlight">两套独立的Master-Slave</span>部署:
 	</p>
 	<img src="{{site.url}}/images/arch/db_design.png" width="800">
