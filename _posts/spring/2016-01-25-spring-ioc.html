@@ -1,0 +1,894 @@
+---
+title : Spring3.2 IoC容器实现
+category : [spring]
+tags : [spring, ioc]
+layout : post
+show : 0
+keywords: spring,ioc,Ioc容器
+---
+
+
+<ul>
+    <p class="intro">
+        <span class="highlight">IoC(Inversion of Control)，即控制反转</span>， 也可简单说为依赖注入(DI)，旨在将对象间的依赖关系交由 外部环境去处理， 而不是由对象自己去获取，这将大大提升开发效率和降低程序复杂度，在Spring中，这个外部环境就是Spring IoC容器， 也是Spring生态的核心基础，除了Spring的IoC实现外， 其他还有诸如Guice这样的IoC实现， 本文将对Spring的IoC实现进行探讨一番。
+    </p>
+
+    <li>
+    	<h2>IoC(Bean)容器的定义</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Spring中IoC容器(Spring Bean容器)</span>的表现形式比较常见的是<span class="highlight">BeanFactory</span>和<span class="highlight">ApplicationContext</span>， 而<span class="highlight">BeanFactory</span>作为最基础的容器抽象，其规范了一个最基本的IoC容器应该具备的功能:
+    </p>
+    {% highlight java %}
+public interface BeanFactory {
+
+    /**
+     * 用于区别普通Bean和FactoryBean的前缀符号，
+     * 比如有一个叫myJndiObject的FactoryBean，
+     * 那么需要通过&myJndiObjec将返回该Factory
+     */
+    String FACTORY_BEAN_PREFIX = "&";
+
+    /**
+     * 根据名称获取Bean
+     */
+    Object getBean(String name) throws BeansException;
+
+    /**
+     * 根据名称获取Bean，并作类型检查
+     */
+    <T> T getBean(String name, Class<T> requiredType) throws BeansException;
+
+    /**
+     * 获取指定类型的Bean
+     */
+    <T> T getBean(Class<T> requiredType) throws BeansException;
+
+    /**
+     * 根据名称获取Bean，若Bean为Prototype类型，使用args作为构造参数
+     */
+    Object getBean(String name, Object... args) throws BeansException;
+
+    /**
+     * 容器中是否包含名称或别名为name的Bean
+     */
+    boolean containsBean(String name);
+
+    /**
+     * 容器中名称或别名为name的Bean是否为单例
+     */
+    boolean isSingleton(String name) throws NoSuchBeanDefinitionException;
+
+    /**
+     * 容器中名称或别名为name的Bean是否为原型
+     */
+    boolean isPrototype(String name) throws NoSuchBeanDefinitionException;
+
+    /**
+     * 判断名称或别名为name的Bean的类型是否为targetType
+     */
+    boolean isTypeMatch(String name, Class<?> targetType) throws NoSuchBeanDefinitionException;
+
+    /**
+     * 获取名称或别名为name的Bean的类型
+     */
+    Class<?> getType(String name) throws NoSuchBeanDefinitionException;
+
+    /**
+     * 获取名称为name的Bean的所有别名，若name为别名，数组第一个元素为Bean原始名称
+     */
+    String[] getAliases(String name);
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	可以看到<span class="highlight">BeanFactory</span>中仅定义了<span class="highlight">如何获取Bean</span>的功能，
+    	但一个<span class="highlight">Bean容器</span>至少需要具备<span class="highlight">初始化Bean</span>，<span class="highlight">创建Bean</span>，<span class="highlight">装载Bean</span>，<span class="highlight">注入Bean</span>等基础功能，
+    	这些功能分别在其他接口中进行了扩展，可从<span class="highlight">BeanFacotry</span>的继承树中可知:
+    </p>
+    <img src="{{site.url}}/images/spring/bean-factory-uml.png" width="100%">
+    
+    <li>
+    	<h3>HierarchicalBeanFactory</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">HierarchicalBeanFactory</span>定义了Bean容器之间的<span class="highlight">父子关系</span>:
+    </p>
+    {% highlight java %}
+/**
+ * 具有层级关系的Bean容器
+ */
+public interface HierarchicalBeanFactory extends BeanFactory {
+	/**
+	 * 获取父级Bean容器或null
+	 */
+	BeanFactory getParentBeanFactory();
+	/**
+	 * 当前Bean容器是否包含名称为name的Bean(不会在父级容器中查询)
+	 */
+	boolean containsLocalBean(String name);
+}
+    {% endhighlight %}
+
+	<li>
+    	<h3>ListableBeanFactory</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ListableBeanFactory</span>丰富了获取Bean的工鞥，如获取多个Bean:
+    </p>
+    {% highlight java %}
+/**
+ * 具有获取多个Bean的Bean容器<br>
+ */
+public interface ListableBeanFactory extends BeanFactory {
+	/**
+	 * 是否包含名称为beanName的BeanDefinition
+	 * @param beanName Bean名称
+	 */
+	boolean containsBeanDefinition(String beanName);
+	/**
+	 * 获取BeanDefinition数量
+	 */
+	int getBeanDefinitionCount();
+	/**
+	 * 获取该Bean容器中内的所有Bean名称
+	 */
+	String[] getBeanDefinitionNames();
+	/**
+	 * 获取指定类型(包括子类)的Bean名称列表
+	 * @param type 指定类型或接口
+	 */
+	String[] getBeanNamesForType(Class<?> type);
+	/**
+	 * 获取指定类型(包括子类)的Bean名称列表
+	 * @param type 指定类型或接口
+	 * @param includeNonSingletons 是否包含非单例的Bean
+	 * @param allowEagerInit 是否初始化懒初始化的单例Bean
+	 */
+	String[] getBeanNamesForType(Class<?> type, boolean includeNonSingletons, boolean allowEagerInit);
+	/**
+	 * 获取指定类型(包括子类)的Bean Map信息(包括其他方式注册的单例Bean)
+	 * @param type 指定类型或接口
+	 */
+	<T> Map<String, T> getBeansOfType(Class<T> type) throws BeansException;
+	/**
+	 * 获取指定类型(包括子类)的Bean Map信息(包括其他方式注册的单例Bean)
+	 * @param type 指定类型或接口
+	 * @param includeNonSingletons 是否包含非单例的Bean
+	 * @param allowEagerInit 是否初始化懒初始化的单例Bean
+	 */
+	<T> Map<String, T> getBeansOfType(Class<T> type, boolean includeNonSingletons, boolean allowEagerInit)
+			throws BeansException;
+	/**
+	 * 获取具有指定注解的Bean Map信息
+	 * @param annotationType 注解类型
+	 */
+	Map<String, Object> getBeansWithAnnotation(Class<? extends Annotation> annotationType)
+			throws BeansException;
+	/**
+	 * 获取指定Bean的某个注解信息
+	 * @param beanName bean名称
+	 * @param annotationType 注解类型
+	 */
+	<A extends Annotation> A findAnnotationOnBean(String beanName, Class<A> annotationType);
+}
+    {% endhighlight %}
+
+    <li>
+    	<h3>AutowireCapableBeanFactory</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">AutowireCapableBeanFactory</span>定义了自动装配Bean的功能:
+    </p>
+    {% highlight java %}
+/**
+ * 具有自动装配Bean的Bean容器
+ */
+public interface AutowireCapableBeanFactory extends BeanFactory {
+	/**
+	 * 非自动装配
+	 */
+	int AUTOWIRE_NO = 0;
+	/**
+	 * 通过名称自动装配
+	 */
+	int AUTOWIRE_BY_NAME = 1;
+	/**
+	 * 通过类型自动装配
+	 */
+	int AUTOWIRE_BY_TYPE = 2;
+	/**
+	 * 通过构造器自动装配
+	 */
+	int AUTOWIRE_CONSTRUCTOR = 3;
+	//---------------------------
+	// 创建和设置外部bean实例的方法:
+	//---------------------------
+	/**
+	 * 完全创建一个Bean实例, 包括所有的BeanPostProcessor<br>
+	 * {@link 并不影响按名字或类型装配的属性}
+	 * @param beanClass Bean类型
+	 */
+	<T> T createBean(Class<T> beanClass) throws BeansException;
+	/**
+	 * 装配一个Bean实例(初始化回调或post-processing处理)，<br>
+	 * 用于对新实例或反序列化实例，(重新)设置带注解的字段和方法。<br>
+	 * {@link 并不影响按名字或类型装配的属性}
+	 * @param existingBean 存在的bean实例
+	 */
+	void autowireBean(Object existingBean) throws BeansException;
+	/**
+	 * 配置Bean实例
+	 * (包括自动装配bean属性，设置属性值，设置工厂回调，如setBeanName，setBeanFactory，及Bean初始化后的post processors)
+	 * @param existingBean 存在的Bean实例
+	 * @param beanName bean名称
+	 */
+	Object configureBean(Object existingBean, String beanName) throws BeansException;
+	/**
+	 * 解析bean的依赖信息
+	 * @param descriptor 依赖描述对象
+	 * @param beanName bean名称
+	 */
+	Object resolveDependency(DependencyDescriptor descriptor, String beanName) throws BeansException;
+	//---------------------------
+	// 细粒度控制bean生命周期的方法:
+	//---------------------------
+	/**
+	 * 完全创建一个Bean实例, 包括所有的BeanPostProcessor<br>
+	 * @param beanClass bean类型
+	 * @param autowireMode 使用名称或类型装配模式
+	 * @param dependencyCheck 是否执行依赖检查
+	 */
+	Object createBean(Class<?> beanClass, int autowireMode, boolean dependencyCheck) throws BeansException;
+	/**
+	 * 装配一个bean实例
+	 * @param beanClass bean类型
+	 * @param autowireMode 使用名称或类型装配模式
+	 * @param dependencyCheck 是否执行依赖检查
+	 */
+	Object autowire(Class<?> beanClass, int autowireMode, boolean dependencyCheck) throws BeansException;
+	/**
+	 * 装配bean实例的属性
+	 * @param existingBean 存在的bean实例
+	 * @param autowireMode 使用名称或类型装配模式
+	 * @param dependencyCheck 是否执行依赖检查
+	 */
+	void autowireBeanProperties(Object existingBean, int autowireMode, boolean dependencyCheck)
+			throws BeansException;
+	/**
+	 * 将名称为beanName的BeanDefinition的属性值赋给existingBean
+	 * @param existingBean bean实例
+	 * @param beanName BeanDefinition名称
+	 */
+	void applyBeanPropertyValues(Object existingBean, String beanName) throws BeansException;
+	/**
+	 * 初始化Bean
+	 * @param existingBean 存在的bean实例
+	 * @param beanName bean名称
+	 */
+	Object initializeBean(Object existingBean, String beanName) throws BeansException;
+	/**
+	 * 调用bean实例的postProcessBeforeInitialization方法
+	 * @param existingBean 存在的bean实例
+	 * @param beanName bean名称
+	 */
+	Object applyBeanPostProcessorsBeforeInitialization(Object existingBean, String beanName)
+			throws BeansException;
+	/**
+	 * 调用bean实例的postProcessAfterInitialization方法
+	 * @param existingBean 存在的bean实例
+	 * @param beanName bean名称
+	 */
+	Object applyBeanPostProcessorsAfterInitialization(Object existingBean, String beanName)
+			throws BeansException;
+	/**
+	 * 解析bean的依赖信息
+	 * @param descriptor 依赖描述信息
+	 * @param beanName bean名称
+	 * @param autowiredBeanNames 自动装配的bean名称集
+	 * @param typeConverter 类型转换器
+	 */
+	Object resolveDependency(DependencyDescriptor descriptor, String beanName,
+			Set<String> autowiredBeanNames, TypeConverter typeConverter) throws BeansException;
+}
+    {% endhighlight %}
+
+    <li>
+    	<h3>ConfigurableBeanFactory</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ConfigurableBeanFactory</span>定义了一些配置Bean容器的功能:
+    </p>
+    {% highlight java %}
+/**
+ * 扩展一些配置Bean容器的功能
+ */
+public interface ConfigurableBeanFactory extends HierarchicalBeanFactory, SingletonBeanRegistry {
+
+	/**
+	 * 单例bean
+	 */
+	String SCOPE_SINGLETON = "singleton";
+
+	/**
+	 * 原型bean
+	 */
+	String SCOPE_PROTOTYPE = "prototype";
+
+	/**
+	 * 设置父容器
+	 */
+	void setParentBeanFactory(BeanFactory parentBeanFactory) throws IllegalStateException;
+
+	/**
+	 * 设置Bean类加载器
+	 */
+	void setBeanClassLoader(ClassLoader beanClassLoader);
+	ClassLoader getBeanClassLoader();
+
+	/**
+	 * 设置临时类加载器
+	 */
+	void setTempClassLoader(ClassLoader tempClassLoader);
+	ClassLoader getTempClassLoader();
+
+	/**
+	 * 设置是否缓存Bean元数据
+	 */
+	void setCacheBeanMetadata(boolean cacheBeanMetadata);
+	boolean isCacheBeanMetadata();
+
+	/**
+	 * 设置Bean表达式解析器
+	 */
+	void setBeanExpressionResolver(BeanExpressionResolver resolver);
+	BeanExpressionResolver getBeanExpressionResolver();
+
+	/**
+	 * 设置类型转换服务
+	 */
+	void setConversionService(ConversionService conversionService);
+	ConversionService getConversionService();
+
+	...
+}
+    {% endhighlight %}
+
+
+    <li>
+    	<h2>ApplicationContext</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ApplicationContext</span>作为最常用的Bean容器，比如<span class="highlight">WebApplicationContext</span>，<span class="highlight">ClassPathXmlApplicationContext</span>等，
+    	其对最基础的<span class="highlight">BeanFactory</span>进行了一些扩展，如<span class="highlight">EnvironmentCapable</span>(容器运行时环境，有了它就能在Spring使用中区分开发，测试，生产等环境)，<span class="highlight">MessageSource(消息参数化和国际化功能)</span>，<span class="highlight">ApplicationEventPublisher</span>(应用事件发布功能)，<span class="highlight">ResourcePatternResolver</span>(资源解析功能)，似乎<span class="highlight">ApplicationContext</span>缺少了一些功能，如<span class="highlight">AutowireCapableBeanFactory</span>(自动装配功能)，但其实<span class="highlight">ApplicationContext</span>通过内部包装了一个<span class="highlight">AutowireCapableBeanFactory</span>来重用基础Bean容器的功能:
+    </p>
+    {% highlight java %}
+public interface ApplicationContext extends EnvironmentCapable, ListableBeanFactory, HierarchicalBeanFactory,
+		MessageSource, ApplicationEventPublisher, ResourcePatternResolver {
+
+	/**
+	 * 应用ID
+	 */
+	String getId();
+
+	/**
+	 * 应用名称，默认""
+	 */
+	String getApplicationName();
+
+	/**
+	 * 应用易读的名称
+	 */
+	String getDisplayName();
+
+	/**
+	 * 容器第一次加载的时间戳
+	 */
+	long getStartupDate();
+
+	/**
+	 * 父容器
+	 */
+	ApplicationContext getParent();
+
+	/**
+	 * 包装一个可自动装配的Bean容器
+	 */
+	AutowireCapableBeanFactory getAutowireCapableBeanFactory() throws IllegalStateException;
+}
+    {% endhighlight %}
+    
+    <p class="wrap">
+    	<span class="highlight">ApplicationContext</span>作为开发人员最常用的Bean容器，Spring已经为我们提供很多现成的实现可用，
+    	从<span class="highlight">ApplicationContext</span>的继承树中可以看出:
+    </p>
+    <img src="{{site.url}}/images/spring/application-context-uml.png" width="100%">
+    <p class="wrap">
+    	其中有我们非常熟悉的<span class="highlight">ClassPathXmlApplicationContext</span>和<span class="highlight">XmlWebApplicationContext</span>。
+    </p>
+    
+    <li>
+    	<h2>Bean定义</h2>
+    </li>
+    <p class="wrap">
+    	既然有了<span class="highlight">Bean容器</span>，那么<span class="highlight">Bean</span>是什么呢?在Spring中，Bean的定义抽象为<span class="highlight">BeanDefinition</span>:
+    </p>
+    {% highlight java %}
+/**
+ * 基础Bean定义
+ */
+public interface BeanDefinition {
+
+	/**
+	 * 获取该Bean的父级Bean名称
+	 */
+	String getParentName();
+	void setParentName(String parentName);
+
+	/**
+	 * 获取Bean的类名称(并不一定是该Bean实际的类名称，比如子Bean重写或继承父级Bean的类名称)
+	 */
+	String getBeanClassName();
+	void setBeanClassName(String beanClassName);
+
+	/**
+	 * 获取FactoryBean名称
+	 */
+	String getFactoryBeanName();
+	void setFactoryBeanName(String factoryBeanName);
+
+	/**
+	 * 获取构建该Bean的工厂方法名称，将使用构造器参数调用该工厂方法
+	 */
+	String getFactoryMethodName();
+	void setFactoryMethodName(String factoryMethodName);
+
+	/**
+	 * 获取Bean的元类型，SINGLETON或PROTOTYPE
+	 */
+	String getScope();
+	void setScope(String scope);
+
+	/**
+	 * 该Bean是否懒加载，即不在Spring容器启动时初始化，只针对SINGLETON类型的Bean
+	 */
+	boolean isLazyInit();
+	void setLazyInit(boolean lazyInit);
+
+	/**
+	 * 该Bean所依赖的其他Bean名称列表
+	 */
+	String[] getDependsOn();
+	void setDependsOn(String[] dependsOn);
+
+	/**
+	 * 该Bean是否会注入到其他Bean中
+	 */
+	boolean isAutowireCandidate();
+	void setAutowireCandidate(boolean autowireCandidate);
+
+	/**
+	 * 该Bean是否注入到了多个Bean中
+	 */
+	boolean isPrimary();
+	void setPrimary(boolean primary);
+
+	/**
+	 * 是否为SINGLETON元类型
+	 */
+	boolean isSingleton();
+
+	/**
+	 * 是否为PROTOTYPE元类型
+	 */
+	boolean isPrototype();
+
+	/**
+	 * 该Bean是否是"抽象的", 就是不能实例化
+	 */
+	boolean isAbstract();
+
+	/**
+	 * 该Bean的角色:
+	 * 0: 应用级别的Bean，如用户定义的Bean
+	 * 1: 支持级别的Bean，比如一些配置Bean
+	 * 2: 基础级别Bean，与用户无关，
+	 */
+	int getRole();
+
+	/**
+	 * Bean描述
+	 */
+	String getDescription();
+
+	/**
+	 * 该Bean来自的上下文描述，用于错误信息记录
+	 */
+	String getResourceDescription();
+
+	/**
+	 * 递归获取该BeanDefinition包装的内部BeanDefinition
+	 */
+	BeanDefinition getOriginatingBeanDefinition();
+}
+    {% endhighlight %}
+
+    <li>
+    	<h2>Bean容器的实现</h2>
+    </li>
+    <p class="wrap">
+    	之前大概了解了Spring中的<span class="highlight">IoC容器体系结构</span>，接下来将讲述<span class="highlight">IoC容器</span>是如何实现，及一步步建立起来。可以从比较熟悉的一个IoC容器实现<span class="highlight">ClassPathXmlApplicationContext</span>说起，开发应用时，<span class="highlight">ClassPathXmlApplicationContext</span>基本用法:
+    </p>
+    {% highlight java %}
+ClassPathXmlApplicationContext context = new ClassPathXmlApplicationContext("classpath:application-context.xml");
+context.start();
+    {% endhighlight %}
+    <p class="wrap">
+    上面2行代码，就已经构建了一个完整的IoC容器，现在需要逐步分析构建的各个主要过程。可以看下<span class="highlight">ClassPathXmlApplicationContext</span>的继承树，来分析IoC功能是如何一步步建立起来的:
+    </p>
+    <img src="{{site.url}}/images/spring/classpath-app-ctx-tree.png" width="100%">
+
+    <li>
+    	<h3>容器初始化过程</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ClassPathXmlApplicationContext</span>的构建从其构造函数中的<span class="highlight">refresh()</span>开始，我们也可以通过该方法，在运行时对IoC容器进行重新加载:
+    </p>
+    {% highlight java %}
+public ClassPathXmlApplicationContext(String[] configLocations, boolean refresh, ApplicationContext parent)
+			throws BeansException {
+	super(parent);
+	// configLocations为我们配置的xml文件，可以以逗号，分号等为分隔符
+	setConfigLocations(configLocations);
+	if (refresh) {
+		// 刷新容器
+		refresh();
+	}
+}    
+    {% endhighlight %}
+    <p class="wrap">
+    	对于<span class="highlight">configLocations</span>，其中的文件路径是支持<span class="highlight">占位属性</span>的，
+    	如路径可以像这样<span class="highlight">classpath:${property_name}-context.xml</span>，这其实又为我们提供了一种<span class="highlight">配置多环境</span>的方式，<span class="highlight">refresh()</span>方法涵盖了整个IoC容器初始化的过程:
+    </p>
+    {% highlight java %}
+public void refresh() throws BeansException, IllegalStateException {
+	synchronized (this.startupShutdownMonitor) {
+		// 初始化前作一些准备操作，如记录启动时间，处理占位属性源，验证必要的上下文属性等
+		prepareRefresh();
+
+		// 交由子类去初始化容器
+		ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
+
+		// 配置容器的标准上下文特性，如类加载器，回调，
+		prepareBeanFactory(beanFactory);
+
+		try {
+			// 允许子类对容器进行处理，此时BeanDefinition已经加载完毕，但没有Bean实例生成
+			postProcessBeanFactory(beanFactory);
+
+			// 调用注册的BeanFactoryPostProcessor
+			invokeBeanFactoryPostProcessors(beanFactory);
+
+			// 注册BeanPostProcessor，用于拦截Bean的实例化
+			registerBeanPostProcessors(beanFactory);
+
+			// 初始化信息源
+			initMessageSource();
+
+			// 初始化应用事件广播器
+			initApplicationEventMulticaster();
+
+			// 交由子类实例化一些特殊的Bean
+			onRefresh();
+
+			// 注册应用监听器
+			registerListeners();
+
+			// 实例化所有非lazy-ini的单例Bean
+			finishBeanFactoryInitialization(beanFactory);
+
+			// 发布事件
+			finishRefresh();
+		} catch (BeansException ex) {
+			logger.warn("Exception encountered during context initialization - cancelling refresh attempt", ex);
+
+			// 销毁注册的单例bean
+			destroyBeans();
+
+			// 重置
+			cancelRefresh(ex);
+
+			// Propagate exception to caller.
+			throw ex;
+		}
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	整个<span class="highlight">refresh</span>过程的调用链为:
+    </p>
+    <img src="{{site.url}}/images/spring/ioc-refresh.png" width="100%">
+    <p class="wrap">
+    可以看到<span class="highlight">ApplicationContext</span>内部使用<span class="highlight">DefaultListableBeanFactory</span>作为Bean容器实现，使用<span class="highlight">XmlBeanDefinitionReader</span>读取Bean资源配置文件，使用<span class="highlight">BeanDefinitionParserDelegate</span>对具体的Bean元素进行解析。
+    </p>
+    <p class="wrap">
+		<span class="highlight">AbstractRefreshableApplicationContext.refreshBeanFactory()</span>:
+    </p>
+    {% highlight java %}
+
+protected final void refreshBeanFactory() throws BeansException {
+	if (hasBeanFactory()) {
+		// 若内部已经有BeanFactory，则先销毁
+		destroyBeans();
+		closeBeanFactory();
+	}
+	try {
+		// 实例化默认的Bean容器实现
+		DefaultListableBeanFactory beanFactory = createBeanFactory();
+		beanFactory.setSerializationId(getId());
+		// 定制一些BeanFactory属性，如是否允许BeanDefinition覆盖，循环引用等
+		customizeBeanFactory(beanFactory);
+		// 开始加载BeanDefinition
+		loadBeanDefinitions(beanFactory);
+		synchronized (this.beanFactoryMonitor) {
+			this.beanFactory = beanFactory;
+		}
+	}
+	catch (IOException ex) {
+		throw new ApplicationContextException("I/O error parsing bean definition source for " + getDisplayName(), ex);
+	}
+}
+
+protected void loadBeanDefinitions(DefaultListableBeanFactory beanFactory) throws BeansException, IOException {
+	// 创建XmlBeanDefinitionReader实例: 
+	// 1. 初始化ResourceLoader，默认为PathMatchingResourcePatternResolver
+	// 2. 初始化Environment，默认为StandardEnvironment
+	XmlBeanDefinitionReader beanDefinitionReader = new XmlBeanDefinitionReader(beanFactory);
+
+	// 重新设置Environment和ResourceLoader，
+	beanDefinitionReader.setEnvironment(this.getEnvironment());
+	beanDefinitionReader.setResourceLoader(this);
+	beanDefinitionReader.setEntityResolver(new ResourceEntityResolver(this));
+
+	// 初始化BeanDefinitionReader
+	initBeanDefinitionReader(beanDefinitionReader);
+	// 开始加载BeanDefinition
+	loadBeanDefinitions(beanDefinitionReader);
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	再到XML文档读取器<span class="highlight">DefaultBeanDefinitionDocumentReader</span>:
+    </p>
+    {% highlight java %}
+protected void doRegisterBeanDefinitions(Element root) {
+	// 获取Spring环境变量profile
+	String profileSpec = root.getAttribute(PROFILE_ATTRIBUTE);
+	if (StringUtils.hasText(profileSpec)) {
+		String[] specifiedProfiles = StringUtils.tokenizeToStringArray(
+				profileSpec, BeanDefinitionParserDelegate.MULTI_VALUE_ATTRIBUTE_DELIMITERS);
+		if (!getEnvironment().acceptsProfiles(specifiedProfiles)) {
+			return;
+		}
+	}
+
+	// 实例化BeanDefinitionParserDelegate
+	BeanDefinitionParserDelegate parent = this.delegate;
+	this.delegate = createDelegate(this.readerContext, root, parent);
+
+	// 交由子类XML预处理
+	preProcessXml(root);
+	
+	// 从root节点开始解析BeanDefinition
+	parseBeanDefinitions(root, this.delegate);
+
+	// 交由子类XML后置处理
+	postProcessXml(root);
+
+	this.delegate = parent;
+}
+
+protected void parseBeanDefinitions(Element root, BeanDefinitionParserDelegate delegate) {
+	if (delegate.isDefaultNamespace(root)) {
+		NodeList nl = root.getChildNodes();
+		for (int i = 0; i < nl.getLength(); i++) {
+			Node node = nl.item(i);
+			if (node instanceof Element) {
+				Element ele = (Element) node;
+				if (delegate.isDefaultNamespace(ele)) {
+					// 解析默认元素
+					parseDefaultElement(ele, delegate);
+				} else {
+					// 解析定制的元素
+					delegate.parseCustomElement(ele);
+				}
+			}
+		}
+	} else {
+		// 解析定制的元素
+		delegate.parseCustomElement(root);
+	}
+}
+
+private void parseDefaultElement(Element ele, BeanDefinitionParserDelegate delegate) {
+	if (delegate.nodeNameEquals(ele, IMPORT_ELEMENT)) {
+		// import元素，会重新重另一个resource文件中解析
+		importBeanDefinitionResource(ele);
+	} else if (delegate.nodeNameEquals(ele, ALIAS_ELEMENT)) {
+		// alia元素
+		processAliasRegistration(ele);
+	} else if (delegate.nodeNameEquals(ele, BEAN_ELEMENT)) {
+		// bean元素
+		processBeanDefinition(ele, delegate);
+	} else if (delegate.nodeNameEquals(ele, NESTED_BEANS_ELEMENT)) {
+		// 递归解析beans元素
+		doRegisterBeanDefinitions(ele);
+	}
+}
+
+protected void processBeanDefinition(Element ele, BeanDefinitionParserDelegate delegate) {
+	// 将bean元素解析为BeanDefinitionHolder对象
+	BeanDefinitionHolder bdHolder = delegate.parseBeanDefinitionElement(ele);
+	if (bdHolder != null) {
+		bdHolder = delegate.decorateBeanDefinitionIfRequired(ele, bdHolder);
+		try {
+			// 注册最终装饰的bean实例及别名信息
+			BeanDefinitionReaderUtils.registerBeanDefinition(bdHolder, getReaderContext().getRegistry());
+		} catch (BeanDefinitionStoreException ex) {
+			getReaderContext().error("Failed to register bean definition with name '" +
+					bdHolder.getBeanName() + "'", ele, ex);
+		}
+		// 发送注册事件
+		getReaderContext().fireComponentRegistered(new BeanComponentDefinition(bdHolder));
+	}
+}
+
+// BeanDefinitionParserDelegate#parseBeanDefinitionElement
+public AbstractBeanDefinition parseBeanDefinitionElement(
+			Element ele, String beanName, BeanDefinition containingBean) {
+
+	this.parseState.push(new BeanEntry(beanName));
+
+	String className = null;
+	if (ele.hasAttribute(CLASS_ATTRIBUTE)) {
+		className = ele.getAttribute(CLASS_ATTRIBUTE).trim();
+	}
+
+	String parent = null;
+	if (ele.hasAttribute(PARENT_ATTRIBUTE)) {
+		parent = ele.getAttribute(PARENT_ATTRIBUTE);
+	}
+	
+	// 实例化BeanDefinition，使用GenericBeanDefinition实现
+	AbstractBeanDefinition bd = createBeanDefinition(className, parent);
+
+	// 解析bean元素属性
+	parseBeanDefinitionAttributes(ele, beanName, containingBean, bd);
+	
+	// 设置description元素
+	bd.setDescription(DomUtils.getChildElementValueByTagName(ele, DESCRIPTION_ELEMENT));
+
+	// 解析meta元素
+	parseMetaElements(ele, bd);
+
+	// 解析lookup-method元素
+	parseLookupOverrideSubElements(ele, bd.getMethodOverrides());
+
+	// 解析replaced-method元素
+	parseReplacedMethodSubElements(ele, bd.getMethodOverrides());
+
+	// 解析constructor-arg元素
+	parseConstructorArgElements(ele, bd);
+
+	// 解析property元素
+	parsePropertyElements(ele, bd);
+
+	// 解析qualifier元素
+	parseQualifierElements(ele, bd);
+
+	bd.setResource(this.readerContext.getResource());
+	bd.setSource(extractSource(ele));
+
+	return bd;
+}
+    {% endhighlight %}
+    <p class="wrap">
+    上面就是一个冗长的bean元素解析流程，完全解析后，回到<span class="highlight">BeanDefinitionReaderUtils.registerBeanDefinition(bdHolder, getReaderContext().getRegistry());</span>进行bean注册，最终将放到<span class="highlight">DefaultListableBeanFactory</span>的beanDefinitionMap属性中:
+    </p>
+    {% highlight java %}
+public void registerBeanDefinition(String beanName, BeanDefinition beanDefinition)
+		throws BeanDefinitionStoreException {
+
+	Assert.hasText(beanName, "Bean name must not be empty");
+	Assert.notNull(beanDefinition, "BeanDefinition must not be null");
+
+	if (beanDefinition instanceof AbstractBeanDefinition) {
+		try {
+			((AbstractBeanDefinition) beanDefinition).validate();
+		}
+		catch (BeanDefinitionValidationException ex) {
+			throw new BeanDefinitionStoreException(beanDefinition.getResourceDescription(), beanName,
+					"Validation of bean definition failed", ex);
+		}
+	}
+
+	BeanDefinition oldBeanDefinition;
+	synchronized (this.beanDefinitionMap) {
+		oldBeanDefinition = this.beanDefinitionMap.get(beanName);
+		if (oldBeanDefinition != null) {
+			// 遇到重复的beanName，需要设置allowBeanDefinitionOverriding为true
+			if (!this.allowBeanDefinitionOverriding) {
+				throw new BeanDefinitionStoreException(beanDefinition.getResourceDescription(), beanName,
+						"Cannot register bean definition [" + beanDefinition + "] for bean '" + beanName +
+						"': There is already [" + oldBeanDefinition + "] bound.");
+			}
+			else {
+				if (this.logger.isInfoEnabled()) {
+					this.logger.info("Overriding bean definition for bean '" + beanName +
+							"': replacing [" + oldBeanDefinition + "] with [" + beanDefinition + "]");
+				}
+			}
+		}
+		else {
+			// 记录bean注册顺序
+			this.beanDefinitionNames.add(beanName);
+			this.frozenBeanDefinitionNames = null;
+		}
+		this.beanDefinitionMap.put(beanName, beanDefinition);
+	}
+
+	if (oldBeanDefinition != null || containsSingleton(beanName)) {
+		resetBeanDefinition(beanName);
+	}
+}
+    {% endhighlight %}
+
+    <li>
+    	<h3>Bean的依赖注入</h3>
+    </li>
+    <p class="wrap">
+    	当所有bean完成注册后，IoC容器还需要完成bean的<span class="highlight">依赖注入配置</span>。
+    	对于<span class="highlight">lazyInit为true</span>的bean，会在向容器<span class="highlight">getBean</span>
+    	时，实例化bean及依赖注入配置，可见<span class="highlight">DefaultListableBeanFactory</span>的<span class="highlight">getBean</span>方法:
+    </p>
+    {% highlight java %}
+public <T> T getBean(Class<T> requiredType) throws BeansException {
+	Assert.notNull(requiredType, "Required type must not be null");
+	// 通过类型获取bean名称
+	String[] beanNames = getBeanNamesForType(requiredType);
+	if (beanNames.length > 1) {
+		ArrayList<String> autowireCandidates = new ArrayList<String>();
+		for (String beanName : beanNames) {
+			if (!containsBeanDefinition(beanName) || getBeanDefinition(beanName).isAutowireCandidate()) {
+				autowireCandidates.add(beanName);
+			}
+		}
+		if (autowireCandidates.size() > 0) {
+			beanNames = autowireCandidates.toArray(new String[autowireCandidates.size()]);
+		}
+	}
+	if (beanNames.length == 1) {
+		return getBean(beanNames[0], requiredType);
+	} else if (beanNames.length > 1) {
+		T primaryBean = null;
+		for (String beanName : beanNames) {
+			T beanInstance = getBean(beanName, requiredType);
+			if (isPrimary(beanName, beanInstance)) {
+				if (primaryBean != null) {
+					throw new NoUniqueBeanDefinitionException(requiredType, beanNames.length,
+							"more than one 'primary' bean found of required type: " + Arrays.asList(beanNames));
+				}
+				primaryBean = beanInstance;
+			}
+		}
+		if (primaryBean != null) {
+			return primaryBean;
+		}
+		throw new NoUniqueBeanDefinitionException(requiredType, beanNames);
+	} else if (getParentBeanFactory() != null) {
+		return getParentBeanFactory().getBean(requiredType);
+	} else {
+		throw new NoSuchBeanDefinitionException(requiredType);
+	}
+}   
+    {% endhighlight %}
+
+</ul>
