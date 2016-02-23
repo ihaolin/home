@@ -1,4 +1,4 @@
 # home
 Blog Home
 
-[hao0.me](http://www.hao0.me)
+[t.hao0.me](http://t.hao0.me)

@@ -3,7 +3,7 @@ title : Spring3.2 IoC容器实现
 category : [spring]
 tags : [spring, ioc]
 layout : post
-show : 0
+show : 1
 keywords: spring,ioc,Ioc容器
 ---
 
@@ -568,7 +568,7 @@ public void refresh() throws BeansException, IllegalStateException {
 			// 调用注册的BeanFactoryPostProcessor
 			invokeBeanFactoryPostProcessors(beanFactory);
 
-			// 注册BeanPostProcessor，用于拦截Bean的实例化
+			// 实例化并调用BeanPostProcessor
 			registerBeanPostProcessors(beanFactory);
 
 			// 初始化信息源
@@ -845,9 +845,12 @@ public void registerBeanDefinition(String beanName, BeanDefinition beanDefinitio
     	<h3>Bean的依赖注入</h3>
     </li>
     <p class="wrap">
-    	当所有bean完成注册后，IoC容器还需要完成bean的<span class="highlight">依赖注入配置</span>。
-    	对于<span class="highlight">lazyInit为true</span>的bean，会在向容器<span class="highlight">getBean</span>
-    	时，实例化bean及依赖注入配置，可见<span class="highlight">DefaultListableBeanFactory</span>的<span class="highlight">getBean</span>方法:
+    	当所有bean完成注册后，IoC容器还需要完成bean的<span class="highlight">依赖注入配置</span>，对于<span class="highlight">lazyInit为true</span>的bean，会在向容器<span class="highlight">getBean</span>
+    	时，实例化bean及依赖注入配置整个依赖注入过程大概如:
+    </p>
+    <img src="{{site.url}}/images/spring/ioc-autowired.png" width="100%">
+    <p class="wrap">
+    	从<span class="highlight">DefaultListableBeanFactory</span>的<span class="highlight">getBean</span>方法开始:
     </p>
     {% highlight java %}
 public <T> T getBean(Class<T> requiredType) throws BeansException {
@@ -866,8 +869,10 @@ public <T> T getBean(Class<T> requiredType) throws BeansException {
 		}
 	}
 	if (beanNames.length == 1) {
+		// 获取bean实例
 		return getBean(beanNames[0], requiredType);
 	} else if (beanNames.length > 1) {
+		// 当一个类型对应了多个beanName时，会优先考虑primary为true的bean
 		T primaryBean = null;
 		for (String beanName : beanNames) {
 			T beanInstance = getBean(beanName, requiredType);
@@ -884,11 +889,464 @@ public <T> T getBean(Class<T> requiredType) throws BeansException {
 		}
 		throw new NoUniqueBeanDefinitionException(requiredType, beanNames);
 	} else if (getParentBeanFactory() != null) {
+		// 从父容器中查询bean
 		return getParentBeanFactory().getBean(requiredType);
 	} else {
 		throw new NoSuchBeanDefinitionException(requiredType);
 	}
-}   
+}  
+
+public <T> T getBean(String name, Class<T> requiredType) throws BeansException {
+	return doGetBean(name, requiredType, null, false);
+}
+
+protected <T> T doGetBean(
+			final String name, final Class<T> requiredType, final Object[] args, boolean typeCheckOnly)
+			throws BeansException {
+
+    // 得到规范的bean名称, 如将FactoryBean中的&去掉和bean别名转换
+	final String beanName = transformedBeanName(name);
+	Object bean;
+
+	// 优先检查单例bean，有必要就创建
+	Object sharedInstance = getSingleton(beanName);
+	if (sharedInstance != null && args == null) {
+		if (logger.isDebugEnabled()) {
+			if (isSingletonCurrentlyInCreation(beanName)) {
+				logger.debug("Returning eagerly cached instance of singleton bean '" + beanName +
+						"' that is not fully initialized yet - a consequence of a circular reference");
+			}
+			else {
+				logger.debug("Returning cached instance of singleton bean '" + beanName + "'");
+			}
+		}
+		// FactoryBean相关处理
+		bean = getObjectForBeanInstance(sharedInstance, name, beanName, null);
+	} else {
+		// 当前bean是prototype类型，且正在创建中
+		if (isPrototypeCurrentlyInCreation(beanName)) {
+			throw new BeanCurrentlyInCreationException(beanName);
+		}
+
+		// 检查bean是否存在于父级Bean容器中
+		BeanFactory parentBeanFactory = getParentBeanFactory();
+		if (parentBeanFactory != null && !containsBeanDefinition(beanName)) {
+			// Not found -> check parent.
+			String nameToLookup = originalBeanName(name);
+			if (args != null) {
+				// Delegation to parent with explicit args.
+				return (T) parentBeanFactory.getBean(nameToLookup, args);
+			}
+			else {
+				// No args -> delegate to standard getBean method.
+				return parentBeanFactory.getBean(nameToLookup, requiredType);
+			}
+		}
+
+		if (!typeCheckOnly) {
+			// 标记bean为创建了
+			markBeanAsCreated(beanName);
+		}
+
+		try {
+			final RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+			checkMergedBeanDefinition(mbd, beanName, args);
+
+			// 注册该bean所依赖的bean集合
+			String[] dependsOn = mbd.getDependsOn();
+			if (dependsOn != null) {
+				for (String dependsOnBean : dependsOn) {
+					getBean(dependsOnBean);
+					registerDependentBean(dependsOnBean, beanName);
+				}
+			}
+
+			// 单例bean
+			if (mbd.isSingleton()) {
+				sharedInstance = getSingleton(beanName, new ObjectFactory<Object>() {
+					public Object getObject() throws BeansException {
+						try {
+							// 创建bean实例
+							return createBean(beanName, mbd, args);
+						}
+						catch (BeansException ex) {
+							destroySingleton(beanName);
+							throw ex;
+						}
+					}
+				});
+				bean = getObjectForBeanInstance(sharedInstance, name, beanName, mbd);
+			} else if (mbd.isPrototype()) {
+				// 原型bean
+				Object prototypeInstance = null;
+				try {
+					beforePrototypeCreation(beanName);
+					prototypeInstance = createBean(beanName, mbd, args);
+				} finally {
+					afterPrototypeCreation(beanName);
+				}
+				bean = getObjectForBeanInstance(prototypeInstance, name, beanName, mbd);
+			} else {
+				String scopeName = mbd.getScope();
+				final Scope scope = this.scopes.get(scopeName);
+				if (scope == null) {
+					throw new IllegalStateException("No Scope registered for scope '" + scopeName + "'");
+				}
+				try {
+					Object scopedInstance = scope.get(beanName, new ObjectFactory<Object>() {
+						public Object getObject() throws BeansException {
+							beforePrototypeCreation(beanName);
+							try {
+								return createBean(beanName, mbd, args);
+							}
+							finally {
+								afterPrototypeCreation(beanName);
+							}
+						}
+					});
+					bean = getObjectForBeanInstance(scopedInstance, name, beanName, mbd);
+				} catch (IllegalStateException ex) {
+					throw new BeanCreationException(beanName,
+							"Scope '" + scopeName + "' is not active for the current thread; " +
+							"consider defining a scoped proxy for this bean if you intend to refer to it from a singleton",
+							ex);
+				}
+			}
+		} catch (BeansException ex) {
+			cleanupAfterBeanCreationFailure(beanName);
+			throw ex;
+		}
+	}
+
+	// Check if required type matches the type of the actual bean instance.
+	if (requiredType != null && bean != null && !requiredType.isAssignableFrom(bean.getClass())) {
+		try {
+			return getTypeConverter().convertIfNecessary(bean, requiredType);
+		} catch (TypeMismatchException ex) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Failed to convert bean '" + name + "' to required type [" +
+						ClassUtils.getQualifiedName(requiredType) + "]", ex);
+			}
+			throw new BeanNotOfRequiredTypeException(name, requiredType, bean.getClass());
+		}
+	}
+	return (T) bean;
+} 
     {% endhighlight %}
+    <p class="wrap">
+    	再看<span class="highlight">AbstractAutowireCapableBeanFactory.createBean</span>:
+    </p>
+    {% highlight java %}
+
+protected Object createBean(final String beanName, final RootBeanDefinition mbd, final Object[] args)
+			throws BeanCreationException {
+
+		if (logger.isDebugEnabled()) {
+			logger.debug("Creating instance of bean '" + beanName + "'");
+		}
+		// 确保beanClass已经解析
+		resolveBeanClass(mbd, beanName);
+
+		try {
+			// 准备方法重写
+			mbd.prepareMethodOverrides();
+		} catch (BeanDefinitionValidationException ex) {
+			throw new BeanDefinitionStoreException(mbd.getResourceDescription(),
+					beanName, "Validation of method overrides failed", ex);
+		}
+
+		try {
+			// 若bean配置了PostProcessors，则返回其代理实例
+			Object bean = resolveBeforeInstantiation(beanName, mbd);
+			if (bean != null) {
+				return bean;
+			}
+		} catch (Throwable ex) {
+			throw new BeanCreationException(mbd.getResourceDescription(), beanName,
+					"BeanPostProcessor before instantiation of bean failed", ex);
+		}
+
+		Object beanInstance = doCreateBean(beanName, mbd, args);
+		if (logger.isDebugEnabled()) {
+			logger.debug("Finished creating instance of bean '" + beanName + "'");
+		}
+		return beanInstance;
+	}
+
+protected Object doCreateBean(final String beanName, final RootBeanDefinition mbd, final Object[] args) {
+	// Instantiate the bean.
+	BeanWrapper instanceWrapper = null;
+	if (mbd.isSingleton()) {
+		// 移除缓存中factoryBean实例
+		instanceWrapper = this.factoryBeanInstanceCache.remove(beanName);
+	}
+	if (instanceWrapper == null) {
+		// 创建bean实例
+		// 1. 若没有方法重写，使用SimpleInstantiationStrategy，构造器newInstance实例化bean
+		// 2. 若有方法重写，使用CglibSubclassingInstantiationStrategy，Enhancer.create实例化bean
+		instanceWrapper = createBeanInstance(beanName, mbd, args);
+	}
+	// bean实例
+	final Object bean = (instanceWrapper != null ? instanceWrapper.getWrappedInstance() : null);
+	// bean类型
+	Class<?> beanType = (instanceWrapper != null ? instanceWrapper.getWrappedClass() : null);
+
+	// 允许PostProcessors修改BeanDefinition
+	synchronized (mbd.postProcessingLock) {
+		if (!mbd.postProcessed) {
+			applyMergedBeanDefinitionPostProcessors(mbd, beanType, beanName);
+			mbd.postProcessed = true;
+		}
+	}
+
+	// Eagerly cache singletons to be able to resolve circular references
+	// even when triggered by lifecycle interfaces like BeanFactoryAware.
+	boolean earlySingletonExposure = (mbd.isSingleton() && this.allowCircularReferences &&
+			isSingletonCurrentlyInCreation(beanName));
+	if (earlySingletonExposure) {
+		if (logger.isDebugEnabled()) {
+			logger.debug("Eagerly caching bean '" + beanName +
+					"' to allow for resolving potential circular references");
+		}
+		addSingletonFactory(beanName, new ObjectFactory<Object>() {
+			public Object getObject() throws BeansException {
+				return getEarlyBeanReference(beanName, mbd, bean);
+			}
+		});
+	}
+
+	Object exposedObject = bean;
+	try {
+		// 填充bean实例，触发依赖注入
+		populateBean(beanName, mbd, instanceWrapper);
+		if (exposedObject != null) {
+			// 执行bean的PostProprocessors，init方法，和一些接口回调，如InitializingBean.
+			exposedObject = initializeBean(beanName, exposedObject, mbd);
+		}
+	}
+	catch (Throwable ex) {
+		if (ex instanceof BeanCreationException && beanName.equals(((BeanCreationException) ex).getBeanName())) {
+			throw (BeanCreationException) ex;
+		}
+		else {
+			throw new BeanCreationException(mbd.getResourceDescription(), beanName, "Initialization of bean failed", ex);
+		}
+	}
+
+	if (earlySingletonExposure) {
+		Object earlySingletonReference = getSingleton(beanName, false);
+		if (earlySingletonReference != null) {
+			if (exposedObject == bean) {
+				exposedObject = earlySingletonReference;
+			}
+			else if (!this.allowRawInjectionDespiteWrapping && hasDependentBean(beanName)) {
+				String[] dependentBeans = getDependentBeans(beanName);
+				Set<String> actualDependentBeans = new LinkedHashSet<String>(dependentBeans.length);
+				for (String dependentBean : dependentBeans) {
+					if (!removeSingletonIfCreatedForTypeCheckOnly(dependentBean)) {
+						actualDependentBeans.add(dependentBean);
+					}
+				}
+				if (!actualDependentBeans.isEmpty()) {
+					throw new BeanCurrentlyInCreationException(beanName,
+							"Bean with name '" + beanName + "' has been injected into other beans [" +
+							StringUtils.collectionToCommaDelimitedString(actualDependentBeans) +
+							"] in its raw version as part of a circular reference, but has eventually been " +
+							"wrapped. This means that said other beans do not use the final version of the " +
+							"bean. This is often the result of over-eager type matching - consider using " +
+							"'getBeanNamesOfType' with the 'allowEagerInit' flag turned off, for example.");
+				}
+			}
+		}
+	}
+
+	// Register bean as disposable.
+	try {
+		registerDisposableBeanIfNecessary(beanName, bean, mbd);
+	}
+	catch (BeanDefinitionValidationException ex) {
+		throw new BeanCreationException(mbd.getResourceDescription(), beanName, "Invalid destruction signature", ex);
+	}
+
+	return exposedObject;
+}
+
+protected void populateBean(String beanName, RootBeanDefinition mbd, BeanWrapper bw) {
+	// bean的属性集
+	PropertyValues pvs = mbd.getPropertyValues();
+
+	if (bw == null) {
+		if (!pvs.isEmpty()) {
+			throw new BeanCreationException(
+					mbd.getResourceDescription(), beanName, "Cannot apply property values to null instance");
+		} else {
+			// Skip property population phase for null instance.
+			return;
+		}
+	}
+
+	// 在bean属性设置前，InstantiationAwareBeanPostProcessors可以修改bean的状态
+	// 比如常用的Autowired注解，也就是一个BeanPostProcessor，即AutowiredAnnotationBeanPostProcessor
+	boolean continueWithPropertyPopulation = true;
+	if (!mbd.isSynthetic() && hasInstantiationAwareBeanPostProcessors()) {
+		for (BeanPostProcessor bp : getBeanPostProcessors()) {
+			if (bp instanceof InstantiationAwareBeanPostProcessor) {
+				InstantiationAwareBeanPostProcessor ibp = (InstantiationAwareBeanPostProcessor) bp;
+				if (!ibp.postProcessAfterInstantiation(bw.getWrappedInstance(), beanName)) {
+					// postProcessAfterInstantiation返回false，表示跳过属性设置，通常应该返回true
+					continueWithPropertyPopulation = false;
+					break;
+				}
+			}
+		}
+	}
+
+	if (!continueWithPropertyPopulation) {
+		return;
+	}
+
+	// 先处理autowired依赖注入，bean的配置中可以是byName or byType
+	if (mbd.getResolvedAutowireMode() == RootBeanDefinition.AUTOWIRE_BY_NAME ||
+			mbd.getResolvedAutowireMode() == RootBeanDefinition.AUTOWIRE_BY_TYPE) {
+		MutablePropertyValues newPvs = new MutablePropertyValues(pvs);
+
+		// 通过名字装配属性
+		if (mbd.getResolvedAutowireMode() == RootBeanDefinition.AUTOWIRE_BY_NAME) {
+			autowireByName(beanName, mbd, bw, newPvs);
+		}
+
+		// 通过类型装配属性
+		if (mbd.getResolvedAutowireMode() == RootBeanDefinition.AUTOWIRE_BY_TYPE) {
+			autowireByType(beanName, mbd, bw, newPvs);
+		}
+
+		pvs = newPvs;
+	}
+
+	boolean hasInstAwareBpps = hasInstantiationAwareBeanPostProcessors();
+	boolean needsDepCheck = (mbd.getDependencyCheck() != RootBeanDefinition.DEPENDENCY_CHECK_NONE);
+
+	if (hasInstAwareBpps || needsDepCheck) {
+		PropertyDescriptor[] filteredPds = filterPropertyDescriptorsForDependencyCheck(bw, mbd.allowCaching);
+		if (hasInstAwareBpps) {
+			for (BeanPostProcessor bp : getBeanPostProcessors()) {
+				if (bp instanceof InstantiationAwareBeanPostProcessor) {
+					InstantiationAwareBeanPostProcessor ibp = (InstantiationAwareBeanPostProcessor) bp;
+					pvs = ibp.postProcessPropertyValues(pvs, filteredPds, bw.getWrappedInstance(), beanName);
+					if (pvs == null) {
+						return;
+					}
+				}
+			}
+		}
+		if (needsDepCheck) {
+			// 依赖检查
+			checkDependencies(beanName, mbd, filteredPds, pvs);
+		}
+	}
+
+	// 属性注入
+	applyPropertyValues(beanName, mbd, bw, pvs);
+}
+
+protected void applyPropertyValues(String beanName, BeanDefinition mbd, BeanWrapper bw, PropertyValues pvs) {
+	if (pvs == null || pvs.isEmpty()) {
+		return;
+	}
+
+	MutablePropertyValues mpvs = null;
+	List<PropertyValue> original;
+
+	if (System.getSecurityManager() != null) {
+		if (bw instanceof BeanWrapperImpl) {
+			((BeanWrapperImpl) bw).setSecurityContext(getAccessControlContext());
+		}
+	}
+
+	if (pvs instanceof MutablePropertyValues) {
+		mpvs = (MutablePropertyValues) pvs;
+		if (mpvs.isConverted()) {
+			// Shortcut: use the pre-converted values as-is.
+			try {
+				bw.setPropertyValues(mpvs);
+				return;
+			}
+			catch (BeansException ex) {
+				throw new BeanCreationException(
+						mbd.getResourceDescription(), beanName, "Error setting property values", ex);
+			}
+		}
+		original = mpvs.getPropertyValueList();
+	}
+	else {
+		original = Arrays.asList(pvs.getPropertyValues());
+	}
+
+	TypeConverter converter = getCustomTypeConverter();
+	if (converter == null) {
+		converter = bw;
+	}
+	// bean实例解析器
+	BeanDefinitionValueResolver valueResolver = new BeanDefinitionValueResolver(this, beanName, mbd, converter);
+
+	// 深拷贝引用属性
+	List<PropertyValue> deepCopy = new ArrayList<PropertyValue>(original.size());
+	boolean resolveNecessary = false;
+	for (PropertyValue pv : original) {
+		if (pv.isConverted()) {
+			deepCopy.add(pv);
+		} else {
+			String propertyName = pv.getName();
+			Object originalValue = pv.getValue();
+			// 从PropertyValue中解析出bean的值对象，比较典型的如RuntimeBeanReference，将解析出对应的bean对象
+			Object resolvedValue = valueResolver.resolveValueIfNecessary(pv, originalValue);
+			Object convertedValue = resolvedValue;
+			boolean convertible = bw.isWritableProperty(propertyName) &&
+					!PropertyAccessorUtils.isNestedOrIndexedProperty(propertyName);
+			if (convertible) {
+				convertedValue = convertForProperty(resolvedValue, propertyName, bw, converter);
+			}
+			// Possibly store converted value in merged bean definition,
+			// in order to avoid re-conversion for every created bean instance.
+			if (resolvedValue == originalValue) {
+				if (convertible) {
+					pv.setConvertedValue(convertedValue);
+				}
+				deepCopy.add(pv);
+			} else if (convertible && originalValue instanceof TypedStringValue &&
+					!((TypedStringValue) originalValue).isDynamic() &&
+					!(convertedValue instanceof Collection || ObjectUtils.isArray(convertedValue))) {
+				pv.setConvertedValue(convertedValue);
+				deepCopy.add(pv);
+			} else {
+				resolveNecessary = true;
+				deepCopy.add(new PropertyValue(pv, convertedValue));
+			}
+		}
+	}
+	if (mpvs != null && !resolveNecessary) {
+		mpvs.setConverted();
+	}
+
+	try {
+		// 设置属性
+		bw.setPropertyValues(new MutablePropertyValues(deepCopy));
+	} catch (BeansException ex) {
+		throw new BeanCreationException(
+				mbd.getResourceDescription(), beanName, "Error setting property values", ex);
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    以上就基本了解了IoC容器的依赖注入过程，基本思路虽然简单，将之前从配置文件中加载好的BeanDefinition进行逐一装配，
+    但其中涉及的思路和设计细节众多，完全弄透还是很需要时间来调试跟踪的。
+    </p>
+
+    <li>
+    	<h3>Bean预实例化</h3>
+    </li>
+    <p class="wrap">
+    对于平时使用Spring时，对于预实例化的bean，该动作会在<span class="highlight">refresh</span>方法中的<span class="highlight">finishBeanFactoryInitialization</span>中完成，内部其实也是一个<span class="highlight">getBean</span>的过程。
+    </p>
 
 </ul>
