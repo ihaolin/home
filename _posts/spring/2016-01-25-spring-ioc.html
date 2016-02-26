@@ -4,13 +4,13 @@ category : [spring]
 tags : [spring, ioc]
 layout : post
 show : 1
-keywords: spring,ioc,Ioc容器
+keywords: spring,IoC,IoC实现
 ---
 
 
 <ul>
     <p class="intro">
-        <span class="highlight">IoC(Inversion of Control)，即控制反转</span>， 也可简单说为依赖注入(DI)，旨在将对象间的依赖关系交由 外部环境去处理， 而不是由对象自己去获取，这将大大提升开发效率和降低程序复杂度，在Spring中，这个外部环境就是Spring IoC容器， 也是Spring生态的核心基础，除了Spring的IoC实现外， 其他还有诸如Guice这样的IoC实现， 本文将对Spring的IoC实现进行探讨一番。
+        <span class="highlight">IoC(Inversion of Control)，即控制反转</span>， 也可简单说为<span class="highlight">依赖注入(DI)</span>，旨在将对象间的依赖关系交由 外部环境去处理， 而不是由对象自己去获取，这将大大提升开发效率和降低程序复杂度，在Spring中，这个外部环境就是Spring IoC容器， 也是Spring生态的核心基础，除了Spring的IoC实现外， 其他还有诸如<a href="https://github.com/google/guice" target="_blank">Guice</a>这样的IoC实现， 本文将对Spring的IoC实现进行探讨一番。
     </p>
 
     <li>
@@ -113,7 +113,7 @@ public interface HierarchicalBeanFactory extends BeanFactory {
     	<h3>ListableBeanFactory</h3>
     </li>
     <p class="wrap">
-    	<span class="highlight">ListableBeanFactory</span>丰富了获取Bean的工鞥，如获取多个Bean:
+    	<span class="highlight">ListableBeanFactory</span>丰富了获取Bean的功能，如获取多个Bean:
     </p>
     {% highlight java %}
 /**
@@ -1663,10 +1663,274 @@ public Set<BeanDefinition> findCandidateComponents(String basePackage) {
     <p class="wrap">
     	通过<span class="highlight">component-scan(组件扫描)</span>后，注解的类都被加载到IoC容器中，
     	除了<span class="highlight">BeanDefinition</span>外，还有上面提到的<span class="highlight">注解处理器</span>，
-    	这些<span class="highlight">BeanPostProcessor</span>也会如之前所说，在<span class="highlight">Bean实例化时调用</span>。
+    	这些<span class="highlight">BeanPostProcessor</span>也会如之前所说，在<span class="highlight">Bean实例化时调用</span>:
     </p>
+    {% highlight java %}
+// AbstractAutowireCapableBeanFactory.populateBean()
+protected void populateBean(String beanName, RootBeanDefinition mbd, BeanWrapper bw) {
+	...
 
+	boolean hasInstAwareBpps = hasInstantiationAwareBeanPostProcessors();
+	boolean needsDepCheck = (mbd.getDependencyCheck() != RootBeanDefinition.DEPENDENCY_CHECK_NONE);
 
+	if (hasInstAwareBpps || needsDepCheck) {
+		PropertyDescriptor[] filteredPds = filterPropertyDescriptorsForDependencyCheck(bw, mbd.allowCaching);
+		if (hasInstAwareBpps) {
+			for (BeanPostProcessor bp : getBeanPostProcessors()) {
+				if (bp instanceof InstantiationAwareBeanPostProcessor) {
+					InstantiationAwareBeanPostProcessor ibp = (InstantiationAwareBeanPostProcessor) bp;
+					// 调用注册的注解处理器
+					pvs = ibp.postProcessPropertyValues(pvs, filteredPds, bw.getWrappedInstance(), beanName);
+					if (pvs == null) {
+						return;
+					}
+				}
+			}
+		}
+		...
+	}
+	...
+}
+    {% endhighlight %}
+    <p class="wrap">
+    比如针对<span class="highlight">@Autowried</span>注解的处理器<span class="highlight">AutowiredAnnotationBeanPostProcessor</span>:
+    </p>
+    {% highlight java %}
+public PropertyValues postProcessPropertyValues(
+		PropertyValues pvs, PropertyDescriptor[] pds, Object bean, String beanName) throws BeansException {
+	// 查询bean类型的注入元数据，如带@Autoried注解的字段 
+	// 但这已经在AbstractAutowireCapableBeanFactory.doCreateBean() -> applyMergedBeanDefinitionPostProcessors()中缓存了这些元数据
+	InjectionMetadata metadata = findAutowiringMetadata(beanName, bean.getClass(), pvs);
+	try {
+		// 注入Bean属性
+		metadata.inject(bean, beanName, pvs);
+	} catch (Throwable ex) {
+		throw new BeanCreationException(beanName, "Injection of autowired dependencies failed", ex);
+	}
+	return pvs;
+}
+
+private InjectionMetadata findAutowiringMetadata(String beanName, Class<?> clazz, PropertyValues pvs) {
+	// 以beanName为cache key
+	String cacheKey = (StringUtils.hasLength(beanName) ? beanName : clazz.getName());
+
+	InjectionMetadata metadata = this.injectionMetadataCache.get(cacheKey);
+	if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+		synchronized (this.injectionMetadataCache) {
+			metadata = this.injectionMetadataCache.get(cacheKey);
+			if (InjectionMetadata.needsRefresh(metadata, clazz)) {
+				if (metadata != null) {
+					metadata.clear(pvs);
+				}
+				// 构建类的注入元数据
+				metadata = buildAutowiringMetadata(clazz);
+				// 放入缓存
+				this.injectionMetadataCache.put(cacheKey, metadata);
+			}
+		}
+	}
+	return metadata;
+}
+
+private InjectionMetadata buildAutowiringMetadata(Class<?> clazz) {
+	LinkedList<InjectionMetadata.InjectedElement> elements = new LinkedList<InjectionMetadata.InjectedElement>();
+	Class<?> targetClass = clazz;
+
+	do {
+		LinkedList<InjectionMetadata.InjectedElement> currElements = new LinkedList<InjectionMetadata.InjectedElement>();
+		// 获取注解字段
+		for (Field field : targetClass.getDeclaredFields()) {
+			Annotation ann = findAutowiredAnnotation(field);
+			if (ann != null) {
+				if (Modifier.isStatic(field.getModifiers())) {
+					// 获取静态字段的@Autowired
+					if (logger.isWarnEnabled()) {
+						logger.warn("Autowired annotation is not supported on static fields: " + field);
+					}
+					continue;
+				}
+				// 是否为required
+				boolean required = determineRequiredStatus(ann);
+				currElements.add(new AutowiredFieldElement(field, required));
+			}
+		}
+		// 获取注解方法
+		for (Method method : targetClass.getDeclaredMethods()) {
+			Annotation ann = null;
+			// 获取bridge方法
+			Method bridgedMethod = BridgeMethodResolver.findBridgedMethod(method);
+			if (BridgeMethodResolver.isVisibilityBridgeMethodPair(method, bridgedMethod)) {
+				// 获取Autowired方法
+				ann = findAutowiredAnnotation(bridgedMethod);
+			}
+			if (ann != null && method.equals(ClassUtils.getMostSpecificMethod(method, clazz))) {
+				if (Modifier.isStatic(method.getModifiers())) {
+					// 忽略静态方法
+					if (logger.isWarnEnabled()) {
+						logger.warn("Autowired annotation is not supported on static methods: " + method);
+					}
+					continue;
+				}
+				if (method.getParameterTypes().length == 0) {
+					if (logger.isWarnEnabled()) {
+						logger.warn("Autowired annotation should be used on methods with actual parameters: " + method);
+					}
+					// 为何这里不continue?
+				}
+				// 是否为required
+				boolean required = determineRequiredStatus(ann);
+				PropertyDescriptor pd = BeanUtils.findPropertyForMethod(bridgedMethod, clazz);
+				currElements.add(new AutowiredMethodElement(method, required, pd));
+			}
+		}
+		elements.addAll(0, currElements);
+		// 递归父类
+		targetClass = targetClass.getSuperclass();
+	}
+	while (targetClass != null && targetClass != Object.class);
+
+	return new InjectionMetadata(clazz, elements);
+}
+
+// InjectionMetadata.inject
+public void inject(Object target, String beanName, PropertyValues pvs) throws Throwable {
+	Collection<InjectedElement> elementsToIterate =
+			(this.checkedElements != null ? this.checkedElements : this.injectedElements);
+	if (!elementsToIterate.isEmpty()) {
+		boolean debug = logger.isDebugEnabled();
+		for (InjectedElement element : elementsToIterate) {
+			if (debug) {
+				logger.debug("Processing injected element of bean '" + beanName + "': " + element);
+			}
+			// 执行元素inject操作，包含字段(AutowiredFieldElement)或方法(AutowiredMethodElement)
+			element.inject(target, beanName, pvs);
+		}
+	}
+}
+
+// 字段注入: AutowiredFieldElement.inject
+protected void inject(Object bean, String beanName, PropertyValues pvs) throws Throwable {
+	Field field = (Field) this.member;
+	try {
+		Object value;
+		if (this.cached) {
+			// 解析缓存的方法参数或字段值
+			value = resolvedCachedArgument(beanName, this.cachedFieldValue);
+		} else {
+			// 封装依赖描述对象
+			DependencyDescriptor desc = new DependencyDescriptor(field, this.required);
+			Set<String> autowiredBeanNames = new LinkedHashSet<String>(1);
+			TypeConverter typeConverter = beanFactory.getTypeConverter();
+			// 解析依赖的bean
+			value = beanFactory.resolveDependency(desc, beanName, autowiredBeanNames, typeConverter);
+			synchronized (this) {
+				if (!this.cached) {
+					if (value != null || this.required) {
+						this.cachedFieldValue = desc;
+						// 注册依赖的bean
+						registerDependentBeans(beanName, autowiredBeanNames);
+						if (autowiredBeanNames.size() == 1) {
+							String autowiredBeanName = autowiredBeanNames.iterator().next();
+							if (beanFactory.containsBean(autowiredBeanName)) {
+								// 类型匹配
+								if (beanFactory.isTypeMatch(autowiredBeanName, field.getType())) {
+									// 缓存字段值
+									this.cachedFieldValue = new RuntimeBeanReference(autowiredBeanName);
+								}
+							}
+						}
+					} else {
+						this.cachedFieldValue = null;
+					}
+					this.cached = true;
+				}
+			}
+		}
+		if (value != null) {
+			ReflectionUtils.makeAccessible(field);
+			// 设置@Autowired字段
+			field.set(bean, value);
+		}
+	} catch (Throwable ex) {
+		throw new BeanCreationException("Could not autowire field: " + field, ex);
+	}
+}
+
+// 方法注入: AutowiredFieldElement.inject
+protected void inject(Object bean, String beanName, PropertyValues pvs) throws Throwable {
+	// 是否跳过
+	if (checkPropertySkipping(pvs)) {
+		return;
+	}
+	Method method = (Method) this.member;
+	try {
+		Object[] arguments;
+		if (this.cached) {
+			// 解析缓存的方法参数
+			arguments = resolveCachedArguments(beanName);
+		} else {
+			Class<?>[] paramTypes = method.getParameterTypes();
+			arguments = new Object[paramTypes.length];
+			DependencyDescriptor[] descriptors = new DependencyDescriptor[paramTypes.length];
+			Set<String> autowiredBeanNames = new LinkedHashSet<String>(paramTypes.length);
+			TypeConverter typeConverter = beanFactory.getTypeConverter();
+			for (int i = 0; i < arguments.length; i++) {
+				MethodParameter methodParam = new MethodParameter(method, i);
+				GenericTypeResolver.resolveParameterType(methodParam, bean.getClass());
+				// 封装方法参数
+				descriptors[i] = new DependencyDescriptor(methodParam, this.required);
+				// 解析参数值
+				arguments[i] = beanFactory.resolveDependency(
+						descriptors[i], beanName, autowiredBeanNames, typeConverter);
+				if (arguments[i] == null && !this.required) {
+					arguments = null;
+					break;
+				}
+			}
+			synchronized (this) {
+				if (!this.cached) {
+					if (arguments != null) {
+						this.cachedMethodArguments = new Object[arguments.length];
+						for (int i = 0; i < arguments.length; i++) {
+							// 缓存方法参数
+							this.cachedMethodArguments[i] = descriptors[i];
+						}
+						// 注册依赖的bean
+						registerDependentBeans(beanName, autowiredBeanNames);
+						if (autowiredBeanNames.size() == paramTypes.length) {
+							Iterator<String> it = autowiredBeanNames.iterator();
+							for (int i = 0; i < paramTypes.length; i++) {
+								String autowiredBeanName = it.next();
+								if (beanFactory.containsBean(autowiredBeanName)) {
+									if (beanFactory.isTypeMatch(autowiredBeanName, paramTypes[i])) {
+										// 尝试缓存方法参数为RuntimeBeanReference
+										this.cachedMethodArguments[i] = new RuntimeBeanReference(autowiredBeanName);
+									}
+								}
+							}
+						}
+					} else {
+						this.cachedMethodArguments = null;
+					}
+					this.cached = true;
+				}
+			}
+		}
+		if (arguments != null) {
+			ReflectionUtils.makeAccessible(method);
+			// 调用@Autowired方法
+			method.invoke(bean, arguments);
+		}
+	} catch (InvocationTargetException ex) {
+		throw ex.getTargetException();
+	} catch (Throwable ex) {
+		throw new BeanCreationException("Could not autowire method: " + method, ex);
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    以上则是<span class="highlight">依赖注入</span>的基本实现轮廓，读者可以尝试debug各种情况。
+    </p>
 
 
 </ul>
