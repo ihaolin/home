@@ -846,7 +846,7 @@ public void registerBeanDefinition(String beanName, BeanDefinition beanDefinitio
     </li>
     <p class="wrap">
     	当所有bean完成注册后，IoC容器还需要完成bean的<span class="highlight">依赖注入配置</span>，对于<span class="highlight">lazyInit为true</span>的bean，会在向容器<span class="highlight">getBean</span>
-    	时，实例化bean及依赖注入配置整个依赖注入过程大概如:
+    	时，实例化bean及完成依赖注入，整个依赖注入过程大概如:
     </p>
     <img src="{{site.url}}/images/spring/ioc-autowired.png" width="100%">
     <p class="wrap">
