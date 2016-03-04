@@ -2,9 +2,5 @@ port : '9999'
 encode : 'utf-8'
 excerpt_separator: "\n\n"
 
-title: Haolin's Blog
+name: Hao0's Blog
 url: http://t.hao0.me
-author: 
-  - name: haolin
-  - email: haolin.h0@gmail.com
-copyright: haolin  
