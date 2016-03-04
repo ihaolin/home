@@ -1,5 +1,10 @@
 port : '9999'
 encode : 'utf-8'
-#paginate: 100
-#paginate_path: "page:num"
 excerpt_separator: "\n\n"
+
+title: Haolin's Blog
+url: http://t.hao0.me
+author: 
+  - name: haolin
+  - email: haolin.h0@gmail.com
+copyright: haolin  
