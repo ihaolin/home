@@ -1,6 +1,6 @@
 $(function(){
     // 所有.poptip提示
-    $('.poptip').popup({inline: true, hoverable: true, position : 'top left'});
+    $('.poptip').popup();
 
     // sidebar
     $('#sidebar-toggler').on("click", function(){
