@@ -1482,7 +1482,7 @@ protected void applyPropertyValues(String beanName, BeanDefinition mbd, BeanWrap
 </beans>
     {% endhighlight %}
     <p class="wrap">
-    这需要先从xml<span class="highlight">命名空间(namespace)</span>开始，该解析过程在<span class="highlight"DefaultBeanDefinitionDocumentReader.parseBeanDefinitions()</span>中:
+    这需要先从xml<span class="highlight">命名空间(namespace)</span>解析开始，该解析过程在<span class="highlight">DefaultBeanDefinitionDocumentReader.parseBeanDefinitions()</span>中:
     </p>
     {% highlight java %}
 protected void parseBeanDefinitions(Element root, BeanDefinitionParserDelegate delegate) {

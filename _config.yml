@@ -3,4 +3,4 @@ encode : 'utf-8'
 excerpt_separator: "\n\n"
 
 name: Hao0's Blog
-url: http://t.hao0.me
+# url: http://t.hao0.me
