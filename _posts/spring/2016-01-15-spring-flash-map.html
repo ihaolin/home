@@ -21,7 +21,7 @@ keywords: spring,spring-web,flash map
     </p>
     <img src="{{site.url}}/images/spring/post_redirect_get.png" width="100%">
     <p class="wrap">
-    	这样的确可以减少服务端<span class="highlight">Redirect</span>后的<span class="highlight">重复提交</span>问题，但若在<span class="highlight">Redirect</span>之前用户强制刷新，也会存在<span class="highlight">重复提交</span>问题，其他防止重复提交的可以使用<span class="highlight"> </span>等方式，或者更好的方式是在浏览器端作一些前端优化，给予用户友好的等待提示。
+    	这样的确可以减少服务端<span class="highlight">Redirect</span>后的<span class="highlight">重复提交</span>问题，但若在<span class="highlight">Redirect</span>之前用户强制刷新，也会存在<span class="highlight">重复提交</span>问题，其他防止重复提交的可以使用<span class="highlight">Token校验</span>等方式，或者更好的方式是在浏览器端作一些前端优化，给予用户友好的等待提示。
     </p>
 
     <li>
@@ -169,7 +169,4 @@ public class RedisSessionFlashMapManager extends SessionFlashMapManager {
     	<span class="highlight">Spring Web</span>默认认为<span class="hi
     	">Servlet容器</span>使用<span class="highlight">对象序列化</span>保存<span class="highlight">Session</span>，这似乎不是很合理，也许应该提供<span class="highlight">一个反序列化Flash Attribute的策略</span>，更合理的方式应该是减少这种<span class="highlight">POST/Redirect/GET</span>这种请求模式，这种模式体验并不友好，应交由前端，如<span class="highlight">AJAX</span>去处理。
     </p>
-
-
-
 </ul>
