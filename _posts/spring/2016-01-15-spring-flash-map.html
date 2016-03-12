@@ -1,0 +1,175 @@
+---
+title : Spring Web FlashMap引发的血案
+category : [spring]
+tags : [spring, spring-web]
+layout : post
+show : 1
+keywords: spring,spring-web,flash map
+---
+
+<ul>
+    <p class="intro">
+        <span class="highlight">Spring Web 3.1</span>之后引入了叫作<span class="highlight">Flash Attribute</span>的功能，旨在解决类似<span class="highlight">POST/Redirect/GET</span>这种请求模式中的属性传递问题，但由于从老系统到新系统的迁移过程中，<span class="highlight">用户Session</span>都开始使用<span class="highlight">基于Redis的会话组件</span>(<span class="highlight">HttpSession的Redis版本</span>)，在老系统的<span class="highlight">POST/Redirect/GET</span>这种请求模式下出现了问题，因此记下一笔。
+    </p>
+
+
+    <li>
+    	<h2>常见的用户场景</h2>
+    </li>
+    <p class="wrap">
+    	比如，用户在浏览器端填充完表单，然后提交，服务器端处理完，可以使用<span class="highlight">Forward</span>的方式将用户转发到对应的页面，但<span class="highlight">Forward</span>完成之前，用户有可能强制刷新页面，这样可能造成重复提交，因此可能会使用<span class="highlight">Redirect</span>来响应用户：
+    </p>
+    <img src="{{site.url}}/images/spring/post_redirect_get.png" width="100%">
+    <p class="wrap">
+    	这样的确可以减少服务端<span class="highlight">Redirect</span>后的<span class="highlight">重复提交</span>问题，但若在<span class="highlight">Redirect</span>之前用户强制刷新，也会存在<span class="highlight">重复提交</span>问题，其他防止重复提交的可以使用<span class="highlight"> </span>等方式，或者更好的方式是在浏览器端作一些前端优化，给予用户友好的等待提示。
+    </p>
+
+    <li>
+    	<h2>Flash Attribute</h2>
+    </li>
+    <p class="wrap">
+    	但使用<span class="highlight">Redirect</span>后，相当于用户上一次<span class="highlight">Request</span>的请求参数被丢失了，我们希望能在<span class="highlight">Redirect</span>后的那次<span class="highlight">Request</span>获取上一次<span class="highlight">Request</span>的某些参数或属性，比如<span class="highlight">提示用户某些字段非法</span>等信息，于是<span class="highlight">Spring 3.1</span>后，加入了<span class="highlight">Flash Attribute</span>。<span class="highlight">Flash Attribute</span>允许在前后两次<span class="highlight">Request</span>之间传递一些参数或属性，原理在于<span class="highlight">Flash Attribute</span>这种属性会临时放入<span class="highlight">Session</span>中，当第二次<span class="highlight">Request</span>后，又将这类属性从<span class="highlight">Session</span>中移除，<span class="highlight">Spring Web</span>中使用<span class="highlight">RedirectAttributes</span>来放入<span class="highlight">Flash Attribute</span>:
+    </p>
+    {% highlight java %}
+@RequestMapping(value="submitOrder", method=RequestMethod.POST)
+public String submitOrder(@ModelAttribute("Order") Order order, final RedirectAttributes redirectAttributes) {
+	//...
+    redirectAttributes.addFlashAttribute("message", "Submit successfully!");
+	//...
+    return "redirect:submit_success";
+}
+    {% endhighlight %}
+    <p class="wrap">
+ 		<span class="highlight">Spring Web</span>中使用<span class="highlight">FlashMapManager</span>来管理<span class="highlight">Flash Attribute</span>:
+    </p>
+    {% highlight java %}
+ public interface FlashMapManager {
+
+	/**
+	 * 获取之前请求中的FlashAttribute，并将一些过期的属性从Session中移除
+	 */
+	FlashMap retrieveAndUpdate(HttpServletRequest request, HttpServletResponse response);
+
+	/**
+	 * 保存FlashAttribute，并设置过期时间，该方法会在redirect这种视图类型中调用
+	 */
+	void saveOutputFlashMap(FlashMap flashMap, HttpServletRequest request, HttpServletResponse response);
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">retrieveAndUpdate</span>方法会在<span class="highlight">Spring Web</span>核心组件<span class="highlight">DispatchServlet</span>中被调用:
+    </p>
+    {% highlight java %}
+    protected void doService(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    	// ....
+		FlashMap inputFlashMap = this.flashMapManager.retrieveAndUpdate(request, response);
+		if (inputFlashMap != null) {
+			// 将FlashAttribute设置在request对象中
+			request.setAttribute(INPUT_FLASH_MAP_ATTRIBUTE, Collections.unmodifiableMap(inputFlashMap));
+		}
+
+		try {
+			// 分发请求
+			doDispatch(request, response);
+		} finally {
+			// ...
+		}
+	}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">saveOutputFlashMap</span>方法会在<span class="highlight">RedirectView</span>视图中被调用:
+    </p>
+    {% highlight java %}
+protected void renderMergedOutputModel(Map<String, Object> model, HttpServletRequest request,
+		HttpServletResponse response) throws IOException {
+
+	String targetUrl = createTargetUrl(model, request);
+	targetUrl = updateTargetUrl(targetUrl, model, request, response);
+
+	// 获取FlashAttribute
+	FlashMap flashMap = RequestContextUtils.getOutputFlashMap(request);
+	if (!CollectionUtils.isEmpty(flashMap)) {
+		UriComponents uriComponents = UriComponentsBuilder.fromUriString(targetUrl).build();
+		flashMap.setTargetRequestPath(uriComponents.getPath());
+		flashMap.addTargetRequestParams(uriComponents.getQueryParams());
+		FlashMapManager flashMapManager = RequestContextUtils.getFlashMapManager(request);
+		if (flashMapManager == null) {
+			throw new IllegalStateException("FlashMapManager not found despite output FlashMap having been set");
+		}
+		// 保存FlashAttribute
+		flashMapManager.saveOutputFlashMap(flashMap, request, response);
+	}
+
+	sendRedirect(request, response, targetUrl, this.http10Compatible);
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">Spring Web</span>默认使用<span class="highlight">SessionFlashMapManager</span>作为<span class="highlight">FlashMap管理器</span>，内部将<span class="highlight">Flash Attribute</span>保存在<span class="highlight">Session</span>中:
+    </p>   
+    {% highlight java %}
+public class SessionFlashMapManager extends AbstractFlashMapManager {
+
+	private static final String FLASH_MAPS_SESSION_ATTRIBUTE = SessionFlashMapManager.class.getName() + ".FLASH_MAPS";
+
+	protected List<FlashMap> retrieveFlashMaps(HttpServletRequest request) {
+		HttpSession session = request.getSession(false);
+		// 从Session获取FlashMap属性
+		return (session != null ? (List<FlashMap>) session.getAttribute(FLASH_MAPS_SESSION_ATTRIBUTE) : null);
+	}
+
+	protected void updateFlashMaps(List<FlashMap> flashMaps, HttpServletRequest request, HttpServletResponse response) {
+		// 在Session设置FlashMap属性
+		request.getSession().setAttribute(FLASH_MAPS_SESSION_ATTRIBUTE, flashMaps);
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	老系统迁移出现的问题，就在于<span class="highlight">(List<FlashMap>) session.getAttribute(FLASH_MAPS_SESSION_ATTRIBUTE)</span>这里强制转换为了<span class="highlight">List<FlashMap></span>，而<span class="highlight">HttpSession</span>已被重写为<span class="highlight">Redis版本</span>，并且使用<span class="highlight">JSON序列化</span>，并不像一些<span class="highlight">Servlet容器</span>默认使用<span class="highlight">DataOutputStream对象序列化</span>，因而抛出了<span class="highlight">java.lang.ClassCastException</span>异常，并一旦请求过类似使用<span class="highlight">redirectAttributes.addFlashAttribute</span>的方法后，后续的请求都将抛<span class="highlight">java.lang.ClassCastException</span>，因为<span class="highlight">FLASH_MAPS_SESSION_ATTRIBUTE</span>一直保存在<span class="highlight">Session</span>中，最后只能重写<span class="highlight">retrieveFlashMaps</span>以解决该问题:
+    </p>
+    {% highlight java %}
+public class RedisSessionFlashMapManager extends SessionFlashMapManager {
+
+    private static final String FLASH_MAPS_KEY = "org.springframework.web.servlet.support.SessionFlashMapManager.FLASH_MAPS";
+
+    @Override
+    protected List<FlashMap> retrieveFlashMaps(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        return session == null ? null : renderFlashMaps(session);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<FlashMap> renderFlashMaps(HttpSession session) {
+
+        List<HashMap<String, Object>> maps = (List<HashMap<String, Object>>)session.getAttribute(FLASH_MAPS_KEY);
+        if (CollectionUtils.isEmpty(maps)){
+            return null;
+        }
+
+        List<FlashMap> flashMaps = Lists.newArrayListWithExpectedSize(maps.size());
+        FlashMap flashMap;
+        for (Map<String, Object> map : maps){
+            flashMap = new FlashMap();
+            for (Map.Entry<String, Object> entry : map.entrySet()){
+                flashMap.put(entry.getKey(), String.valueOf(entry.getValue()));
+            }
+            flashMaps.add(flashMap);
+        }
+
+        return flashMaps;
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	并且需要在<span class="highlight">Spring Web Context</span>配置使用的<span class="highlight">FlashMapManager</span>:
+    </p>
+    {% highlight xml %}
+<bean id="flashMapManager" class="my.RedisSessionFlashMapManager" />
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">Spring Web</span>默认认为<span class="hi
+    	">Servlet容器</span>使用<span class="highlight">对象序列化</span>保存<span class="highlight">Session</span>，这似乎不是很合理，也许应该提供<span class="highlight">一个反序列化Flash Attribute的策略</span>，更合理的方式应该是减少这种<span class="highlight">POST/Redirect/GET</span>这种请求模式，这种模式体验并不友好，应交由前端，如<span class="highlight">AJAX</span>去处理。
+    </p>
+
+
+
+</ul>
