@@ -72,7 +72,7 @@ keywords: java, 重排序, Happen-Before
         2. <span class="highlight">管程锁定规则</span>: 对于同一个锁，<span class="highlight">unlock()</span>操作<span class="highlight">hb</span>下一次<span class="highlight">lock()</span>操作。<br/>
         3. <span class="highlight">volatile变量规则</span>: volatile变量的写操作<span class="highlight">hb</span>之后的读操作。<br/>
         4. <span class="highlight">线程启动规则</span>: 同一线程的start()方法<span class="highlight">hb</span>其他方法。<br/>
-        5. <span class="highlight">线程终止规则</span>: 同一线程的任何方法都<span class="highlight">hb</span>其他操作。<br/>
+        5. <span class="highlight">线程终止规则</span>: 同一线程的任何方法都<span class="highlight">hb</span>对此线程的终止检测。如<span class="highlight">Thread.join()</span>，<span class="highlight">Thread.isAlive()</span>等。<br/>
         6. <span class="highlight">线程中断规则</span>: 对线程interrupt()方法的调用<span class="highlight">hb</span>
             发生于被中断线程的代码检测到中断事件发生。<br/>
         7. <span class="highlight">对象终结规则</span>: 一个对象的初始化完成<span class="highlight">hb</span>该对象的finalize()方法。<br/>

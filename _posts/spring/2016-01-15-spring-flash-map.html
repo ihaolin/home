@@ -60,21 +60,21 @@ public String submitOrder(@ModelAttribute("Order") Order order, final RedirectAt
     	<span class="highlight">retrieveAndUpdate</span>方法会在<span class="highlight">Spring Web</span>核心组件<span class="highlight">DispatchServlet</span>中被调用:
     </p>
     {% highlight java %}
-    protected void doService(HttpServletRequest request, HttpServletResponse response) throws Exception {
-    	// ....
-		FlashMap inputFlashMap = this.flashMapManager.retrieveAndUpdate(request, response);
-		if (inputFlashMap != null) {
-			// 将FlashAttribute设置在request对象中
-			request.setAttribute(INPUT_FLASH_MAP_ATTRIBUTE, Collections.unmodifiableMap(inputFlashMap));
-		}
+protected void doService(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    // ....
+    FlashMap inputFlashMap = this.flashMapManager.retrieveAndUpdate(request, response);
+    if (inputFlashMap != null) {
+    	// 将FlashAttribute设置在request对象中
+    	request.setAttribute(INPUT_FLASH_MAP_ATTRIBUTE, Collections.unmodifiableMap(inputFlashMap));
+    }
 
-		try {
-			// 分发请求
-			doDispatch(request, response);
-		} finally {
-			// ...
-		}
-	}
+    try {
+    	// 分发请求
+    	doDispatch(request, response);
+    } finally {
+    	// ...
+    }
+}
     {% endhighlight %}
     <p class="wrap">
     	<span class="highlight">saveOutputFlashMap</span>方法会在<span class="highlight">RedirectView</span>视图中被调用:
@@ -124,7 +124,7 @@ public class SessionFlashMapManager extends AbstractFlashMapManager {
 }
     {% endhighlight %}
     <p class="wrap">
-    	老系统迁移出现的问题，就在于<span class="highlight">(List<FlashMap>) session.getAttribute(FLASH_MAPS_SESSION_ATTRIBUTE)</span>这里强制转换为了<span class="highlight">List<FlashMap></span>，而<span class="highlight">HttpSession</span>已被重写为<span class="highlight">Redis版本</span>，并且使用<span class="highlight">JSON序列化</span>，并不像一些<span class="highlight">Servlet容器</span>默认使用<span class="highlight">DataOutputStream对象序列化</span>，因而抛出了<span class="highlight">java.lang.ClassCastException</span>异常，并一旦请求过类似使用<span class="highlight">redirectAttributes.addFlashAttribute</span>的方法后，后续的请求都将抛<span class="highlight">java.lang.ClassCastException</span>，因为<span class="highlight">FLASH_MAPS_SESSION_ATTRIBUTE</span>一直保存在<span class="highlight">Session</span>中，最后只能重写<span class="highlight">retrieveFlashMaps</span>以解决该问题:
+    	老系统迁移出现的问题，就在于<span class="highlight">(List&lt;FlashMap&gt;)session.getAttribute(FLASH_MAPS_SESSION_ATTRIBUTE)</span>这里强制转换为了<span class="highlight">List&lt;FlashMap&gt;</span>，而<span class="highlight">HttpSession</span>已被重写为<span class="highlight">Redis版本</span>，并且使用<span class="highlight">JSON序列化</span>，并不像一些<span class="highlight">Servlet容器</span>默认使用<span class="highlight">DataOutputStream对象序列化</span>，因而抛出了<span class="highlight">java.lang.ClassCastException</span>异常，并一旦请求过类似使用<span class="highlight">redirectAttributes.addFlashAttribute</span>的方法后，后续的请求都将抛<span class="highlight">java.lang.ClassCastException</span>，因为<span class="highlight">FLASH_MAPS_SESSION_ATTRIBUTE</span>一直保存在<span class="highlight">Session</span>中，最后只能重写<span class="highlight">retrieveFlashMaps</span>以解决该问题:
     </p>
     {% highlight java %}
 public class RedisSessionFlashMapManager extends SessionFlashMapManager {
@@ -162,7 +162,7 @@ public class RedisSessionFlashMapManager extends SessionFlashMapManager {
     <p class="wrap">
     	并且需要在<span class="highlight">Spring Web Context</span>配置使用的<span class="highlight">FlashMapManager</span>:
     </p>
-    {% highlight xml %}
+    {% highlight ruby %}
 <bean id="flashMapManager" class="my.RedisSessionFlashMapManager" />
     {% endhighlight %}
     <p class="wrap">

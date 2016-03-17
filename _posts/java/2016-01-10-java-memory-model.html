@@ -1,0 +1,524 @@
+---
+title : 理解Java内存模型
+category : [java]
+tags : [jmm, java-memory-model]
+layout : post
+show : 1
+keywords: jmm,java memory model
+---
+
+
+<ul>
+    <p class="intro">
+        <span class="highlight">Java Memory Model(Java内存模型，简称JMM)</span>，作为Java语言规范的一部分(主要在JLS的第17章节介绍)，其定义了<span class="highlight">多线程之间如何通过内存进行交互</span>，在旧的<span class="highlight">JMM</span>中，存在一些<span class="highlight">不够明确</span>和<span class="highlight">过于限制</span>的问题，比如对<span class="highlight">final</span>，<span class="highlight">volatile</span>等关键字的语义约束问题，在旧的<span class="highlight">JMM</span>中，有可能出现<span class="highlight">final</span>字段的值会发生变化，或者阻止编译器的优化操作，还有比较熟知的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">double-checked问题</a>，于是在新的<span class="highlight">JMM</span>中，针对这一系列问题作出了修订，最终在<a href="https://www.cs.umd.edu/~pugh/java/memoryModel/jsr133.pdf" target="_blank">JSR133</a>中进行了详细描述，本文将对<span class="highlight">Java内存模型</span>作一番理解。
+    </p>
+
+
+    <li>
+    	<h2>什么是Java内存模型(Java Memory Model)</h2>
+    </li>
+    <p class="wrap">
+    	在多核系统中，处理器通常会有<span class="highlight">一层或多层缓存</span>，通过这些缓存可以<span class="highlight">加快数据访问</span>(缓存数据距处理器更近）和<span class="highlight">降低共享内存总线上的通讯</span>(因为本地缓存能够满足大多数内存操作）来提高CPU性能。缓存能够大大提升性能，但这同时也带来了许多挑战。例如，当两个CPU同时检查相同的内存地址时会发生什么？在什么样的条件下它们会看到相同的值？
+    </p>
+    <p class="wrap">
+    	在处理器层面上，<span class="highlight">JMM</span>定义了一个充要条件: <span class="highlight">让当前的处理器可以看到其他处理器写入到内存的数据</span>以及<span class="highlight">其他处理器可以看到当前处理器写入到内存的数据</span>。有些处理器具有<span class="highlight">强一致性内存模型</span>，能够让所有的处理器在任何时候任何指定的内存地址上都可以看到完全相同的值。而另外一些处理器则具有<span class="highlight">弱一致性内存模型</span>，在这种处理器中，必须使用<span class="highlight">内存屏障(一种特殊的硬件级别指令）</span>来刷新本地处理器缓存并使本地处理器缓存无效，目的是为了让当前处理器能够看到其他处理器的写操作或者让其他处理器能看到当前处理器的写操作。这些<span class="highlight">内存屏障</span>通常在机器指令中的<span class="highlight">lock</span>和<span class="highlight">unlock</span>操作的时候完成。<span class="highlight">内存屏障</span>在高级语言中对程序员是不可见的。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">JMM</span>描述了在多线程中<span class="highlight">哪些行为是合法的</span>，以及<span class="highlight">线程间如何通过内存进行交互</span>。它描述了<span class="highlight">程序中的变量</span>和<span class="highlight">从内存或者寄存器加载或存储它们的底层细节之间的关系</span>，并通过使用各种硬件和编译器的优化(如<span class="highlight">重排序</span>，<span class="highlight">高速缓存</span>，<span class="highlight">机器指令交错执行</span>等)来正确实现以上事情，比如从Java语言层面上，我们可以通过<span class="highlight">volatile</span>, <span class="highlight">final</span>以及<span class="highlight">synchronized</span>关键字，<span class="highlight">Happens-Before</span>关系等保证同步的java程序在所有的处理器架构下面都能正确的运行。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">JMM</span>规定了<span class="highlight">JVM</span>必须遵循一组<span class="highlight">最小保证</span>，这组保证规定了<span class="highlight">对变量的写入操作在何时将对于其他线程可见</span>。<span class="highlight">JMM</span>在设计时就在<span class="highlight">可预测性和程序的易于开发性之间进行了权衡</span>，从而在各种主流的处理器体系架构上能实现高性能的<span class="highlight">JMM</span>。
+    </p>
+
+    <li>
+    	<h2>JMM中并发程序面临的问题</h2>
+    </li>
+
+	<li>
+    	<h3>重排序</h3>
+    </li>
+    <p class="wrap">
+    	在很多情况下，访问一个程序变量(<span class="highlight">对象实例字段</span>，<span class="highlight">类静态字段</span>和<span class="highlight">数组元素</span>)可能会使用<span class="highlight">不同的顺序执行</span>，而不是程序语义所指定的顺序执行。编译器能够自由的<span class="highlight">以优化的名义</span>去改变指令顺序。在特定的环境下，处理器可能会次序颠倒的执行指令。数据可能在<span class="highlight">寄存器</span>，<span class="highlight">处理器缓冲区</span>和<span class="highlight">主内存</span>中以不同的次序移动，而不是按照程序指定的顺序。
+    </p>
+    <p class="wrap">
+    	例如，如果一个线程写入值到字段a，然后写入值到字段b，而且b的值不依赖于a的值，那么，处理器就能够自由的调整它们的执行顺序，而且缓冲区能够在a之前刷新b的值到主内存。有许多潜在的重排序的来源，例如<span class="highlight">编译器</span>，<span class="highlight">JIT</span>以及<span class="highlight">缓冲区</span>。
+    </p>
+    {% highlight java %}
+Class Reordering {
+	
+	int x = 0, y = 0;
+
+	public void writer() {
+		x = 1;
+		y = 2;
+	}
+
+	public void reader() {
+		int r1 = y;
+		int r2 = x;
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	如上面的代码片段，<span class="highlight">读取y变量</span>将会得到2这个值，从程序顺序直观上看，因为这个写入比写到<span class="highlight">x变量</span>更晚一些，程序员可能认为<span class="highlight">读取x变量</span>将肯定会得到1。但是，写入操作可能被重排序过。如果重排序发生了，那么，就能发生对<span class="highlight">y变量</span>的写入操作，读取两个变量的操作紧随其后，然后<span class="highlight">写入x</span>，程序的结果可能是<span class="highlight">r1=2，r2=0</span>。
+    </p>
+
+    <p class="wrap">
+    	<span class="highlight">重排序</span>大致可以分为三种类型：
+    	<br>&nbsp;&nbsp;&nbsp;&nbsp;1. <span class="highlight">编译器优化的重排序</span>。编译器在不改变单线程程序语义的前提下，可以重新安排语句的执行顺序。
+    	<br>&nbsp;&nbsp;&nbsp;&nbsp;2. <span class="highlight">指令级并行的重排序</span>。现代处理器采用了<span class="highlight">指令级并行技术(Instruction-Level Parallelism， ILP)</span>来将多条指令重叠执行。如果不存在数据依赖性，处理器可以改变语句对应机器指令的执行顺序。
+    	<br>&nbsp;&nbsp;&nbsp;&nbsp;3. <span class="highlight">内存系统的重排序</span>。由于处理器使用缓存和读/写缓冲区，这使得加载和存储操作看上去可能是在乱序执行。
+    </p>
+    
+    <li>
+    	<h3>内存可见性</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">内存可见性</span>指的是: 一个线程执行的结果对另一个线程是<span class="highlight">可见的</span>，这里需要关心的结果有，写入的字段以及读取这个字段所看到的值。Java的并发采用的是<span class="highlight">共享内存模型</span>，Java线程之间的通信总是隐式进行，整个通信过程对程序员完全透明。如果编写多线程程序的Java程序员不理解隐式进行的线程之间通信的工作机制，很可能会遇到各种奇怪的<span class="highlight">内存可见性</span>问题。
+    </p>
+    <p class="wrap">
+    	从抽象的角度来看，<span class="highlight">JMM</span>定义了<span class="highlight">线程和主内存</span>之间的抽象关系：线程之间的共享变量存储在<span class="highlight">主内存(main memory)</span>中，每个线程都有一个私有的<span class="highlight">本地内存(local memory)</span>，本地内存中存储了该线程以读/写共享变量的副本。<span class="highlight">本地内存是JMM的一个抽象概念</span>，并不真实存在，它涵盖了<span class="highlight">缓存</span>，<span class="highlight">写缓冲区</span>，<span class="highlight">寄存器</span>以及<span class="highlight">其他的硬件和编译器优化</span>。
+    </p>
+
+    <li>
+    	<h3>原子性</h3>
+    </li>
+    <p class="wrap">
+    	在<span class="highlight">JMM</span>中，除了<span class="highlight">long型字段和double型字段</span>外，访问任意类型字段所对应的内存单元都是<span class="highlight">原子的</span>(包括引用类型的字段），这些规则不仅适用于<span class="highlight">实例变量</span>和<span class="highlight">静态变量</span>，也包括<span class="highlight">数组元素</span>，但不包括方法中的<span class="highlight">局部变量</span>的内存单元的简单读写操作。此外，<span class="highlight">volatile long</span>和<span class="highlight">volatile double</span>也具有原子性。(虽然<span class="highlight">JMM</span>不保证<span class="highlight">non-volatile long</span>和<span class="highlight">non-volatile double</span>的原子性，当然它们在某些场合也具有原子性，如<span class="highlight">non-volatile long在64位JVM，OS，CPU下具有原子性</span>)。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">原子性</span>可以确保你将获得这个字段的初始值或者某个线程对这个字段写入之后的值；但不会是两个或更多线程在同一时间对这个字段写入之后产生混乱的结果值(即原子性可以确保，获取到的结果值所对应的<span class="highlight">所有bit位，全部都是由单个线程写入的</span>)。<span class="highlight">原子性</span>不能确保你获得的是任意线程写入之后的最新值。 因此，<span class="highlight">原子性</span>保证通常对并发程序设计的影响很小。
+    </p>
+    
+    <li>
+    	<h2>如何解决JMM中并发程序所面临的问题</h2>
+    </li>
+    
+    <li>
+    	<h3>内存屏障(Memory Barrier)</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">内存屏障</span>，也称<span class="highlight">内存栅栏</span>，<span class="highlight">内存栅障</span>，<span class="highlight">屏障指令</span>等， 是<span class="highlight">一类同步屏障指令</span>，是CPU或编译器在对内存随机访问的操作中的一个同步点，使得<span class="highlight">此点之前的所有读写操作都执行后才可以开始执行此点之后的操作</span>。
+    </p>
+    
+    <li>
+    	<h4>内存屏障指令类型</h4>
+    </li>
+    <p class="wrap">
+    	为了<span class="highlight">保证内存可见性</span>，java编译器在生成指令序列的适当位置会<span class="highlight">插入内存屏障指令</span>来<span class="highlight">禁止特定类型的处理器重排序</span>。<span class="highlight">JMM</span>把<span class="highlight">内存屏障指令</span>分为下列四类:
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>屏障类型</th>
+    			<th>指令示例</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">LoadLoad</span>
+				</td>
+    			<td>
+    				Load1; LoadLoad; Load2
+    			</td>	
+    			<td>
+    				确保Load1数据的加载，先于Load2及所有后续加载指令的加载。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">StoreStore</span>
+				</td>
+    			<td>
+    				Store1; StoreStore; Store2
+    			</td>	
+    			<td>
+    				确保Store1数据对其他处理器可见(<span class="highlight">会刷新到主内存，并通知其他CPU缓存对应缓存行失效</span>)，先于Store2及所有后续存储指令的存储。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">LoadStore</span>
+				</td>
+    			<td>
+    				Load1; LoadStore; Store2
+    			</td>	
+    			<td>
+    				确保Load1数据加载，先于Store2及所有后续的存储指令刷新到内存。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">StoreLoad</span>
+				</td>
+    			<td>
+    				Store1; StoreLoad; Load2
+    			</td>	
+    			<td>
+    				确保Store1数据对其他处理器变得可见(<span class="highlight">会刷新到主内存，并通知其他CPU缓存对应缓存行失效</span>)，先于Load2及所有后续加载指令的加载。<span class="highlight">StoreLoad屏障</span>会使该屏障之前的所有内存访问指令(<span class="highlight">存储和加载指令</span>)完成之后，才执行该屏障之后的内存访问指令。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		<span class="highlight">StoreLoad</span>是一个“全能型”的屏障，它同时具有其他三个屏障的效果。现代的多处理器大都支持该屏障(其他类型的屏障不一定被所有处理器支持)。执行该屏障开销会很昂贵，因为<span class="highlight">当前处理器通常要把写缓冲区中的数据全部刷新到主内存中</span>。
+	</p>
+
+
+    <li>
+    	<h4>常见处理器针对不同内存屏障是否允许重排序</h4>
+    </li>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned">处理器/屏障类型</th>
+    			<th class="center aligned">Load-Load</th>
+    			<th class="center aligned">Load-Store</th>
+    			<th class="center aligned">Store-Store</th>
+    			<th class="center aligned">Store-Load</th>
+    			<th class="center aligned">数据依赖</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">sparc-TSO</td>
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">N</td>
+    		</tr>
+    		<tr>
+    			<td class="center aligned">x86</td>
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">N</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">N</td>
+    		</tr>
+    		<tr>
+    			<td class="center aligned">ia64</td>
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">N</td>
+    		</tr>
+    		<tr>
+    			<td class="center aligned">PowerPC</td>
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">Y</td>	
+    			<td class="center aligned">N</td>
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		上表单元格中的<span class="highlight">“N”</span>表示处理器<span class="highlight">不允许两个操作重排序</span>，<span class="highlight">"Y"</span>表示<span class="highlight">允许重排序</span>。常见的处理器都允许<span class="highlight">Store-Load</span>重排序；常见的处理器都不允许对存在<span class="highlight">数据依赖</span>的操作做重排序。sparc-TSO和x86拥有<span class="highlight">相对较强的处理器内存模型</span>，它们仅允许对写-读操作做重排序（因为它们都使用了写缓冲区）。
+	</p>
+    
+	<li>
+    	<h3>Happens-Before</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">JMM</span>为程序中所有的操作定义了一个<span class="highlight">偏序关系</span>，叫做<span class="highlight">Happens-Before</span>，简称<span class="highlight">hb</span>。要保证执行操作B的线程看到操作A的结果(<span class="highlight">无论A和B是否在同一个线程中执行，这里看到结果，即内存可见</span>)，那么在A和B之间必须满足<span class="highlight">Happens-Before</span>关系，那么<span class="highlight">JVM</span>可以对它们任意地<span class="highlight">重排序</span>。<span class="highlight">JMM</span>也规范了一些<span class="highlight">Happens-Before规则:</span>
+    </p>
+    <p class="wrap">
+        1. <span class="highlight">程序顺序规则</span>: 同一线程内，前面的动作<span class="highlight">hb</span>后面的动作。<br/>
+        2. <span class="highlight">管程锁定规则</span>: 对于同一个锁，<span class="highlight">unlock()</span>操作<span class="highlight">hb</span>下一次<span class="highlight">lock()</span>操作。<br/>
+        3. <span class="highlight">volatile变量规则</span>: volatile变量的写操作<span class="highlight">hb</span>之后的读操作。<br/>
+        4. <span class="highlight">线程启动规则</span>: 同一线程的start()方法<span class="highlight">hb</span>其他方法。<br/>
+        5. <span class="highlight">线程终止规则</span>: 同一线程的任何方法都<span class="highlight">hb</span>对此线程的终止检测。如<span class="highlight">Thread.join()</span>，<span class="highlight">Thread.isAlive()</span>等。<br/>
+        6. <span class="highlight">线程中断规则</span>: 对线程interrupt()方法的调用<span class="highlight">hb</span>
+            发生于被中断线程的代码检测到中断事件发生。<br/>
+        7. <span class="highlight">对象终结规则</span>: 一个对象的初始化完成<span class="highlight">hb</span>该对象的finalize()方法。<br/>
+        8. <span class="highlight">传递性</span>: A操作<span class="highlight">hb</span>操作B，操作B<span class="highlight">hb</span>操作C，那么A操作<span class="highlight">hb</span>操作C。     
+    </p>
+
+    <li>
+    	<h3>数据依赖性</h3>
+    </li>
+    <p class="wrap">
+    	如果<span class="highlight">两个操作访问同一个变量</span>，且其中一个为<span class="highlight">写操作</span>，此时这两个操作之间就存在<span class="highlight">数据依赖性</span>，存在<span class="highlight">数据依赖性</span>的操作是<span class="highlight">不能被重排序</span>的(<span class="highlight">针对单个处理器中执行的指令序列和单个线程中执行的操作</span>)，数据依赖分下列三种类型：
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>操作顺序</th>
+    			<th>代码示例</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">写后读</span>
+				</td>
+    			<td>
+    				a = 1;b = a;
+    			</td>	
+    			<td>
+    				写一个变量之后，再读这个变量
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">写后写</span>
+				</td>
+    			<td>
+    				a = 1;a = 2;
+    			</td>	
+    			<td>
+    				写一个变量之后，再写这个变量
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">读后写</span>
+				</td>
+    			<td>
+    				a = b;b = 1;
+    			</td>	
+    			<td>
+    				读一个变量之后，再写这个变量
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+
+    <li>
+    	<h3>as-if-serial语义</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">as-if-serial语义</span>是指：不管如何<span class="highlight">重排序</span>，(单线程)程序的执行结果不能被改变。<span class="highlight">编译器</span>，<span class="highlight">运行时</span>和<span class="highlight">处理器</span>都必须遵守<span class="highlight">as-if-serial语义</span>。
+    </p>
+    {% highlight java %}
+double pi  = 3.14;    		//A
+double r   = 1.0;     		//B
+double area = pi * r * r; 	//C
+    {% endhighlight %}
+    <p class="wrap">
+    	如上述代码片段，A，B操作并没有<span class="highlight">数据依赖</span>，可以被<span class="highlight">重排序</span>，C与A和B均存在<span class="highlight">数据依赖</span>，因此不能被<span class="highlight">重排序</span>。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">as-if-serial语义</span>把<span class="highlight">单线程程序</span>保护了起来，遵守<span class="highlight">as-if-serial语义</span>的<span class="highlight">编译器</span>，<span class="highlight">运行时</span>和<span class="highlight">处理器</span>共同为编写单线程程序的程序员一种错觉：<span class="highlight">单线程程序是按程序的顺序来执行的</span>。但实际执行时却有可能发生了<span class="highlight">重排序</span>，正是<span class="highlight">as-if-serial语义</span>使程序员无需担心<span class="highlight">单线程重排序的问题</span>，也无需担心<span class="highlight">单线程的内存可见性问题</span>。
+    </p>
+
+    <li>
+    	<h3>程序顺序规则</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">程序顺序规则</span>属于上述<span class="highlight">Happens-Before规则</span>中的第一条，即<span class="highlight">同一线程内，前面的动作hb后面的动作</span>，那这是否说明这些动作就不能被<span class="highlight">重排序</span>呢？不见得，如上面的代码片段，<span>A hb B</span>，但<span class="highlight">JMM并不要求A一定要在B之前执行</span>，JMM仅仅要求前一个操作对后一个操作<span class="highlight">内存可见</span>(即如果B操作执行完，<span class="highlight">Happens-Before</span>能保证A的值已经写入了主内存)，但是这里<span class="highlight">操作A的执行结果不需要对操作B可见</span>，而且重排序操作A和操作B后的执行结果，与操作A和操作B按<span class="highlight">Happens-Before</span>顺序执行的结果一致。在这种情况下，<span class="highlight">JMM</span>会认为这种重排序并不非法，<span class="highlight">JMM允许这种重排序</span>。
+    </p>
+
+    <li>
+    	<h3>同步(synchronized)</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">同步</span>最广为人知的作用就是<span class="highlight">互斥</span> —— 一次只有一个线程能够获得一个<span class="highlight">监视器(monitor)</span>，因此，在一个<span class="highlight">监视器</span>上面同步意味着一旦一个线程进入到监视器保护的同步块中，其他的线程都不能进入到同一个监视器保护的块中间，除非第一个线程退出了同步块。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">同步</span>保证了<span class="highlight">一个线程在同步块之前或者在同步块中的一个内存写入操作</span>对其他<span class="highlight">具有相同监视器的线程内存可见</span>。当我们退出了同步块，我们就释放了这个监视器，这个监视器有<span class="highlight">刷新缓冲区到主内存</span>的效果，因此该线程的写入操作能够为其他线程可见。在我们进入一个同步块之前，我们需要获取监视器，监视器有使<span class="highlight">本地处理器缓存失效</span>的功能，因此变量会<span class="highlight">从主内存重新加载</span>，于是其它线程对共享变量的修改对当前线程来说就变得可见了。
+    </p>
+    {% highlight java %}
+synchronized(this) {
+  i = a;
+  a = i;
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	像上面的代码片段，在处理器执行时，在边界处放置一些<span class="highlight">额外的指令</span>来保证<span class=highlight>synchronized的正确性</span>，如:
+    </p>
+    {% highlight ruby %}
+enter
+   EnterLoad
+   EnterStore
+load a
+store a
+   LoadExit
+   StoreExit
+exit
+    {% endhighlight %}
+
+    <li>
+    	<h3>final变量</h3>
+    </li>
+    <li>
+    	<h4>final变量内存语义</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">final变量的值不会变化</span>。编译器不应该因为获得了一个锁,读取了一个<span class="highlight">volatile变量</span>或调用了一个未知方法,而重新加载一个<span class="highlight">final变量</span>。事实上，编译器可以将线程t中对对象X的final变量f的读取提前到紧跟在读取对象X的引用之后，该线程永远也不需要重新加载那个字段。
+    </p>
+    <p class="wrap">
+    	一个对象<span class="highlight">仅</span>包含final变量，且被<span class="highlight">安全发布</span>(意味着这个正在构造的对象的<span class="highlight">引用在构造期间没有逸出</span>)，那么该对象也应当视作是不可变的,即使这类对象的引用在线程间传递时存在<span class="highlight">数据争用</span>。
+    </p>
+    <p class="wrap">
+    	一个对象的<span class="highlight">final变量</span>值是在它的构造方法里面设置的。假设对象<span class="highlight">被正确的构造了</span>(意味着这个正在构造的对象的<span class="highlight">引用在构造期间没有被允许逸出</span>)，在构造方法里面设置给<span class="highlight">final变量的的值在没有同步的情况下对所有其他的线程都会可见</span>。另外，引用这些final变量的对象或数组都将会看到final字段的最新值。
+    </p>
+    <p class="wrap">
+    	将变量f设为<span class="highlight">final</span>，在读取f时应当利用<span class="highlight">最小的编译器/架构代价</span>，将对程序性能有所提升。
+    </p>
+
+    <li>
+    	<h4>final变量更新</h4>	
+    </li>
+    <p class="wrap">
+    	尽管一旦对象的<span class="highlight">final变量</span>被正确初始化后就不能改变，但在某些特殊场景下(<span class="highlight">反射</span>或<span class="highlight">反序列化</span>)，对象的<span class="highlight">final变量</span>仍然可以发生被更新，但需保证在该<span class="highlight">对象的final字段</span>的所有更新完成之前，该对象不应该对其他线程可见，且 <span class="highlight">final变量</span>也不应该被读取。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">静态final变量</span>仅能在类初始化时赋值，<span class="highlight">不能通过反射修改</span>。<span class="highlight">静态final变量</span>只能在定义字段的类的初始化器中修改，<span class="highlight">java.lang.System.in</span>，<span class="highlight">java.lang.System.out</span>以及<span class="highlight">java.lang.System.err</span>是例外，他们可以分别在<span class="highlight">java.lang.System.setIn</span>，<span class="highlight">java.lang.System.setOut</span>以及<span class="highlight">java.lang.System.setErr</span>方法中修改。
+    </p>
+    
+    <li>
+    	<h4>final变量的重排序限制</h4>
+    </li>
+    <p class="wrap">
+    	在<span class="highlight">JMM</span>中，<span class="highlight">final变量</span>加强了一些<span class="highlight">重排序限制</span>:
+    </p>
+    {% highlight java %}
+x.finalField = v; ... ; sharedRef = x;
+    {% endhighlight %}
+    <p class="wrap">
+    	构造函数内，<span class="highlight">对象的final变量的写操作</span>不能与<span class="highlight">该对象后续的写操作(构造函数之外)</span>重排序，其中<span class="highlight">...</span>代表的是<span class="highlight">构造函数的逻辑终点边界</span>(处理器会在该处放置合适的<span class="highlight">内存屏障指令</span>)。同时，也不能将<span class="highlight">具有final字段的对象的引用的赋值操作</span>与<span class="highlight">该对象的final字段的写操作</span>进行重排序，如:
+    </p>
+    {% highlight java %}
+v.afield = 1; x.finalField = v; ... ; sharedRef = x;
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">final变量的初始化加载操作</span>与<span class="highlight">包含该final变量的对象的初始化加载操作</span>不能被<span class="highlight">重排序</span>，如:
+    </p>
+    {% highlight java %}
+ x = sharedRef; ... ; i = x.finalField;
+    {% endhighlight %}
+
+    <li>
+    	<h3>volatile变量</h3>
+    </li>
+    <li>
+    	<h4>volatile变量内存语义</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">volatile变量</span>是用于<span class="highlight">多线程间通信</span>的特殊字段，<span class="highlight">volatile变量</span>能保证读线程都会看到其它线程写入该字段的最新值，<span class="highlight">编译器</span>和<span class="highlight">运行时</span>禁止在寄存器里面分配它们。它们还必须保证，在它们写好之后，它们被从缓冲区刷新到主存中，因此，它们立即能够对其他线程可见。相同地，在读取一个<span class="highlight">volatile变量</span>之前，<span class="highlight">缓冲区必须失效</span>，因为值是存在于主存中而不是本地处理器缓冲区，有了这样的<span class="highlight">内存语义</span>，常用<span class="highlight">volatile变量</span>用作一种<span class="highlight">信号条件</span>，如:
+    </p>
+    {% highlight java %}
+class VolatileExample {
+	int x = 0;
+	volatile boolean v = false;
+	
+	public void writer() {
+		x = 42;		// A
+		v = true;	// B
+	}
+
+	public void reader() {
+		if (v == true) {
+		  	// 通过volatile内存语义保证x的值能被实时读取
+		}
+	}
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	但若要上面的代码能正确工作，还需要的是<span class="highlight">volatile变量</span>的<span class="highlight">重排序限制</span>，若<span class="highlight">操作A</span>和<span class="highlight">操作B</span>被<span class="highlight">重排序</span>了，该代码仍不能正确工作。
+    </p>
+
+    <li>
+    	<h4>volatile变量的重排序限制</h4>
+    </li>
+    <p class="wrap">
+    	在<span class="highlight">旧的内存模型</span>下，访问<span class="highlight">volatile变量</span>不能被重排序，但是，它们<span class="highlight">可能和访问非volatile变量一起被重排序</span>，这就破坏了<span class="highlight">volatile变量</span>从一个线程到另外一个线程作为一个信号条件的手段(如上面的代码)。
+    </p>
+    <p class="wrap">
+    	在<span class="highlight">新的内存模型</span>下，<span class="highlight">volatile变量仍然不能彼此重排序</span>，和旧模型不同的时候，<span class="highlight">volatile变量</span>周围的普通字段的也不再能够随便的重排序了。写入一个<span class="highlight">volatile变量</span>和<span class="highlight">释放监视器</span>有相同的内存语义，而且<span class="highlight">读取volatile变量</span>和<span class="highlight">获取监视器</span>也有相同的内存语义。事实上，因为新的内存模型在重排序volatile变量访问上面和其他字段(<span class="highlight">volatile或者非volatile)</span>访问上面有了更严格的约束。当线程A写入一个volatile变量f的时候，如果线程B读取f的话 ，那么对线程A可见的任何东西都变得对线程B可见了。下表则是<span class="highlight">volatile变量</span>和<span class="highlight">释放监视器</span>重排序限制:
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned">是否允许重排序?</th>
+    			<th class="center aligned" colspan="3">第二项操作</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<strong>第一项操作</strong>
+				</td>
+    			<td class="center aligned">
+    				<strong>NormalLoad</strong>/<strong>NormalStore</strong>
+    			</td>	
+    			<td class="center aligned">
+    				<strong>VolatileLoad</strong>/<strong>MonitorEnter</strong>
+				</td>
+				<td class="center aligned">
+    				<strong>VolatileStore</strong>/<strong>MonitorExit</strong>
+				</td>		
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<strong>NormalLoad</strong>/<strong>NormalStore</strong>
+				</td>
+    			<td class="center aligned"></td>	
+				<td class="center aligned"></td>
+				<td class="center aligned">
+    				<strong>N</strong>		
+				</td>			
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<strong>VolatileLoad</strong>/<strong>MonitorEnter</strong>
+    			</td>
+    			<td class="center aligned">
+    				<strong>N</strong>	
+    			</td>	
+    			<td class="center aligned">
+    				<strong>N</strong>	
+				</td>
+				<td class="center aligned">
+    				<strong>N</strong>	
+				</td>		
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<strong>VolatileStore</strong>/<strong>MonitorExit</strong>
+				</td>
+    			<td class="center aligned"></td>	
+    			<td class="center aligned">
+    				<strong>N</strong>	
+				</td>
+				<td class="center aligned">
+    				<strong>N</strong>	
+				</td>		
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		有了表中的<span class="highlight">重排序限制</span>，上面的<span class="highlight">VolatileExample</span>才得以正确工作。在新的<span class="highlight">JMM</span>中，比较熟悉的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">DCL</a>问题也因<span class="highlight">volatile变量</span>能正确工作。
+	</p>
+
+	<li>
+		<h2>总结</h2>
+	</li>
+	<p class="wrap">
+		上文则是对Java内存模型的一些总结描述，新的<span class="highlight">Java内存模型</span>通过进一步加强内存语义，对<span class="highlight">final</span>，<span class="highlight">volatile</span>等变量的语义进行修复，为Java并发编程提供了更稳定的运行时保障，同时，也使得开发人员能稍微轻松些进行并发程序开发。
+	</p>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+	<p class="wrap">
+		<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/" target="_blank">http://www.cs.umd.edu/~pugh/java/memoryModel</a><br>
+		<a href="https://www.cs.umd.edu/~pugh/java/memoryModel/jsr-133-faq.html" target="_blank">https://www.cs.umd.edu/~pugh/java/memoryModel/jsr-133-faq.html</a><br>
+		<a href="http://gee.cs.oswego.edu/dl/jmm/cookbook.html" target="_blank">http://gee.cs.oswego.edu/dl/jmm/cookbook.html</a><br>
+		<a href="http://ifeve.com/jmm-faq/" target="_blank">http://ifeve.com/jmm-faq/</a><br>
+		<a href="https://en.wikipedia.org/wiki/Java_memory_model" target="_blank">https://en.wikipedia.org/wiki/Java_memory_model</a><br>
+		<a href="http://tutorials.jenkov.com/java-concurrency/java-memory-model.html" target="_blank">http://tutorials.jenkov.com/java-concurrency/java-memory-model.html</a><br>
+		<a href="https://dzone.com/articles/java-memory-model-programer%E2%80%99s" target="_blank">https://dzone.com/articles/java-memory-model-programer's</a><br>
+		<a href="http://www.ibm.com/developerworks/java/library/j-jtp02244/index.html" target="_blank">http://www.ibm.com/developerworks/java/library/j-jtp02244/index.html</a>><br>
+		<a href="http://www.ibm.com/developerworks/library/j-jtp03304" target="_blank">http://www.ibm.com/developerworks/library/j-jtp03304</a><br>
+		<a href="http://www.infoq.com/cn/articles/java-memory-model-1" target="_blank">http://www.infoq.com/cn/articles/java-memory-model-1</a><br>
+		<a href="http://www.infoq.com/cn/articles/java-memory-model-2/" target="_blank">http://www.infoq.com/cn/articles/java-memory-model-2</a><br>
+		<a href="https://zh.wikipedia.org/wiki/%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C" target="_blank">https://zh.wikipedia.org/wiki/%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C</a>
+	</p>
+</ul>
