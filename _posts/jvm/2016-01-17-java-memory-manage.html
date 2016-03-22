@@ -1,0 +1,384 @@
+---
+title : Java内存管理基础
+category : [jvm]
+tags : [jvm, java-memory-manange]
+layout : post
+show : 1
+keywords: jvm,java memory manange,java内存管理
+---
+
+<ul>
+    <p class="intro">
+        众所周之，Java最强大的地方之一就是其<span class="highlight">自动内存管理机制</span>，也就不需要像<span class="highlight">C/C++</span>语言那样，需要开发人员<span class="highlight">手动进行内存管理</span>，需要时刻关注内存应该<span class="highlight">何时正确地被释放</span>。<span class="highlight">自动内存管理机制</span>将程序员从内存管理的凶险解脱出来，这将大大提升Java开发人员的生产力，但作为Java开发人员，即使不用直接面对<span class="highlight">内存管理</span>，但却应该对<span class="highlight">JVM的内存管理机制</span>有所掌握，对自己的编程能力也会有潜移默化的提升。本文将对JVM内存管理进行一番解读，实现主要是<span class="highlight">HotSpot Virtual Machine(J2SE 1.5)</span>。
+    </p>
+
+
+    <li>
+    	<h2>手动内存管理 VS 自动内存管理</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">内存管理</span>的一个主要目标就是<span class="highlight">识别那些分配的对象不再需要</span>，并且<span class="highlight">释放掉其所占用的内存空间</span>，以供后续的内存分配使用。有一些编程语言，如<span class="highlight">C++</span>，开发人员手动管理内存，这将很容易出现很多引起<span class="highlight">程序错误和崩溃</span>的问题，比如<a href="https://en.wikipedia.org/wiki/Dangling_pointer" target="_blank"><span class="highlight">悬挂引用</span></a>，<span class="highlight">内存泄漏</span>等，因此开发人员需要花费大量时间来调试和修复。
+    </p>
+    <p class="wrap">
+    	现在大多数现代面向对象编程语言中，已被广泛应用的另一种内存管理方法：<span class="highlight">自动内存管理</span>， 其通过<span class="highlight">垃圾收集器(Garbage Collector)</span>来实现内存管理。只要对象还有被引用，<span class="highlight">垃圾收集器</span>将不会对其进行收集，从而避免了<a href="https://en.wikipedia.org/wiki/Dangling_pointer" target="_blank"><span class="highlight">悬挂引用</span></a>问题，一旦对象不再被引用，<span class="highlight">垃圾收集器</span>将会在合适的时候对其进行收集，并释放对应的内存空间，因此避免了<span class="highlight">内存泄漏</span>问题。
+    </p>
+
+    <li>
+    	<h2>垃圾收集原理</h2>
+    </li>
+    <p class="wrap">
+    	通常<span class="highlight">垃圾收集器</span>总体需要负责三件事情: <span class="highlight">为对象分配内存</span>，<span class="highlight">保证任何被引用的对象仍在内存中</span>，<span class="highlight">清理程序中不可达的对象</span>。当为新对象分配内存时，需要在堆中找出具有<span class="highlight">一定大小且未被使用的内存块</span>，这是一件比较困难的事情，大多数<span class="highlight">动态内存分配算法</span>的主要困难在于<span class="highlight">避免内存碎片化</span>，并且同时需要保证<span class="highlight">内存分配和释放的性能</span>。
+    </p>
+
+    <li>
+    	<h3>理想的垃圾收集器</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">垃圾收集器</span>必须是<span class="highlight">安全且全面的</span>。也就是说，<span class="highlight">存活对象绝不能被错误释放</span>，并且不允许<span class="highlight">垃圾对象经过多个垃圾收集周期仍然未被释放</span>。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">垃圾收集器</span>也应该能够有效地运行，以至于不应该导致应用暂停太长时间。然而，对于大多数计算机相关的系统，都需要在<span class="highlight">时间</span>，<span class="highlight">空间</span>和频率等因素作出一些权衡。例如，若<span class="highlight">JVM堆</span>设置过小，虽然每次垃圾收集会变得更快，但是总的垃圾收集次数也会更多；若<span class="highlight">JVM堆</span>设置过大，虽然总的垃圾收集次数有所减少，但每次垃圾收集耗时也会更长。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">垃圾收集器</span>也需要针对<span class="highlight">内存碎片</span>作一些处理，在垃圾收集过程中，对一些小对象回收后，有可能会产生很多空间较小的<span class="highlight">内存块</span>，这些小内存块不能容纳下<span class="highlight">大对象</span>，最坏的情况也就是即便内存还未使用完，但却不能再分配对象。<span class="highlight">整理碎片</span>的过程叫<span class="highlight">整理(Compaction)</span>。
+    </p>
+    <p class="wrap">
+    	另外，<span class="highlight">可扩展性</span>也是相当重要的，在多处理器系统中，对于多线程应用，<span class="highlight">内存分配</span>不应该成为<span class="highlight">可扩展性瓶颈</span>，<span class="highlight">收集操作</span>也不应该成为这样的瓶颈。
+    </p>
+
+  	<li>
+    	<h3>如何设计或选择垃圾收集器</h3>
+    </li>
+    <p class="wrap">
+    	在设计或选择<span class="highlight">垃圾收集器</span>时，通常需要作出一些选择:
+    </p>
+	<li>
+		<h4>串行 VS 并行</h4>
+	</li>  
+	<p class="wrap">
+		对于<span class="highlight">串行收集</span>，同一时刻只能作一件事，比如，即使有多个CPU可用时，只有其中一个才能用于执行<span class="highlight">垃圾收集</span>。当使用<span class="highlight">并行收集</span>时，<span class="highlight">垃圾收集任务</span>将被分成若干个子任务，并同时在不同的CPU上执行，<span class="highlight">并行执行</span>使得垃圾收集执行得更快，但这也导致了<span class="highlight">额外的复杂度和内存碎片问题</span>。
+	</p>
+	<li>
+		<h4>并发 VS Stop-the-world</h4>
+	</li>  
+	<p class="wrap">
+		当<span class="highlight">stop-the-world</span>垃圾收集正在执行时，整个应用将被挂起，这对于<span class="highlight">强交互应用(要求低暂停时间短)</span>并不友好，比如Web应用。相比<span class="highlight">stop-the-world</span>，有一些垃圾收集器的收集任务可以与应用同时执行。典型的<span class="highlight">并发垃圾收集器</span>会并发执行大部分垃圾工作，但仍然会有短暂的<span class="highlight">stop-the-world</span>。显然，<span class="highlight">Stop-the-world垃圾收集</span>比<span class="highlight">并发垃圾收集</span>更简单，因为在整个收集过程中，JVM堆会被冻结，因而对象的状态将不会发生改变，但缺点也很明显，收集过程<span class="highlight">会挂起应用</span>。相对于使用<span class="highlight">并发垃圾收集器</span>时，<span class="highlight">应用暂停时间</span>将被缩短，但需要额外注意一些细节，<span class="highlight">垃圾收集器</span>在操作对象时，与此同时，有可能应用程序也在操作相同的对象，为了保证<span class="highlight">垃圾收集器</span>不会错误地回收对象，则要增加一些额外影响性能的工作，并且需要更大的堆内存。
+	</p>
+	<li>
+		<h4>整理 VS 复制</h4>
+	</li>  
+	<p class="wrap">
+		当<span class="highlight">垃圾收集器</span>已经决定哪些对象存活及哪些对象需要回收之后，可以进行<span class="highlight">内存整理</span>，即将所有存活的对象移动到一起(连续)，然后完全释放掉需要回收的内存。<span class="highlight">内存整理</span>之后，就能够很容易且很快地将新对象分配在第一块空间内存中了，一个简单的指针就能跟踪下一个内存分配的位置。与<span class="highlight">内存整理型收集器</span>相比，<span class="highlight">非内存整理收集器</span>则利用额外的内存空间来回收垃圾对象，即不会像<span class="highlight">内存整理型收集器</span>一样将所有存活对象移动一起，以便释放出一大块空闲内存，这样的好处是<span class="highlight">垃圾收集</span>时间更短，缺点则是潜在的<span class="highlight">内存碎片问题</span>。通常来说，从堆中分配对象比整理堆更昂贵，因为为了分配新对象，可能有必要在堆中寻找<span class="highlight">一段足够大的连续空间</span>。第三个可选的则是<span class="highlight">复制收集器</span>，即复制存活的对象到另一个内存区，这样的好处是保持<span class="highlight">源内存区</span>是空闲的，可以很容易且很快地用于后续的对象分配，但缺点是需要<span class="highlight">额外的时间来执行复制操作</span>和<span class="highlight">额外的内存空间</span>。
+	</p>
+
+	<li>
+    	<h3>性能指标</h3>
+    </li>
+    <p class="wrap">
+    	通常会使用几个指标来评估一个<span class="highlight">垃圾收集器</span>的性能，包括：
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>指标类型</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">吞吐量</span>
+				</td>	
+    			<td>
+    				应用程序执行时间 / (应用程序执行时间 + 垃圾收集执行时间)
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">垃圾收集开销</span>
+				</td>	
+    			<td>
+    				垃圾收集执行时间 / (应用程序执行时间 + 垃圾收集执行时间)
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">停顿时间</span>
+				</td>	
+    			<td>
+    				当垃圾收集正在执行时，<span class="highlight">应用程序被挂起的总时间</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">垃圾收集频率</span>
+				</td>	
+    			<td>
+    				相对于应用程序，<span class="highlight">垃圾收集多久发生一次</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">占用空间</span>
+				</td>	
+    			<td>
+    				垃圾收集所占用的<span class="highlight">内存大小</span>
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">及时性</span>
+				</td>	
+    			<td>
+    				一个对象从被标记为<span class="highlight">垃圾对象</span>到该对象所占空间变得可用的时间
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		对于<span class="highlight">交互式应用</span>，可能要求更低的<span class="highlight">停顿时间</span>，然而对于<span class="highlight">非交互式应用</span>，<span class="highlight">总执行时间</span>显得更重要。一个<span class="highlight">实时应用程序</span>将要求在<span class="highlight">暂停时间</span>和<span class="highlight">垃圾收集占用时间</span>都具有较小的值。<span class="highlight">占用较少空间</span>则可能是一些小的个人电脑或嵌入式系统所关心的主要问题。
+	</p>
+
+	<li>
+		<h3>分代回收</h3>
+	</li>
+	<p class="wrap">
+		当使用<span class="highlight">分代回收</span>时，JVM堆将被分为不同的<span class="highlight">分代</span>(容纳不同年龄的对象)。比如，最广泛使用的分代有：<span class="highlight">年轻对象</span>和<span class="highlight">老对象</span>。
+	</p>
+	<p class="wrap">
+		在不同分代上，可以使用不同的算法执行垃圾回收，每种算法会针对不同的分代作特定优化，之所以采用<span class="highlight">分代垃圾回收</span>，主要利用了以下特性(称作<span class="highlight">弱代假设</span>):
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+    		大多数对象不会被长期引用，即<span class="highlight">存活时间短</span>。
+    	</div>
+    	<div class="item">
+    		很少有<span class="highlight">老对象会引用年轻对象</span>。
+    	</div>
+	</div>
+	<p class="wrap">
+		<span class="highlight">年轻代回收</span>触发会比较频繁，但执行很快，因为<span class="highlight">年轻代</span>通常<span class="highlight">内存空间较小</span>，且可能包含了<span class="highlight">大量不再被引用的对象</span>。而经过几次<span class="highlight">年轻代回收</span>存活下来的对象，将晋升到<span class="highlight">老年代</span>。<span class="highlight">老年代</span>通常比<span class="highlight">年轻代</span>大很多，其内存占用率会<span class="highlight">慢慢增加</span>，因此<span class="highlight">触发不会很频繁</span>，但每次<span class="highlight">耗时会比较长</span>，如图:
+	</p>
+	<img src="{{sitel.url}}/images/jvm/generational-gc.png" width="50%">
+	<p class="wrap">
+		由于<span class="highlight">年轻代回收</span>触发相对频繁，因此<span class="highlight">年轻代</span>更倾向于使用<span class="highlight">收集速度快</span>的算法。而<span class="highlight">老年代</span>通常使用<span class="highlight">空间高效</span>的收集算法，因为<span class="highlight">老年代</span>占用了整个JVM堆的大部分，并且<span class="highlight">老年代收集算法</span>还能较好地处理<span class="highlight">内存碎片</span>问题。
+	</p>
+
+	<li>
+		<h2>HotSpot JVM中的垃圾收集器</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">HotSpot JVM</span>中包含了四个垃圾收集器，这些收集器都是分代的，下面将一一介绍。
+	</p>
+	<li>
+		<h3>
+			HotSpot分代
+		</h3>
+	</li>
+	<p class="wrap">
+		在<span class="highlight">HotSpot JVM</span>中堆被分为了三个代：
+	</p>
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>分代类型</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">年轻代</span>
+				</td>	
+    			<td>
+    				大多数新对象将被分配在<span class="highlight">年轻代</span>上。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">老年代</span>
+				</td>	
+    			<td>
+    				经过若干次<span class="highlight">年轻代垃圾回收</span>存活下来的对象会晋升到<span class="highlight">老年代</span>，或者有些大对象会直接分配到<span class="highlight">老年代</span>上。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">永久代</span>
+				</td>	
+    			<td>
+    				存放一些类或方法等元数据。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		<span class="highlight">年轻代</span>由1个<span class="highlight">Eden区</span>和2个<span class="highlight">Survivor区</span>组成，如下图。大多数新对象会首先被分配在<span class="highlight">Eden区</span>(但某些大对象会直接分配到<span class="highlight">老年代</span>)，<span class="highlight">Survivor区</span>用于存放至少经历过一次<span class="highlight">年轻代收集</span>的对象，这些对象在被晋升到<span class="highlight">老年代</span>之前，也可能被收集，这些对象将存放在其中一个<span class="highlight">Survivor区</span>(<span class="highlight">From区</span>)中，另一个<span class="highlight">Survivor区</span>(<span class="highlight">To区</span>)直到下一次收集前将保持为<span class="highlight">清空状态</span>。
+	</p>
+	<img src="{{site.url}}/images/jvm/young-generation.png" width="50%">
+
+	<li>
+		<h3>
+			垃圾收集类型
+		</h3>
+	</li>
+	<p class="wrap">
+		当<span class="highlight">年轻代</span>被填充满后，会触发<span class="highlight">年轻代垃圾回收</span>(也称为<span class="highlight">Minor GC</span>)。当<span class="highlight">老年代</span>或<span class="highlight">永久代</span>填充满后，会触发<span class="highlight">完全垃圾回收</span>(也称为<span class="highlight">Major GC</span>)，这时所有代都会执行<span class="highlight">垃圾回收</span>，如果<span class="highlight">内存整理</span>被触发，将在不同代上单独执行。
+	</p>
+	<p class="wrap">
+		有时，由于<span class="highlight">老年代</span>太满而不能接受来自<span class="highlight">年轻代</span>晋升的老对象，这种情况下，<span class="highlight">老年代垃圾收集算法</span>将在整个<span class="highlight">JVM堆</span>上执行(<span class="highlight">年轻代收集算法不会执行</span>)。(除了当<span class="highlight">老年代</span>使用<span class="highlight">CMS垃圾收集器</span>时，因为<span class="highlight">CMS垃圾收集器</span>不能收集<span class="highlight">年轻代</span>)。
+	</p>
+
+	<li>
+		<h3>快速分配</h3>
+	</li>
+	<p class="wrap">
+		从下文对垃圾收集器的描述中可以看出，在多数情况下，内存中都有大块的连续空闲空间用以分配新对象。这种情形下使用简单的<span class="highlight">bump-the-pointer</span>技术，将使得分配操作效率很高。按照这种技术，JVM内部维护一个指针<span class="highlight">allocatedTail</span>，它始终指向先前已分配对象的尾部，当新对象分配请求到来时，只需检查代中剩余空间是否足以容纳该对象，若成功分配对象，则会更新<span class="highlight">allocatedTail指针</span>，并初始化对象。
+	</p>
+	<p class="wrap">
+		对于<span class="highlight">多线程应用</span>，对象分配操作必须保证<span class="highlight">线程安全</span>。如果使用<span class="highlight">全局锁</span>来保证<span class="highlight">线程安全</span>，<span class="highlight">内存分配</span>势必成为瓶颈并降低性能。<span class="highlight">HotSpot JVM</span>内部使用了<span class="highlight">Thread-Local Allocation Buffers (TLABs)</span>技术来提升<span class="highlight">多线程内存分配的吞吐量</span>。<span class="highlight">TLAB</span>作为<span class="highlight">线程私有</span>的内存区，分配新对象时不需要额外加锁，使得分配操作很快。偶尔当线程填充满了<span class="highlight">TLAB</span>后，JVM会重新分配一个<span class="highlight">TLAB</span>，此时则必须使用<span class="highlight">同步</span>。同时，为了减少<span class="highlight">TLAB</span>所带来的空间消耗，还使用了一些其他技术，例如，分配器能够把<span class="highlight">TLAB</span>的平均大小限制在<span class="highlight">Eden区</span>的1％以下。通过组合使用<span class="highlight">TLAB</span>和<span class="highlight">bump-the-pointer</span>线性分配技术，就使得一次内存分配足够高效，仅10条机器指令。
+	</p>
+
+	<li>
+		<h3>
+			串行收集器(Serial Collector)
+		</h3>
+	</li>
+	<p class="wrap">
+		使用<span class="highlight">串行收集器</span>时，<span class="highlight">年轻代收集</span>和<span class="highlight">老年代收集</span>都以<span class="highlight">stop-the-world</span>方式串行执行(单个CPU)，收集过程中应用程序将被挂起。
+	</p>
+	<li>
+		<h4>
+			年轻代使用串行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		下面以图展示<span class="highlight">年轻代</span>使用<span class="highlight">串行收集器</span>时发生<span class="highlight">GC</span>的过程:
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+    		在<span class="highlight">Eden区</span>未填满时，并未发生GC，两个<span class="highlight">Survivor区</span>和<span class="highlight">老年代</span>均为空:    		
+    	</div>
+    	<img src="{{site.url}}/images/jvm/young-gc-1.png" width="60%">
+    	<div class="item">
+    		当<span class="highlight">Eden区</span>逐渐消耗内存，已没有足够内存容纳新对象时，则触发一次<span class="highlight">Minor GC</span>，在<span class="highlight">Eden区</span>标记出<span class="highlight">存活对象</span>和<span class="highlight">垃圾对象</span>，然后将<span class="highlight">存活对象</span>复制到<span class="highlight">Survivor From区</span>，并将存活对象的<span class="highlight">生存年龄+1</span>，最后清空<span class="highlight">Eden区</span>:
+    	</div>
+    	<img src="{{site.url}}/images/jvm/young-gc-2.png" width="60%">
+    	<img src="{{site.url}}/images/jvm/young-gc-2-1.png" width="60%">
+    	<div class="item">
+    		<span class="highlight">Eden区</span>继续分配新对象，直到再一次内存不足，触发<span class="highlight">Minor GC</span>，在<span class="highlight">Eden区</span>和<span class="highlight">Survivor From区</span>标记出<span class="highlight">存活对象</span>和<span class="highlight">垃圾对象</span>，然后将<span class="highlight">存活对象</span>复制到<span class="highlight">Survivor To区</span>，并将存活对象的<span class="highlight">生存年龄+1</span>，最后清空<span class="highlight">Eden区</span>和<span class="highlight">Survivor From区</span>，并将<span class="highlight">Survivor From区</span>和<span class="highlight">Survivor To区</span>置换:
+    	</div>
+    	<img src="{{site.url}}/images/jvm/young-gc-3.png" width="60%">
+    	<img src="{{site.url}}/images/jvm/young-gc-3-1.png" width="60%">
+    	<div class="item">
+    		在不断的<span class="highlight">Minor GC</span>后，<span class="highlight">存活对象</span>的生存年龄逐渐增加至<span class="highlight">晋升年龄阈值</span>(可通过<span class="highlight">-XX:MaxTenuringThreshold=n</span>设置)时，<span class="highlight">存活对象</span>将晋升到<span class="highlight">老年代</span>:
+    	</div>
+    	<img src="{{site.url}}/images/jvm/young-gc-4.png" width="60%">
+    	<div class="item">
+    		除了上述这种<span class="highlight">正常的老对象晋升</span>情况外，其他一些情况也可能将存活对象晋升到<span class="highlight">老年代</span>，如当<span class="highlight">Survivor To区</span>空间不足已容纳存活对象时(可通过<span class="highlight">–XX:TargetSurvivorRatio</span>设置<span class="highlight">Survivor区可使用率</span>，当存放的对象超过这个百分比时，则对象会向晋升到<span class="highlight">老年代</span>)，存活对象将直接复制到<span class="highlight">老年代</span>(即使存活对象年龄没有达到<span class="highlight">晋升年龄阈值</span>)，又如当分配的新对象太大(可通过<span class="highlight">-XX:PetenureSizeThreshold</span>设置大对象阈值，当对象的大小超过这个值时，将直接在年老代分配，该参数只对<span class="highlight">串行收集器</span>和<span class="highlight">年轻代并行收集器</span>有效，<span class="highlight">并行回收收集器</span>不识别这个参数)，导致<span class="highlight">Eden区</span>不能容下，也会直接晋升到<span class="highlight">老年代</span>:
+    	</div>
+    	<img src="{{site.url}}/images/jvm/young-gc-5-1.png" width="60%">
+    	<img src="{{site.url}}/images/jvm/young-gc-5-2.png" width="60%">
+	</div>
+	<li>
+		<h4>
+			老年代使用串行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		当使用<span class="highlight">串行收集器</span>时，<span class="highlight">老年代</span>和<span class="highlight">永久代</span>使用<span class="highlight">标记-清除-整理(Mark-Sweep-Compact)</span>算法执行垃圾回收。在<span class="highlight">标记阶段</span>，收集器标识出<span class="highlight">存活对象</span>。在<span class="highlight">清除阶段</span>，收集器标识出<span class="highlight">垃圾对象</span>。然后，收集器执行<span class="highlight">滑动整理</span>过程，将<span class="highlight">存活对象</span>移到<span class="highlight">老年代</span>起始端(<span class="highlight">永久代</span>亦如此)，然后留出一块连续的内存块，这样后续就能在<span class="highlight">老年代</span>或<span class="highlight">永久代</span>使用<span class="highlight">bump-the-pointer</span>技术，加快内存分配:
+	</p>
+	<img src="{{site.url}}/images/jvm/old-gc-mark-sweep-compact.png" width="60%">
+	<li>
+		<h4>
+			何时使用串行收集器?
+		</h4>
+	</li>
+	<p class="wrap">
+		对于大多数运行在客户端模式的应用，并不要求<span class="highlight">低暂停时间</span>，因此可以使用<span class="highlight">串行收集器</span>可作为垃圾收集器。按照现今的硬件水平，<span class="highlight">串行收集器</span>可以高效地管理许多使用64MB堆空间、最长停顿时间不能超过半秒的重要应用。
+	</p>
+	<li>
+		<h4>
+			选择串行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		在J2SE 5.0版本中，对于<a href="http://docs.oracle.com/javase/6/docs/technotes/guides/vm/server-class.html" target="_blank">非服务器级机器</a>而言，<span class="highlight">串行收集器</span>作为默认的垃圾收集器；对于其他硬件平台，则可以通过命令行选项<span class="highlight">-XX:+UseSerialGC</span>进行显示的选用。
+	</p>
+
+	<li>
+		<h3 id="paralle-gc">
+			并行收集器(Parallel Collector)
+		</h3>
+	</li>
+	<p class="wrap">
+		目前，许多Java应用都运行在大都包含很大物理内存和多个CPU的平台上。<span class="highlight">并行收集器</span>，也被称作<span class="highlight">吞吐量收集器</span>，被开发出来的主要目的就是为了充分利用CPU资源，而不是只让一个CPU去<span class="highlight">执行垃圾收集</span>，而其他CPU却空闲着。
+	</p>
+	<li>
+		<h4>
+			年轻代使用并行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		<span class="wrap">并行收集器</span>作为<span class="wrap">串行收集器</span>的并行版本实现，但仍然是一个<span class="highlight">stop-the-world</span>和<span class="highlight">复制</span>收集器，只不过利用了多个CPU，并行执行<span class="highlight">年轻代回收</span>，这样就减少了<span class="highlight">垃圾回收占用时间</span>，从而<span class="highlight">提高了应用吞吐量</span>，如图所示:
+	</p>
+	<img src="{{sitel.url}}/images/jvm/young-serial-vs-paralle.png" width="60%">
+	<li>
+		<h4>
+			老年代使用并行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">并行收集器</span>对<span class="highlight">老年代</span>使用的垃圾收集算法和<span class="highlight">串行收集器</span>一样，使用的是<span class="highlight">标记-清除-整理(Mark-Sweep-Compact)</span>算法。
+	</p>
+	<li>
+		<h4>
+			何时使用并行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		能够受益于<span class="highlight">并行收集器</span>的应用程序，必定运行在多CPU机器上，并且对停顿时间不能有特别要求，因为持续时间较长的<span class="highlight">老年代收集</span>还是会偶尔会发生。适于采用<span class="highlight">并行收集器</span>的典型应用包括<span class="highlight">批处理</span>、<span class="highlight">记帐</span>、<span class="highlight">工资单</span>和<span class="highlight">科学计算</span>等。你可能更倾向于选择<a href="#paralle-compact-gc">并行整理收集器(Parallel Compacting Collector)</a>(见下文)而不是<span class="highlight">并行收集器</span>，因为<span class="highlight">并行整理收集器</span>对所有代(而不只是<span class="highlight">年轻代</span>)的收集都采用<span class="highlight">并行方式</span>进行。
+	</p>
+	<li>
+		<h4>
+			选择并行收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		在J2SE 5.0版本中，对于<a href="http://docs.oracle.com/javase/6/docs/technotes/guides/vm/server-class.html" target="_blank">服务器级硬件</a>而言，将使用<span class="highlight">并行收集器</span>作为默认的垃圾收集器；对于其他硬件平台，则可以通过命令行选项<span class="highlight">-XX:+UseParallelGC</span>进行显示的选用。
+	</p>
+
+	<li>
+		<h3 id="paralle-compact-gc">
+			并行整理收集器(Parallel Compacting Collector)
+		</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">并行整理收集器</span>在J2SE 5.0 Update 6中引入，与<a href="#paralle-gc">并行收集器</a>的区别在于，其对<span class="highlight">老年代</span>的收集它使用了全新的算法(<span class="highlight">并行整理收集器终将取代并行收集器</span>)。
+	</p>
+	<li>
+		<h4>
+			年轻代使用并行整理收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		<span class="wrap">年轻代</span>使用<span class="highlight">并行整理收集器</span>时，收集算法与<span class="highlight">并行收集器</span>时一样。
+	</p>
+	<li>
+		<h4>
+			老年代使用并行整理收集器
+		</h4>
+	</li>
+	<p class="wrap">
+		使用<span class="highlight">并行整理收集器</span>时，对<span class="highlight">老年代</span>和<span class="highlight">永久代</span>将采用<span class="highlight">stop-the-world</span>和<span class="highlight">不完全并行的滑动整理</span>的方式进行垃圾回收。<span class="highlight">并行整理收集器</span>会将每个代逻辑上分为大小固定的区域，每个区域的相关信息保存在收集器维护的内部数据结构中，随后会执行三个阶段：<span class="highlight">标记(Marking)</span>，<span class="highlight">汇总(Summary)</span>和<span class="highlight">整理(Compaction)</span>。
+	</p>
+	
+
+
+
+
+
+
+
+
+</ul>
