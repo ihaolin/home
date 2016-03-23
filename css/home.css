@@ -252,7 +252,9 @@ div pre, div pre code{
     border-radius: 5px;
 }
 
-
+div.ui.bulleted.list{
+    padding-left: 20px;
+}
 
 
 

@@ -494,8 +494,26 @@ class VolatileExample {
     	</tbody>
 	</table>
 	<p class="wrap">
-		有了表中的<span class="highlight">重排序限制</span>，上面的<span class="highlight">VolatileExample</span>才得以正确工作。在新的<span class="highlight">JMM</span>中，比较熟悉的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">DCL</a>问题也因<span class="highlight">volatile变量</span>能正确工作。
+		有了表中的<span class="highlight">重排序限制</span>，上面的<span class="highlight">VolatileExample</span>才得以正确工作。在新的<span class="highlight">JMM</span>中，比较熟悉的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">DCL</a>问题也因<span class="highlight">volatile变量</span>能正确工作。那是否就是说<span class="highlight">volatile变量</span>就线程安全呢?并不见得。
 	</p>
+    {% highlight java %}
+// 实例变量
+volatile a = 1;
+// ...
+// +1操作
+a++;
+    {% endhighlight %}
+    <p class="wrap">
+        上述中<span class="highlight">变量a</span>声明为<span class="highlight">volatile</span>，在多线程环境下执行<span class="highlight">a++</span>，众所周知，即便<span class="highlight">a++</span>这样的操作至少也隐含了几个操作:
+    </p>
+    {% highlight java %}
+ load a;    // A
+ a = a + 1; // B
+ store a;   // C
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">volatile变量</span>的内存语义仅保证了<span class="highlight">操作C的值</span>可以被后续<span class="highlight">读变量a的线程</span>所看见，但却没有保证操作<span class="highlight">A，B，C</span>的并发执行，因此上述的代码片段也存在<span class="highlight">线程安全问题</span>。
+    </p>
 
 	<li>
 		<h2>总结</h2>
