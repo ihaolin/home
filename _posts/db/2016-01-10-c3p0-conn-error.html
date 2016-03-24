@@ -68,7 +68,7 @@ pool.setIdleConnectionTestPeriod(5);
 // pool.setTestConnectionOnCheckout(true);
     {% endhighlight %}
     <p class="wrap">
-    	这样即便之前的连接被MySQL关闭了，也不容易出现上述的错误，除非<span class="highlight">连接池还没来得及检测连接是否可用，就被应用拿来使用了</span>，但<span class="highlight">c3p0</span>提供了同步检测连接的方式<span class="highlight">pool.setTestConnectionOnCheckout(true);</span>，但这对应用性能是有所损失的。
+    	所以最好开启<span class="highlight">c3p0连接池的自动检测功能</span>，这样即便之前的连接被MySQL关闭了，也不容易出现上述的错误，除非<span class="highlight">连接池还没来得及检测连接是否可用，就被应用拿来使用了</span>，但<span class="highlight">c3p0</span>提供了同步检测连接的方式<span class="highlight">pool.setTestConnectionOnCheckout(true);</span>，但这对应用性能是有所损失的。
     </p>
 
     <p class="wrap">
