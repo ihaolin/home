@@ -3,7 +3,7 @@ title : Java内存管理基础
 category : [jvm]
 tags : [jvm, java-memory-manange]
 layout : post
-show : 0
+show : 1
 keywords: jvm,java memory manange,java内存管理
 ---
 
@@ -240,7 +240,7 @@ keywords: jvm,java memory manange,java内存管理
 	</p>
 
 	<li>
-		<h3>
+		<h3 id="serial-gc">
 			串行收集器(Serial Collector)
 		</h3>
 	</li>
@@ -298,7 +298,7 @@ keywords: jvm,java memory manange,java内存管理
 		对于大多数运行在客户端模式的应用，并不要求<span class="highlight">低暂停时间</span>，因此可以使用<span class="highlight">串行收集器</span>可作为垃圾收集器。按照现今的硬件水平，<span class="highlight">串行收集器</span>可以高效地管理许多使用64MB堆空间、最长停顿时间不能超过半秒的重要应用。
 	</p>
 	<li>
-		<h4>
+		<h4 id="parallel-gc">
 			选择串行收集器
 		</h4>
 	</li>
@@ -444,6 +444,592 @@ keywords: jvm,java memory manange,java内存管理
 	<p class="wrap">
 		这种方式<span class="highlight">节省了回收时间</span>，但却因为空闲空间不再连续，收集器也就不再可能只使用一个<span class="highlight">简单指针</span>即可指示出可分配给新对象的空闲空间位置，相反，它现在需要使用<span class="highlight">空闲空间列表</span>。也就是说，收集器创建并通过一组列表把<span class="highlight">内存中尚未分配的区域</span>连接起来，每当有对象需要分配空间时，通过链表查询到一块足以放下该对象的空闲区域。与使用<span class="highlight">bump-the-pointer技术</span>相比，<span class="highlight">老年代</span>中的分配操作变得更加昂贵。同时这也给<span class="highlight">年轻代收集</span>带来了额外的开销，因为在其收集过程中每<span class="highlight">晋升一个对象</span>都会触发一次<span class="highlight">老年代</span>中的分配操作。
 	</p>
+	<p class="wrap">
+		<span class="highlight">CMS收集器</span>的另一个缺点是<span class="highlight">与其他收集器相比它需要更大的堆空间</span>。一方面，由于在<span class="highlight">标记(Marking)阶段</span>应用程序被允许运行，它就可能继续分配内存，从而可能使<span class="highlight">老年代</span>空间不断地增长，另一方面，虽然<span class="highlight">标记(Marking)阶段</span>完成后所有<span class="highlight">存活对象</span>都已确保被标记，但是在标记过程中一些对象却可能变为<span class="highlight">垃圾对象</span>，而且直到下次<span class="highlight">老年代收集</span>之前它们不会被回收，这样的对象也被称为<span class="highlight">浮动垃圾</span>。
+	</p>
+	<p class="wrap">
+		<span class="highlight">CMS收集器</span>的最后一个缺点是由于<span class="highlight">缺乏压缩</span>，这可能引发<span class="highlight">碎片化问题</span>。为了处理碎片化，<span class="highlight">CMS收集器</span>会跟踪对象的常用大小，评估未来内存分配需求，并为满足需求还可能<span class="highlight">分割或合并空闲内存块</span>。
+	</p>
+	<p class="wrap">
+		不像其他<span class="highlight">垃圾收集器</span>，<span class="highlight">CMS收集器</span>并不是等到<span class="highlight">老年代</span>填满后才启动<span class="highlight">老年代收集</span>，而是尝试尽早启动<span class="highlight">老年代收集</span>，以便在<span class="highlight">老年代</span>被填满之前收集过程可以完成。否则的话，<span class="highlight">CMS收集器</span>将采用在<span class="highlight">串行和并行收集器</span>中使用的<span class="highlight">标记－清理－压缩算法</span>(尽管该算法也使用<span class="highlight">stop-the-world</span>方式)，这将更耗时。为避免这种情况的发生，<span class="highlight">CMS收集器</span>对之前<span class="highlight">收集所耗时间和代空间填满所耗时间</span>进行统计，并据此统计信息<span class="highlight">确定收集启动时间</span>。另外，当<span class="highlight">老年代</span>的空间占用率超过<span class="highlight">启动占用率(initiating occupancy)</span>时，<span class="highlight">CMS收集器</span>也将启动一次收集。启动占用率的值可以通过命令行选项<span class="highlight">-XX:CMSInitiatingOccupancyFraction=n</span>进行设定，其中n表示年长代空间大小的百分比。缺省值为68。
+	</p>
+	<p class="wrap">
+		总体来说，与<span class="highlight">并行收集器</span>相比，<span class="highlight">CMS收集器</span>(有时甚至显著地)减少了<span class="highlight">老年代收集</span>的停顿时间，而代价是<span class="highlight">略有增加的年轻代收集的停顿时间</span>(想一想<span class="highlight">在<span class="highlight">年轻代对象晋升至老年代时</span>，老年代需要通过<span class="highlight">链表找到一块足够大的空闲内存块</span>，而不是像<span class="highlight">并行收集器</span>使用了<span class="highlight">bump-the-pointer技术</span>)、<span class="highlight">吞吐量的一些损失</span>和<span class="highlight">额外的堆空间需求</span>。
+	</p>
+	<li>
+		<h4>增量模式</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">CMS收集器</span>可以采用让<span class="highlight">并发阶段增量完成的模式运行</span>。这种模式，通过对并发阶段的<span class="highlight">周期性暂停</span>把CPU让给应用程序，以减少<span class="highlight">并发阶段持续时间过长</span>所带来的不利影响。收集工作被分成许多小的时间块，它们在<span class="highlight">年轻代收集的间歇期</span>被调度，当应用程序既需要<span class="highlight">CMS收集器</span>提供的低停顿时间，又只能在很少的CPU(1到2个)上运行时，这个特性就相当有用。		
+	</p>
+	<li>
+		<h4>何时使用CMS收集器？</h4>
+	</li>
+	<p class="wrap">
+		如果应用程序需要<span class="highlight">更短的垃圾收集停顿时间</span>并且能够承担在运行时和垃圾收集器共享处理器资源，那么就可以使用<span class="highlight">CMS收集器</span>(由于其并发性，在垃圾收集过程中<span class="highlight">CMS收集器将和应用程序抢夺CPU周期)。通常来说，具有长时间存活的数据集并且运行在２个或多个CPU上的应用程序，更容易受益于CMS收集器的使用，一个典型的例子就是WEB应用。对于任何需要低停顿时间的应用程序来说，<span class="highlight">CMS收集器</span>都值得考虑。对于老年代大小适中并且运行在单一处理器上的交互式应用程序来说，使用ＣＭＳ收集器同样可能取得不错的效果。	
+	</p>
+	<li>
+		<h4>选择CMS收集器</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">CMS收集器只能通过命令行选项<span class="highlight">-XX:+UseConcMarkSweepGC</span>进行显示的选用。如果希望<span class="highlight">CMS收集器</span>在增量模式下运行，还需要通过命令行选项<span class="highlight">-XX:+CMSIncrementalMode</span>启用该模式。
+	</p>
+
+
+	<li>
+		<h2>HotSpot JVM中一些自动选择机制和调优</h2>
+	</li>
+	<p class="wrap">
+		在J2SE 5.0版本中, <span class="highlight">HotSpot JVM</span>会根据应用程序运行时所在的<span class="highlight">平台和操作系统</span>，来设置默认的<span class="highlight">垃圾收集器</span>, <span class="highlight">堆大小</span>, <span class="highlight">client或server VM类型</span>。这些自动选择机制将更好地匹配不同应用类型的需求，与比之前的版本相比，却只需要更少的命令行参数，这正是JVM的工程学精髓。
+	</p>
+	<li>
+		<h3>JVM默认选择的垃圾收集器，堆大小和虚拟机类型</h3>
+	</li>
+	<p class="wrap">
+		首先需要了解下<span class="highlight">服务器级硬件</span>的定义(<span class="highlight">适用于除了32位Windows之外的所有平台</span>):
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+		  	拥有2个或以上的物理处理器	
+    	</div>
+    	<div class="item">
+    		拥有2GB或以上的物理内存  		
+    	</div>
+	</div>
+	<p id="default-heap" class="wrap">
+		对于<span class="highlight">服务器级硬件</span>和<span class="highlight">非服务器级硬件</span>，<span class="highlight">HotSpot JVM</span>会作如下的默认选择:
+	</p>
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned">服务器级别 / 选项配置</th>
+    			<th class="center aligned">VM类型</th>
+    			<th class="center aligned">垃圾收集器</th>
+    			<th class="center aligned">初始堆大小</th>
+    			<th class="center aligned">最大堆大小</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">服务器级硬件</td>
+    			<td class="center aligned">
+    				server
+    			</td>
+    			<td class="center aligned">
+    				<a href="#parallel-gc">并行垃圾收集器</a>
+    			</td>
+    			<td class="center aligned">
+    				物理内存/64(上限1G)
+    			</td>
+    			<td class="center aligned">
+    				物理内存/4(上限1G)
+    			</td>
+    		</tr>
+    		<tr>
+    			<td class="center aligned">非服务器级硬件</td>
+    			<td class="center aligned">
+    				client
+    			</td>
+    			<td class="center aligned">
+    				<a href="#serial-gc">串行垃圾收集器</a>
+    			</td>
+    			<td class="center aligned">
+    				4M
+    			</td>
+    			<td class="center aligned">
+    				64M
+    			</td>
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		注意，在<span class="highlight">服务器级硬件</span>上，无论用户是否手动设置<span class="highlight">-server</span>或<span class="highlight">-client</span>，默认垃圾收集器均为<a href="#parallel-gc">并行垃圾收集器</a>。
+	</p>
+	<li>
+		<h3>并行垃圾收集器调优</h3>
+	</li>
+	<p class="wrap">
+		在J2SE 5.0版本中, 对<span class="highlight">并行垃圾收集器</span>加入了一些可选参数，用户可以通过配置一些可选项，来使应用达到预期的<span class="highlight">暂停时间</span>和<span class="highlight">吞吐量</span>目标:
+	</p>
+	<li>
+		<h4>最大暂停时间</h4>
+	</li>
+	<p class="wrap">
+		用户可以通过<span class="highlight">-XX:MaxGCPauseMillis=n</span>设置在执行垃圾收集时，应用程序被暂停的最大时间(毫秒)。<span class="highlight">并行垃圾收集器</span>会通过调整<span class="highlight">堆大小</span>和<span class="highlight">其他垃圾回收相关的参数</span>来保证垃圾收集暂停时间小于n毫秒，这可能会降低应用程序的吞吐量，在某些情况下，暂停时间目标可能无法满足。
+	</p>
+	<p class="wrap">
+		<span class="highlight">最大暂停时间</span>是针对不同代独立起作用的。比较典型的是，当最大暂停时间目标未达到时，垃圾收集器会减少分代的内存空间，来尝试达到该目标。<span class="highlight">MaxGCPauseMillis</span>默认不会设置。
+	</p>
+	<li>
+		<h4>吞吐量</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">吞吐量</span>可以通过<span class="highlight">-XX:GCTimeRatio=n</span>参数来设置<span class="highlight">垃圾收集时间占比</span>，该值为<span class="highlight">1 / (1 + n)</span>。若设置<span class="highlight">-XX:GCTimeRatio=19</span>，则垃圾收集时间占5%，若该目标未达到，垃圾收集器会增大分代的内存空间，以增加应用程序在两次垃圾收集之间的运行时间。<span class="highlight">GCTimeRatio</span>默认为99，即垃圾收集时间占1%。
+	</p>
+	<li>
+		<h4>空间占用</h4>
+	</li>
+	<p class="wrap">
+		当<span class="highlight">最大暂停时间</span>和<span class="highlight">吞吐量</span>目标均达到后，垃圾收集器会减少堆空间，来使其中一个目标无法达到(但总是<span class="highlight">吞吐量目标</span>)。
+	</p>
+	<li>
+		<h4>优先级</h4>
+	</li>
+	<p class="wrap">
+		<span class="highlight">并行垃圾收集器</span>会优先尝试达成<span class="highlight">最大暂停时间</span>目标，然后再尝试达成<span class="highlight">吞吐量</span>目标，同样，前两个目标达成后，则会尝试达成<span class="highlight">空间占用</span>。
+	</p>
+
+
+	<li>
+		<h2>建议</h2>
+	</li>
+	<p class="wrap">
+		对于垃圾收集器的选择，最简单的建议就是<span class="highlight">什么也不用做</span>，尽量让JVM根据系统和平台自由选择，然后测试应用性能，若性能可接受，即<span class="highlight">暂停时间</span>和<span class="highlight">吞吐量</span>都能达到预期，就可以不作任何配置。
+	</p>
+	<p class="wrap">
+		如果应用确实出现了与垃圾收集器相关的性能问题，最直接的想法应该是想想<span class="highlight">默认的垃圾收集器</span>是否适合当前的应用。然后尝试选择认为合适的垃圾收集器，并测试应用性能是否达到预期。
+	</p>
+	<li>
+		<h3>何时选用不同的垃圾收集器</h3>
+	</li>
+	<p class="wrap">
+		正如上面所说，当应用出现了与垃圾收集器相关的性能问题时，则可以选择不同的垃圾收集器进行性能测试，可以用如下的参数启用不同的垃圾收集器:
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+		  	启用<span class="highlight">串行收集器</span>：<span class="highlight">–XX:+UseSerialGC</span>
+    	</div>
+    	<div class="item">
+		  	启用<span class="highlight">并行收集器</span>：<span class="highlight">–XX:+UseParallelGC</span>
+    	</div>
+    	<div class="item">
+		  	<span class="highlight">老年代</span>启用<span class="highlight">并行压缩收集器</span>：<span class="highlight">–XX:+UseParallelOldGC</span>
+    	</div>
+    	<div class="item">
+		  	<span class="highlight">老年代</span>启用<span class="highlight">并发标记清理收集器</span>：<span class="highlight">-XX:+UseConcMarkSweepGC</span>
+    	</div>
+	</div>
+	<li>
+		<h3>堆大小</h3>
+	</li>
+	<p class="wrap">
+		通常默认的堆大小在生产环境是不够用的，需要作出一些调整，可以通过<span class="highlight">–Xmx</span>来设置，建议可以将<span class="highlight">–Xms</span>也设置和<span class="highlight">–Xmx</span>一样，比如都设置为2G或4G等。若不是<span class="highlight">暂停时间过长</span>问题，可将堆大小设置大一些，<span class="highlight">足够大的堆</span>是影响垃圾收集性能最大的因素。
+	</p>
+	<p class="wrap">
+		当决定了使用的堆大小后，可以先使用默认的分代大小分配策略，进行性能观察，若未能达到预期，可以尝试调整不同分代的内存大小。影响垃圾收集的性能的第二个最有影响力的因素是<span class="highlight">堆中年轻代的占有比例</span>。若不是发现<span class="highlight">老年代收集过于频繁</span>或者<span class="highlight">暂停时间过长</span>，可以分配多一些内存给<span class="highlight">年轻代</span>。若垃圾收集器使用的<span class="highlight">串行收集器</span>，年轻代大小不应该超过堆的一半。
+	</p>
+	<p class="wrap">
+		若垃圾收集器使用的是<span class="highlight">并行收集器</span>时，最好设置预期的性能参数，而不是确切的堆大小或分代占用比例，让垃圾收集器自动动态地调整堆大小来满足预期的性能。
+	</p>
+	<li>
+		<h3>并行收集器调优</h3>
+	</li>
+	<p class="wrap">
+		当使用<span class="highlight">并行垃圾收集器</span>或<span class="highlight">并行压缩垃圾收集器</span>时，最直观的是定义一个<span class="highlight">吞吐量目标</span>，剩下的就交给收集器自由调整来达到该目标。
+	</p>
+	<p class="wrap">
+		若堆已经增加到最大(<span class="highlight">Xmx</span>)，但仍未达到<span class="highlight">吞吐量目标</span>，可以将堆大小设置到接近物理内存，若最后仍不能达到<span class="highlight">吞吐量目标</span>，则该<span class="highlight">吞吐量目标</span>对于应用所在服务器设置偏高。
+	</p>
+	<p class="wrap">
+		若<span class="highlight">吞吐量目标</span>目标达成，但<span class="highlight">暂停时间过长</span>，可以设置<span class="highlight">最大暂停时间</span>，这势必会降低<span class="highlight">吞吐量</span>，所以这是一个权衡的过程。
+	</p>
+	<li>
+		<h3>如何处理OutOfMemoryError</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">java.lang.OutOfMemoryError</span>算是一个常见的问题，这个错误在没有足够的空间分配对象时抛出。也就是说，<span class="highlight">垃圾收集器</span>不能再使用一些空间来容纳一个新对象，并且堆空间不能再扩展。<span class="highlight">OutOfMemoryError</span>错误不一定意味着<span class="highlight">内存泄露</span>。它可能是一个简单的<span class="highlight">配置错误</span>，例如为应用程序配置不足的内存(或默认值没有设置)。诊断<span class="highlight">OutOfMemoryError</span>错误的第一步是检查完整的错误信息，在异常信息中，有一些额外信息在<span class="highlight">java.lang.OutOfMemoryError</span>之后，下面一些常见的可能的补充信息，以及他们是什么意思，针对他们该做些什么:
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+		  	<strong>Java heap space</strong>
+    	</div>
+    	<p class="wrap">
+    		这表明对象不能在堆中分配，这个可能仅仅是一个配置问题。例如，通过命令行参数-Xmx指定的（或者默认的）最大堆内存对于应用来说是过小，你就会遇到这个错误。它也可能是一种迹象，不再需要的对象由于应用程序无意的引用着而不能被垃圾收集器回收，也可以说是<span class="highlight">内存泄露</span>。<span class="highlight">HAT工具</span>可以用来查看所有可引用到的对象，以及理解这些对象是如何被引用的。另一个可能导致这个错误的原因可能是应用过多的使用<span class="highlight">终结器(finalizers)</span>以至于执行终结的线程跟不上加入终结队列的速度，<span class="highlight">jconsole工具</span>可以用来监测等待终结的对象数量。
+    	</p>
+    	<div class="item">
+		  	<strong>PermGen space</strong>
+    	</div>
+    	<p class="wrap">
+    		这表明<span class="highlight">永久代</span>满了，如前所述，这个区域是JVM用来存放<span class="highlight">元数据信息</span>的,如果应用程序加载了大量的类，则需要增加<span class="highlight">永久代</span>大小，可以通过命令行参数<span class="highlight">–XX:MaxPermSize=n</span>来设置<span class="highlight">永久代</span>大小。
+    	</p>
+    	<div class="item">
+		  	<strong>Requested array size exceeds VM limit</strong>
+    	</div>
+    	<p class="wrap">
+    		这表明应用分配的数组对象大小比堆还大，例如，应用程序尝试分配一个512MB的数组，但是堆最大才256MB，就会出现这个错误。大部分情况下，这个错误要不就是因为堆太小，要不就是因为应用程序计算数组的大小时发生错误引起了一个bug。
+    	</p>
+	</div>
+	<li>
+		<h3>评估垃圾收集器性能的工具</h3>
+	</li>	
+	<p class="wrap">
+		日常中，可以用不同的调试和监控工具来评估垃圾收集性能，下面将介绍一些常用的工具。
+	</p>
+	<li>
+		<h3>-XX:+PrintGCDetails</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">-XX:+PrintGCDetails</span>用于打印每次垃圾收集的相关信息，如<span class="highlight">不同分代在垃圾收集前后的存活对象大小</span>，<span class="highlight">不同分代的可用空间</span>，<span class="highlight">垃圾收集耗时</span>等。
+	</p>
+	<li>
+		<h3>-XX:+PrintGCTimeStamps</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">-XX:+PrintGCTimeStamps</span>用于打印每次<span class="highlight">垃圾收集开始的时间戳</span>。
+	</p>
+	<p class="wrap">
+		为了当生产线上出现OOM等崩溃问题时，会建议开启一些帮助解决问题的选项，如:
+	</p>
+	{% highlight java %}
+-XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/to/dump_dir -Xloggc:gc.log
+	{% endhighlight %}
+	<li>
+		<h3>其他常用工具</h3>
+	</li>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				<a href="http://docs.oracle.com/javase/1.5.0/docs/tooldocs/share/jmap.html" target="_blank">jmap</a>
+			</strong>
+    	</div>
+    	<p class="wrap">
+    		用来输出JVM的内存相关的统计, 如果没有任何选项参数, 它会输出加载的对象列表. 需要更详细的信息, 可以使用<span class="highlight">-heap, -histo, -permstat</span>参数。  
+    	</p>
+    	<div class="item">
+    		<strong>	
+				<a href="http://docs.oracle.com/javase/1.5.0/docs/tooldocs/share/jstat.html" target="_blank">jstat</a>
+			</strong>   	
+    	</div>
+    	<p class="wrap">
+    		用来输出程序<span class="highlight">运行时的资源占用和性能信息</span>，它可以用来诊断性能问题, 特别是跟堆大小以及垃圾回收相关的问题。
+    	</p>
+    	<div class="item">
+			<strong>
+				<a href="http://docs.oracle.com/javase/7/docs/technotes/samples/hprof.html" target="_blank">HPROF</a>
+			</strong>
+    	</div>
+    	<p class="wrap">
+    		是一个简单的<span class="highlight">profiler agent</span>。它是一个使用<span class="highlight">Java Virtual Machine Tools Interface (JVM TI) </span>的<span class="highlight">JVM动态链接库接口</span>。它可以输出一些监测信息到文件中, 这个文件以后可以被性能分析工具用来分析性能问题。
+    	</p>
+    	<div class="item">
+    		<strong>
+    			<a href="http://jovial.com/hat/doc/README.html" target="_blank">HAT</a>	
+    		</strong>	
+    	</div>
+    	<p class="wrap">
+    		可以用来分析对象的引用关系。结合hprof文件分析，解决一些<span class="highlight">内存泄露</span>的问题。
+    	</p>
+	</div>
+
+
+	<li>
+		<h2>垃圾收集相关的关键参数</h2>
+	</li>
+	<p class="wrap">
+		JVM提供了一些命令行选项来<span class="highlight">选择垃圾收集器</span>，<span class="highlight">定义堆或分代的大小</span>，<span class="highlight">调整垃圾收集的行为</span>和<span class="highlight">获取垃圾收集数据</span>等。下面将介绍一些常用的选项:
+	</p>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				垃圾收集器选择
+			</strong>
+    	</div>
+    	<table class="ui celled teal small table">
+	    	<thead>
+	    		<tr>
+	    			<th>选项</th>
+	    			<th>垃圾收集器</th>
+	    		</tr>
+	    	</thead>
+	    	<tbody>
+	    		<tr>
+	    			<td>
+	    				–XX:+UseSerialGC
+	    			</td>
+	    			<td>
+	    				串行收集器
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+UseParallelGC
+	    			</td>
+	    			<td>
+	    				并行收集器
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+UseParallelOldGC
+	    			</td>
+	    			<td>
+	    				并行压缩收集器，针对老年代
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+UseConcMarkSweepGC
+	    			</td>
+	    			<td>
+	    				并发-标记-清理收集器(CMS)，针对老年代
+	    			</td>
+	    		</tr>
+	    	</tbody>
+		</table>
+	</div>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				垃圾收集器统计
+			</strong>
+    	</div>
+    	<table class="ui celled teal small table">
+	    	<thead>
+	    		<tr>
+	    			<th>选项</th>
+	    			<th>描述</th>
+	    		</tr>
+	    	</thead>
+	    	<tbody>
+	    		<tr>
+	    			<td>
+	    				–XX:+PrintGC
+	    			</td>
+	    			<td>
+	    				每次垃圾收集的基本信息
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+PrintGCDetails
+	    			</td>
+	    			<td>
+	    				每次垃圾收集的详细信息
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+PrintGCTimeStamp
+	    			</td>
+	    			<td>
+	    				每次垃圾收集开始的时间戳
+	    			</td>
+	    		</tr>
+	    	</tbody>
+		</table>
+	</div>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				堆和分代大小
+			</strong>
+    	</div>
+    	<table class="ui celled teal small table">
+	    	<thead>
+	    		<tr>
+	    			<th width="25%">选项</th>
+	    			<th>默认值</th>
+	    			<th>描述</th>
+	    		</tr>
+	    	</thead>
+	    	<tbody>
+	    		<tr>
+	    			<td>
+	    				–Xmsn
+	    			</td>
+	    			<td>
+	    				<a href="#default-heap">见这里</a>
+	    			</td>
+	    			<td>
+	    				起始堆大小
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–Xmxn
+	    			</td>
+	    			<td>
+	    				<a href="#default-heap">见这里</a>
+	    			</td>
+	    			<td>
+	    				最大堆大小
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				-XX:MinHeapFreeRatio=n
+	    			</td>
+	    			<td>
+	    				40
+	    			</td>
+	    			<td>
+	    				针对每一个代，空闲内存最小占比，当空间内存占比小于该值时，分代大小将扩大
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				-XX:MaxHeapFreeRatio=n
+	    			</td>
+	    			<td>
+	    				70
+	    			</td>
+	    			<td>
+	    				针对每一个代，空闲内存最大占比，当空间内存占比大于该值时，分代大小将缩小
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:NewSize=n
+	    			</td>
+	    			<td>
+	    				平台依赖
+	    			</td>
+	    			<td>
+	    				年轻代初始大小
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:NewRatio=n
+	    			</td>
+	    			<td>
+	    				client VM时，为2；server VM时，为8
+	    			</td>
+	    			<td>
+	    				年轻代与老年代比例。若n=3，则年轻代占堆大小的1/4
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:SurvivorRatio=n
+	    			</td>
+	    			<td>
+	    				32
+	    			</td>
+	    			<td>
+	    				年轻代中每一个<span class="highlight">Survivor区</span>与<span class="highlight">Eden区</span>占比。若n=7，则<span class="highlight">From:To:Eden=1:1:7</span>
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:MaxPermSize=n
+	    			</td>
+	    			<td>
+	    				平台依赖
+	    			</td>
+	    			<td>
+	    				永久代最大大小
+	    			</td>
+	    		</tr>
+	    	</tbody>
+		</table>
+	</div>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				并行收集器和并行压缩收集器
+			</strong>
+    	</div>
+    	<table class="ui celled teal small table">
+	    	<thead>
+	    		<tr>
+	    			<th width="25%">选项</th>
+	    			<th>默认值</th>
+	    			<th>描述</th>
+	    		</tr>
+	    	</thead>
+	    	<tbody>
+	    		<tr>
+	    			<td>
+	    				–XX:ParallelGCThreads=n
+	    			</td>
+	    			<td>
+	    				CPU个数
+	    			</td>
+	    			<td>
+	    				垃圾收集线程数
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:MaxGCPauseMillis=n
+	    			</td>
+	    			<td>
+	    				无
+	    			</td>
+	    			<td>
+	    				垃圾收集最大暂停时间
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:GCTimeRatio=n
+	    			</td>
+	    			<td>
+	    				99
+	    			</td>
+	    			<td>
+	    				垃圾收集所占时间比: n / (n+1)
+	    			</td>
+	    		</tr>
+	    	</tbody>
+		</table>
+	</div>
+	<div class="ui bulleted list">
+    	<div class="item">
+			<strong>
+				CMS收集器
+			</strong>
+    	</div>
+    	<table class="ui celled teal small table">
+	    	<thead>
+	    		<tr>
+	    			<th width="25%">选项</th>
+	    			<th>默认值</th>
+	    			<th>描述</th>
+	    		</tr>
+	    	</thead>
+	    	<tbody>
+	    		<tr>
+	    			<td>
+	    				XX:+CMSIncrementalMode
+	    			</td>
+	    			<td>
+	    				否
+	    			</td>
+	    			<td>
+	    				开启并发阶段增量模式，周期性停止执行并发阶段，将CPU让给应用程序
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:+CMSIncrementalPacing
+	    			</td>
+	    			<td>
+	    				否
+	    			</td>
+	    			<td>
+	    				当JVM在运行时，依据收集的统计信息启用增量模式自动调节占空比
+	    			</td>
+	    		</tr>
+	    		<tr>
+	    			<td>
+	    				–XX:ParallelGCThreads=n
+	    			</td>
+	    			<td>
+	    				CPU个数
+	    			</td>
+	    			<td>
+	    				年轻代并行收集的线程数和老年代并发阶段的线程数
+	    			</td>
+	    		</tr>
+	    	</tbody>
+		</table>
+	</div>
+
+	<p class="wrap">
+		以上则是<span class="highlight">Java内存管理</span>的一些基础知识，将有助于你在遇到内存相关问题时，提供一些指引，遇到这类问题，不用慌张，往往问题没有想象那么复杂，而大多数情况只是配置问题或者程序问题。
+	</p>
 
 	<li>
     	<h2>参考文献</h2>
@@ -452,6 +1038,7 @@ keywords: jvm,java memory manange,java内存管理
 		<a href="http://www.oracle.com/technetwork/java/javase/memorymanagement-whitepaper-150215.pdf" target="_blank">http://www.oracle.com/technetwork/java/javase/memorymanagement-whitepaper-150215.pdf</a><br>
 		<a href="http://www.oracle.com/webfolder/technetwork/tutorials/obe/java/gc01/index.html">http://www.oracle.com/webfolder/technetwork/tutorials/obe/java/gc01/index.html</a>
 		<a href="http://stackoverflow.com/questions/20430058/parallel-compacting-collector-algorithm" target="_blank">http://stackoverflow.com/questions/20430058/parallel-compacting-collector-algorithm</a>
+		<a href="https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/cms.html" target="_blank">https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/cms.html</a>
 		<a href="http://blog.sina.com.cn/s/blog_515015800100gwu6.html" target="_blank">http://blog.sina.com.cn/s/blog_515015800100gwu6.html</a>
 	</p>
 
