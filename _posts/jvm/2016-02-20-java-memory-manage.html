@@ -658,6 +658,17 @@ keywords: jvm,java memory manange,java内存管理
     	<p class="wrap">
     		这表明应用分配的数组对象大小比堆还大，例如，应用程序尝试分配一个512MB的数组，但是堆最大才256MB，就会出现这个错误。大部分情况下，这个错误要不就是因为堆太小，要不就是因为应用程序计算数组的大小时发生错误引起了一个bug。
     	</p>
+        <div class="item">
+            <strong>Unable to create new native thread</strong>
+        </div>
+        <p class="wrap">
+            这个之前服务器上出现过，当时是Linux的<span class="highlight">nproc(用户最大进程数，线程也属于轻量级进程)</span>限制，导致创建线程失败，因此需要配置nproc，如:
+        </p>
+        {% highlight python %}
+# vim /etc/security/limits.conf
+<user_name> soft nproc 10240
+<user_name> hard nproc 10240
+        {% endhighlight %} 
 	</div>
 	<li>
 		<h3>评估垃圾收集器性能的工具</h3>
@@ -681,6 +692,8 @@ keywords: jvm,java memory manange,java内存管理
 		为了当生产线上出现OOM等崩溃问题时，会建议开启一些帮助解决问题的选项，如:
 	</p>
 	{% highlight java %}
+        }
+        }
 -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/path/to/dump_dir -Xloggc:gc.log
 	{% endhighlight %}
 	<li>
