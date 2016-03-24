@@ -1,0 +1,101 @@
+---
+title : C3p0连接配置问题
+category : [db]
+tags : [db, c3p0]
+layout : post
+show : 1
+keywords: c3p0配置,数据库连接池配置
+---
+
+<ul>
+	<p class="intro">
+        在日常开发中，经常会涉及到数据库读写访问，对数据库访问通常会通过<span class="highlight">数据库连接池</span>来获取数据库连接，再进行<span class="highlight">SQL</span>，最近涉及到迁移数据，在日志中偶尔出现一些<span class="highlight">MySQL数据库连接错误</span>，通过<span class="highlight">DB配置</span>和<span class="highlight">连接池配置</span>最终解决。
+    </p>
+
+
+    <p class="wrap">
+    	服务器日志中的错误信息大致如:
+    </p>
+    {% highlight java %}
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+
+The last packet successfully received from the server was 20,024 milliseconds ago.  The last packet sent successfully to the server was 14 milliseconds ago.
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:57)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:526)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:409)
+	at com.mysql.jdbc.SQLError.createCommunicationsException(SQLError.java:1122)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:3056)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:2942)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3485)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:1960)
+	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2114)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2690)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2619)
+	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1465)
+	at com.mchange.v2.c3p0.impl.NewProxyStatement.executeQuery(NewProxyStatement.java:35)
+	at org.haolin.kb.C3p0Test$1.run(C3p0Test.java:40)
+	at java.lang.Thread.run(Thread.java:745)
+Caused by: java.io.EOFException: Can not read response from server. Expected to read 4 bytes, read 0 bytes before connection was unexpectedly lost.
+	at com.mysql.jdbc.MysqlIO.readFully(MysqlIO.java:2503)
+	at com.mysql.jdbc.MysqlIO.reuseAndReadPacket(MysqlIO.java:2953)
+	... 10 more
+com.mysql.jdbc.exceptions.jdbc4.CommunicationsException: Communications link failure
+    {% endhighlight %}
+    <p class="wrap">
+    	这样的错误重启应用后，便能暂时解决，但过不了多久又会出现，而且这个错误有可能一直持续下去。最终发现与<span class="highlight">MySQL超时连接配置有关</span>。
+    </p>
+    {% highlight ruby %}
+[mysqld]
+# 单位为秒，默认为28800，即8小时
+wait_timeout=100
+interactive_timeout=100
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">wait_timeout</span>和<span class="highlight">interactive_timeout</span>需要同时设置才会生效。当数据库连接超过<span class="highlight">wait_timeout</span>这段时间内，没有任何数据库操作，MySQL将主动关闭服务端连接，因此客户端再次进行数据库操作时，会报该错误，所以将这两个值设置得比较大，但其实设置过大，<span class="highlight">对安全和资源也有一定的损失</span>。
+    </p>
+    {% highlight java %}
+ComboPooledDataSource pool = new ComboPooledDataSource();
+pool.setDriverClass("com.mysql.jdbc.Driver" );
+pool.setJdbcUrl("jdbc:mysql://localhost:3306/user_db");
+pool.setUser("root");
+pool.setPassword("");
+// 检测连接配置
+pool.setPreferredTestQuery("SELECT 1");
+pool.setIdleConnectionTestPeriod(5);
+// 获取到连接时就同步检测
+// pool.setTestConnectionOnCheckout(true);
+    {% endhighlight %}
+    <p class="wrap">
+    	这样即便之前的连接被MySQL关闭了，也不容易出现上述的错误，除非<span class="highlight">连接池还没来得及检测连接是否可用，就被应用拿来使用了</span>，但<span class="highlight">c3p0</span>提供了同步检测连接的方式<span class="highlight">pool.setTestConnectionOnCheckout(true);</span>，但这对应用性能是有所损失的。
+    </p>
+
+    <p class="wrap">
+    	上面的错误在<span class="highlight">数据库重启</span>的时候也有可能报错，并且错误日志中会多出一部分MySQL关闭的信息:
+    </p>
+    {% highlight java %}
+com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: Server shutdown in progress
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method)
+	at sun.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:57)
+	at sun.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45)
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:526)
+	at com.mysql.jdbc.Util.handleNewInstance(Util.java:409)
+	at com.mysql.jdbc.Util.getInstance(Util.java:384)
+	at com.mysql.jdbc.SQLError.createSQLException(SQLError.java:1015)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3562)
+	at com.mysql.jdbc.MysqlIO.checkErrorPacket(MysqlIO.java:3494)
+	at com.mysql.jdbc.MysqlIO.sendCommand(MysqlIO.java:1960)
+	at com.mysql.jdbc.MysqlIO.sqlQueryDirect(MysqlIO.java:2114)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2690)
+	at com.mysql.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2619)
+	at com.mysql.jdbc.StatementImpl.executeQuery(StatementImpl.java:1465)
+	at com.mchange.v2.c3p0.impl.NewProxyStatement.executeQuery(NewProxyStatement.java:35)
+	at org.haolin.kb.C3p0Test$1.run(C3p0Test.java:42)
+	at java.lang.Thread.run(Thread.java:745)
+    {% endhighlight %}
+    <p class="wrap">
+    	但这种情况下，即便不启用<span class="highlight">c3p0的连接检测机制</span>，只要应用的<span class="highlight">数据库操作间隔时间</span>未超过MySQL配置的<span class="highlight">wait_timeout</span>，下一次数据库操作仍能连接上。
+    </p>
+
+</ul>
