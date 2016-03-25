@@ -97,5 +97,8 @@ com.mysql.jdbc.exceptions.jdbc4.MySQLNonTransientConnectionException: Server shu
     <p class="wrap">
     	但这种情况下，即便不启用<span class="highlight">c3p0的连接检测机制</span>，只要应用的<span class="highlight">数据库操作间隔时间</span>未超过MySQL配置的<span class="highlight">wait_timeout</span>，下一次数据库操作仍能连接上。
     </p>
+    <p class="wrap">
+    	<span class="highlight">c3p0</span>从<span class="highlight">0.9.5</span>以上开始支持<span class="highlight">JDBC 4</span>的<span class="highlight">Connection.isValid()</span>，所以可以不用设置检测语句<span class="highlight"><s>pool.setPreferredTestQuery("SELECT 1")</s></span>。
+    </p>
 
 </ul>
