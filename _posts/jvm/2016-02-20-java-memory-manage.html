@@ -350,6 +350,92 @@ keywords: jvm,java memory manange,java内存管理
 		在J2SE 5.0版本中，对于<a href="http://docs.oracle.com/javase/6/docs/technotes/guides/vm/server-class.html" target="_blank">服务器级硬件</a>而言，将使用<span class="highlight">并行收集器</span>作为默认的垃圾收集器；对于其他硬件平台，则可以通过命令行选项<span class="highlight">-XX:+UseParallelGC</span>进行显示的选用。
 	</p>
 
+    <li>
+        <h3>
+            并行收集器 VS 串行收集器
+        </h3>
+    </li>
+    <p class="wrap">
+        可通过以下程序，直观感受下<span class="highlight">并行收集器</span>与<span class="highlight">串行收集器</span>性能比较:
+    </p>
+    {% highlight java %}
+public class SerialVSParallel {
+
+    // 1M
+    private static int M_1 = 1024 * 1024;
+
+    public static void main(String[] args) {
+
+        // 保存存活对象
+        Set<byte[]> lives = new HashSet<byte[]>();
+        byte[] dead = null;
+
+        // 分配 0.001M * 100
+        for (int i=0; i<100 * 1000; i++){
+            if (i % 3 == 0){
+                lives.add(new byte[M_1 / 1000]);
+            } else {
+                dead = new byte[M_1 / 1000];
+            }
+        }
+        System.out.println("allocated 100m");
+
+        // 分配 0.001M * 100
+        for (int i=0; i<100 * 1000; i++){
+            if (i % 3 == 0){
+                lives.add(new byte[M_1 / 1000]);
+            } else {
+                dead = new byte[M_1 / 1000];
+            }
+        }
+        System.out.println("allocated 100m");
+
+        // 分配 2M * 50
+        for (int i=0; i<50; i++){
+            if (i % 3 == 0){
+                lives.add(new byte[M_1 * 2]);
+            } else {
+                dead = new byte[M_1 * 2];
+            }
+        }
+        System.out.println("allocated 100m");
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        分别使用<span class="highlight">串行收集器</span>与<span class="highlight">并行收集器</span>:
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            使用<span class="highlight">串行收集器</span>时:   
+        </div>
+        {% highlight bash %}
+-Xms1g -Xmx1g -XX:+UseSerialGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps 
+        {% endhighlight %}
+        {% highlight java %}
+2016-03-26T12:08:57.121-0800: [GC2016-03-26T12:08:57.121-0800: [DefNew: 279027K->34944K(314560K), 0.1057200 secs] 279027K->92679K(1013632K), 0.2057840 secs] [Times: user=0.09 sys=0.06, real=0.20 secs]
+        {% endhighlight %}
+        <div class="item">
+            使用<span class="highlight">并行收集器</span>时:   
+        </div>
+        {% highlight bash %}
+-Xms1g -Xmx1g -XX:+UseParallelGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps 
+        {% endhighlight %}
+        {% highlight java %}
+2016-03-26T12:10:35.951-0800: [GC [PSYoungGen: 260742K->43488K(306176K)] 260742K->90240K(1005568K), 0.0524450 secs] [Times: user=0.08 sys=0.07, real=0.05 secs]
+        {% endhighlight %}
+        {% highlight bash %}
+-Xms1g -Xmx1g -XX:+UseParallelGC -XX:ParallelGCThreads=1 -XX:+PrintGCDetails -XX:+PrintGCDateStamps 
+        {% endhighlight %}
+        {% highlight java %}
+2016-03-26T12:13:55.803-0800: [GC [PSYoungGen: 260742K->43504K(306176K)] 260742K->90224K(1005568K), 0.1011770 secs] [Times: user=0.06 sys=0.04, real=0.10 secs] 
+        {% endhighlight %}
+    </div>
+    <p class="wrap">
+        的确，<span class="highlight">并行收集器</span>通过<span class="highlight">多线程并行</span>的方式，显著提升了GC性能。
+    </p>
+
+
 	<!-- 并行压缩收集器 -->
 
 	<li>
