@@ -10,7 +10,7 @@ keywords: jmm,java memory model
 
 <ul>
     <p class="intro">
-        <span class="highlight">Java Memory Model(Java内存模型，简称JMM)</span>，作为Java语言规范的一部分(主要在JLS的第17章节介绍)，其定义了<span class="highlight">多线程之间如何通过内存进行交互</span>，在旧的<span class="highlight">JMM</span>中，存在一些<span class="highlight">不够明确</span>和<span class="highlight">过于限制</span>的问题，比如对<span class="highlight">final</span>，<span class="highlight">volatile</span>等关键字的语义约束问题，在旧的<span class="highlight">JMM</span>中，有可能出现<span class="highlight">final</span>字段的值会发生变化，或者阻止编译器的优化操作，还有比较熟知的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">double-checked问题</a>，于是在新的<span class="highlight">JMM</span>中，针对这一系列问题作出了修订，最终在<a href="https://www.cs.umd.edu/~pugh/java/memoryModel/jsr133.pdf" target="_blank">JSR133</a>中进行了详细描述，本文将对<span class="highlight">Java内存模型</span>作一番理解。
+        <span class="highlight">Java Memory Model(Java内存模型，简称JMM)</span>，作为Java语言规范的一部分(主要在JLS的第17章节介绍)，其定义了<span class="highlight">多线程之间如何通过内存进行交互</span>，在旧的<span class="highlight">JMM</span>中，存在一些<span class="highlight">不够明确</span>和<span class="highlight">过于限制</span>的问题，比如对<span class="highlight">final</span>，<span class="highlight">volatile</span>等关键字的语义约束问题，例如，有可能出现<span class="highlight">final</span>字段的值会发生变化，或者阻止编译器的优化操作，还有比较熟知的<a href="http://www.cs.umd.edu/~pugh/java/memoryModel/DoubleCheckedLocking.html" target="_blank">double-checked问题</a>，于是在新的<span class="highlight">JMM</span>中，针对这一系列问题作出了修订，最终在<a href="https://www.cs.umd.edu/~pugh/java/memoryModel/jsr133.pdf" target="_blank">JSR133</a>中进行了详细描述，本文将对<span class="highlight">Java内存模型</span>作一番理解。
     </p>
 
 
