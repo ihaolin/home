@@ -1,0 +1,1295 @@
+---
+title : Java线程池(ThreadPool)
+category : [java]
+tags : [java, thread pool]
+layout : post
+show : 1
+keywords: java,thread pool,线程池实现
+---
+
+
+<ul>
+	<p class="intro">
+    	<span class="highlight">服务器</span>利用<span class="highlight">线程技术</span>响应客户请求已经很常见，这的确提高了服务器的<span class="highlight">响应处理能力</span>，但通常服务器端并不会为每个<span class="highlight">客户端请求</span>分配一个<span class="highlight">新的线程对象</span>，在大量的客户端的请求下，这种处理方式将会创建大量的线程来处理请求，这对<span class="highlight">内存</span>和<span class="highlight">CPU</span>都是很不利的，于是需要一种更合理的线程技术，这就是<span class="highlight">线程池技术</span>。在日常开发中，也或多或少会接触到线程池，比较<span class="highlight">Servlet容器</span>处理浏览器请求的线程池，<span class="highlight">数据库连接池</span>等，本文将理解一番JDK本身的<span class="highlight">线程池(ThreadPool)实现</span>，与其他线程池相比，也会大同小异。
+    </p>
+
+
+    <li>
+    	<h2>
+    		什么是线程池？
+    	</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">线程池</span>，从字面含义来看，是指<span class="highlight">管理一组同构工作线程的资源池</span>。其由<span class="highlight">工作线程(Worker Thread)</span>，<span class="highlight">任务队列(Task Queue)</span>，<span class="highlight">任务(Task)</span>等核心组件组成，如下图所示:
+    </p>
+    <img src="{{site.url}}/images/java/thread-pool.png" width="60%">
+ 	
+ 	<li>
+    	<h2>
+    		为什么使用线程池？
+    	</h2>
+    </li>
+    <p class="wrap">
+    	合理利用<span class="highlight">线程池</span>能够带来三个好处：
+    </p>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<span class="highlight">降低资源消耗</span>。通过重复利用已创建的线程降低线程创建和销毁造成的消耗。
+    	</div>
+    	<div class="item">
+    		<span class="highlight">提高响应速度</span>。当任务到达时，任务可以不需要等到线程创建就能立即执行。
+    	</div>
+    	<div class="item">
+    		<span class="highlight">提高线程的可管理性</span>。线程是稀缺资源，如果无限制的创建，不仅会消耗系统资源，还会降低系统的稳定性，使用线程池可以进行统一的分配，<span class="highlight">调优和监控</span>。
+    	</div>
+	</div>
+
+	<li>
+    	<h2>
+    		线程池定义
+    	</h2>
+    </li>
+    <p class="wrap">
+    	JDK中通过<span class="highlight">ThreadPoolExecutor</span>来抽象通用线程池，可看其继承树:
+    </p>
+    <img src="{{site.url}}/images/java/thread-pool-tree.png">
+    <li>
+    	<h3>
+    		Executor
+    	</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Executor</span>接口定义了<span class="highlight">提交任务(Submit Task)</span>的功能，<span class="highlight">任务(Task)</span>是一个<span class="highlight">Runnable</span>，<span class="highlight">Executor</span>需要实现使用<span class="highlight">何种策略执行任务</span>，可以通过<span class="highlight">Runnable.run()</span>同步执行，或者通过<span class="highlight">new Thread(runnbale).start()</span>异步执行，又或者通过<span class="highlight">某些调度算法</span><span class="highlight">Runnable</span>等，并且<span class="highlight">Executor</span>也保证了一定的内存语义：<span class="highlight">提交Runnable之前的动作Happens-Before该Runnable的开始执行</span>。
+    </p>
+    {% highlight java %}
+public interface Executor {
+
+    /**
+     * 提交任务
+     */
+    void execute(Runnable command);
+}
+    {% endhighlight %}
+    <li>
+    	<h3>
+    		ExecutorService
+    	</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ExecutorService</span>对<span class="highlight">Executor</span>进行了一些扩展，增加了一些<span class="highlight">管理任务执行的功能</span>，如<span class="highlight">终止</span>，<span class="highlight">跟踪任务</span>等：
+    </p>
+    {% highlight java %}
+public interface ExecutorService extends Executor {
+
+    /**
+     * 关闭线程池服务，不再接受新的任务，并且不会等待之前的任务执行完
+     */
+    void shutdown();
+
+    /**
+     * 尝试停止所有正在执行和等待执行的任务，并且不会等待之前的任务执行完
+     * @return 正在等待执行的任务列表
+     */
+    List<Runnable> shutdownNow();
+
+    /**
+     * 线程池是否已经关闭
+     */
+    boolean isShutdown();
+
+    /**
+     * 线程池关闭后，是否所有任务都已完成
+     */
+    boolean isTerminated();
+
+    /**
+     * 关闭线程池后，等待所有任务完成
+     * @param timeout 最大等待时间
+     * @param unit 时间单位
+     * @return 若等待到所有任务已完成，返回true，若等待超时，返回false
+     */
+    boolean awaitTermination(long timeout, TimeUnit unit)
+        throws InterruptedException;
+
+    /**
+     * 提交一个Callable任务，可以获取返回值
+     */
+    <T> Future<T> submit(Callable<T> task);
+
+    /**
+     * 提交一个Runnable任务，可以获取返回值
+     */
+    <T> Future<T> submit(Runnable task, T result);
+
+    /**
+     * 提交一个Runnable任务，可以获取返回值
+     */
+    Future<?> submit(Runnable task);
+
+    /**
+     * 执行一些列任务(完成的任务可以是正常执行完或抛出异常)
+     * @return 结果集
+     */
+    <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks)
+        throws InterruptedException;
+
+    /**
+     * 执行一些列任务，超时后未完成的任务将被取消
+     * @return 结果集
+     */
+    <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
+                                  long timeout, TimeUnit unit)
+        throws InterruptedException;
+
+    /**
+     * 执行一些列任务
+     * @return 返回其中一个完成的任务结果，未完成的任务将被取消
+     */
+    <T> T invokeAny(Collection<? extends Callable<T>> tasks)
+        throws InterruptedException, ExecutionException;
+
+    /**
+     * 执行一些列任务，超时后若没有一个任务执行完会抛出TimeoutException
+     * @return 返回其中一个完成的任务结果，未完成的任务将被取消
+     */
+    <T> T invokeAny(Collection<? extends Callable<T>> tasks,
+                    long timeout, TimeUnit unit)
+        throws InterruptedException, ExecutionException, TimeoutException;
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">ExecutorService</span>中出现两个新的接口，<span class="highlight">Callable</span>和<span class="highlight">Future</span>。<span class="highlight">Callable</span>类似于<span class="highlight">Runnable</span>，但其可以获取执行的结果。<span class="highlight">Future</span>代表了一种<span class="highlight">异步执行的结果</span>，可以对执行做<span class="highlight">取消</span>，<span class="highlight">检查</span>，<span class="highlight">获取结果</span>等操作。
+    </p>
+    <li>
+    	<h3>
+    		AbstractExecutorService
+    	</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">AbstractExecutorService</span>作为<span class="highlight">ExecutorService</span>的默认实现，实现了<span class="highlight">submit</span>，<span class="highlight">invokeAny</span>，<span class="highlight">invokeAll</span>等方法，并且提供了<span class="highlight">构造任务</span>的方法<span class="highlight">newTaskFor</span>，最终通过<span class="highlight">FutureTask</span>来抽象线程池中的<span class="highlight">任务</span>。
+    </p>
+    {% highlight java %}
+public abstract class AbstractExecutorService implements ExecutorService {
+
+	/**
+	 * 创建一个任务
+	 * @param runnable Runnable任务
+	 * @param 默认值
+	 * @return 新任务
+	 */
+	protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T value) {
+	    return new FutureTask<T>(runnable, value);
+	}
+
+	/**
+	 * 创建一个任务
+	 * @param callable Callable任务
+	 * @return 新任务
+	 */
+	protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+	    return new FutureTask<T>(callable);
+	}
+
+	/**
+	 * 提交任务
+	 */
+	public Future<?> submit(Runnable task) {
+	    if (task == null) {
+	    	throw new NullPointerException();
+	    }
+	    RunnableFuture<Void> ftask = newTaskFor(task, null);
+	    execute(ftask);
+	    return ftask;
+	}
+
+	/**
+	 * invokeAny的主要逻辑
+	 */
+	private <T> T doInvokeAny(Collection<? extends Callable<T>> tasks, boolean timed, long nanos) throws InterruptedException, ExecutionException, TimeoutException {
+	    if (tasks == null){
+	        throw new NullPointerException();
+	    }
+
+	    int ntasks = tasks.size();
+	    if (ntasks == 0)
+	        throw new IllegalArgumentException();
+	    List<Future<T>> futures= new ArrayList<Future<T>>(ntasks);
+
+	    // 构造一个ExecutorCompletionService对象:
+	    // 1. 该CompletionService内部包装了当前的Executor对象，用于执行任务
+	    // 2. 并且通过LinkedBlockingQueue对象保存已经完成的任务
+	    // 3. 在提交任务时，将创建的RunnableFuture有包装为QueueingFuture，QueueingFuture会在任务完成时，将该RunnableFuture添加到LinkedBlockingQueue
+	    ExecutorCompletionService<T> ecs = new ExecutorCompletionService<T>(this);
+
+	    try {
+	        // 记录异常
+	        ExecutionException ee = null;
+	        long lastTime = timed ? System.nanoTime() : 0;
+	        Iterator<? extends Callable<T>> it = tasks.iterator();
+
+	        // 先提交一个任务
+	        futures.add(ecs.submit(it.next()));
+	        // 待提交的任务数
+	        --ntasks;
+	        // 已提交的任务
+	        int active = 1;
+
+	        for (;;) {
+	            Future<T> f = ecs.poll();
+
+	            // 没有完成的任务，增量提交一个
+	            if (f == null) {
+	                if (ntasks > 0) {
+	                	// 还有任务未提交
+	                    --ntasks;
+	                    futures.add(ecs.submit(it.next()));
+	                    ++active;
+	                } else if (active == 0){
+	                	// 已经有完成的任务正在等待返回结果
+	                    break;
+	                } else if (timed) {
+	                	// 有超时限制
+	                    f = ecs.poll(nanos, TimeUnit.NANOSECONDS);
+	                    if (f == null)
+	                        throw new TimeoutException();
+	                    long now = System.nanoTime();
+	                    nanos -= now - lastTime;
+	                    lastTime = now;
+	                } else {
+	                    f = ecs.take();
+	                }
+	            }
+
+	            // 已经有完成的任务，其结果
+	            if (f != null) {
+	                --active;
+	                try {
+	                    return f.get();
+	                } catch (ExecutionException eex) {
+	                    ee = eex;
+	                } catch (RuntimeException rex) {
+	                    ee = new ExecutionException(rex);
+	                }
+	            }
+	        }
+
+	        if (ee == null)
+	            ee = new ExecutionException();
+	        throw ee;
+
+	    } finally {
+	    	// 取消所有任务
+	        for (Future<T> f : futures)
+	            f.cancel(true);
+	    }
+	}
+
+	public <T> T invokeAny(Collection<? extends Callable<T>> tasks) throws InterruptedException, ExecutionException {
+	    try {
+	        return doInvokeAny(tasks, false, 0);
+	    } catch (TimeoutException cannotHappen) {
+	        assert false;
+	        return null;
+	    }
+	}
+
+	public <T> T invokeAny(Collection<? extends Callable<T>> tasks,
+	                       long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+	    return doInvokeAny(tasks, true, unit.toNanos(timeout));
+	}
+
+	public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks)
+	    throws InterruptedException {
+	    if (tasks == null)
+	        throw new NullPointerException();
+	    List<Future<T>> futures = new ArrayList<Future<T>>(tasks.size());
+	    boolean done = false;
+	    try {
+	    	// 轮询提交任务
+	        for (Callable<T> t : tasks) {
+	            RunnableFuture<T> f = newTaskFor(t);
+	            futures.add(f);
+	            execute(f);
+	        }
+	        // 轮询获取任务结果
+	        for (Future<T> f : futures) {
+	            if (!f.isDone()) {
+	                try {
+	                    f.get();
+	                } catch (CancellationException ignore) {
+	                } catch (ExecutionException ignore) {
+	                }
+	            }
+	        }
+	        done = true;
+	        return futures;
+	    } finally {
+	        if (!done)
+	            for (Future<T> f : futures)
+	                f.cancel(true);
+	    }
+	}
+
+	public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
+	                                     long timeout, TimeUnit unit) throws InterruptedException {
+	    if (tasks == null || unit == null)
+	        throw new NullPointerException();
+	    long nanos = unit.toNanos(timeout);
+	    List<Future<T>> futures = new ArrayList<Future<T>>(tasks.size());
+	    boolean done = false;
+	    try {
+	        for (Callable<T> t : tasks){
+	            futures.add(newTaskFor(t));
+	        }
+
+	        long lastTime = System.nanoTime();
+	        Iterator<Future<T>> it = futures.iterator();
+		while (it.hasNext()) {
+			execute((Runnable)(it.next()));
+			long now = System.nanoTime();
+			nanos -= now - lastTime;
+			lastTime = now;
+			if (nanos <= 0){
+				// 超时直接返回futures
+				return futures;
+			}
+		}
+
+	        for (Future<T> f : futures) {
+	            if (!f.isDone()) {
+	                if (nanos <= 0){
+	                	// 超时直接返回futures
+	                    return futures;
+	                }
+	   
+	                try {
+	                    f.get(nanos, TimeUnit.NANOSECONDS);
+	                } catch (CancellationException ignore) {
+	                } catch (ExecutionException ignore) {
+	                } catch (TimeoutException toe) {
+	                	// 超时直接返回futures
+	                    return futures;
+	                }
+	                long now = System.nanoTime();
+	                nanos -= now - lastTime;
+	                lastTime = now;
+	            }
+	        }
+	        done = true;
+	        return futures;
+	    } finally {
+		if (!done){
+			// 未完成则取消任务
+		    for (Future<T> f : futures){
+		        f.cancel(true);
+		    }
+		}
+	    }
+	}
+}
+    {% endhighlight %}
+
+    <li>
+    	<h2>
+    		线程池实现
+    	</h2>
+    </li>
+	<li>
+    	<h3>
+    		ThreadPoolExecutor
+    	</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">ThreadPoolExecutor</span>作为<span class="highlight">基础的线程池</span>实现，通过线程池中的某个线程来执行任务。其不但<span class="highlight">提升了在执行大量异步任务时的性能</span>，还提供了<span class="highlight">管理资源</span>的手段。<span class="highlight">ThreadPoolExecutor</span>中有几个很关键的属性，用于<span class="highlight">调优线程池行为</span>:
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>属性名</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">corePoolSize</span>
+				</td>	
+    			<td>
+    				<span class="highlight">线程池基本大小</span>。当提交一个新任务到线程池时，只要线程池当前工作线程数小于<span class="highlight">corePoolSize</span>，线程池就会创建<span class="highlight">新的工作线程来执行该任务</span>(即使有其他<span class="highlight">空闲的工作线程</span>能够执行该任务)。默认情况下，线程池只会在有任务提交的情况才会创建工作线程，不过可以通过<span class="highlight">prestartCoreThread()</span>或<span class="highlight">prestartAllCoreThreads()</span>事先创建好基本的工作线程。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">maximumPoolSize</span>
+				</td>	
+    			<td>
+    				<span class="highlight">线程池最大大小</span>。当线程池的<span class="highlight">任务队列</span>是<span class="highlight">有界的</span>时，如果任务队列满了，并且已创建的工作线程数小于<span class="highlight">maximumPoolSize</span>，则线程池会再创建新的工作线程执行新任务。对于<span class="highlight">无界的任务队列</span>，该参数无效。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">keepAliveTime</span>
+				</td>	
+    			<td>
+    				<span class="highlight">空闲工作线程存活时间</span>。如果线程池当前的工作线程数超过<span class="highlight">corePoolSize</span>，超出的这些工作线程若处于空闲的时间大于<span class="highlight">keepAliveTime</span>，这些线程将被销毁，以释放不必要的资源。另外，如果设置了<span class="highlight">allowCoreThreadTimeOut</span>为<span class="highlight">true</span>，那么<span class="highlight">基本大小内的工作线程</span>在空闲时间大于<span class="highlight">keepAliveTime</span>后，也会被销毁。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">workQueue</span>
+				</td>	
+    			<td>
+    				<span class="highlight">任务队列</span>。用于保存等待执行的任务的<span class="highlight">阻塞队列</span>，通常有几种常用的阻塞队列:
+    				<div class="ui bulleted list">
+				    	<div class="item">
+				    		<span class="highlight">ArrayBlockingQueue</span>：是一个基于<span class="highlight">数组</span>结构的<span class="highlight">有界阻塞队列</span>，此队列按FIFO<span class="highlight">(先进先出)</span>排序元素。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">LinkedBlockingQueue</span>：是一个基于<span class="highlight">链表</span>结构的<span class="highlight">的无界阻塞队列</span>，此队列按FIFO<span class="highlight">(先进先出)</span>排序元素。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">SynchronousQueue</span>：一个不存储元素的阻塞队列每个插入操作必须等到另一个线程调用移除操作，否则插入操作一直处于阻塞状态。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">PriorityBlockingQueue</span>：一个<span class="highlight">具有优先级的无界阻塞队列</span>。
+				    	</div>
+					</div>
+				</td>
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">ThreadFactory</span>
+				</td>	
+    			<td>
+    				<span class="highlight">用于设置创建线程的工厂</span>：可以通过线程工厂给每个创建出来的线程设置更有意义的名字，这样有利于开发人员进行必要时排查跟踪。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">RejectedExecutionHandler</span>
+				</td>	
+    			<td>
+    				<span class="highlight">拒绝任务的策略处理器</span>：当线程池中的<span class="highlight">工作线程数大于maximumPoolSize</span>且<span class="highlight">任务队列已满</span>时，线程池将不再继续执行新提交的任务，而是交由<span class="highlight">RejectedExecutionHandler</span>处理。<span class="highlight">ThreadPoolExecutor</span>中提供了4种简单的策略：
+    				<div class="ui bulleted list">
+				    	<div class="item">
+				    		<span class="highlight">AbortPolicy</span>：直接抛出异常。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">CallerRunsPolicy</span>：使用调用者所在线程来运行任务。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">DiscardOldestPolicy</span>：丢弃队列里最旧的一个任务，并执行当前任务。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">DiscardPolicy</span>：直接丢弃掉提交的任务。
+				    	</div>
+					</div>
+					当然，开发人员可以自己定制<span class="highlight">RejectedExecutionHandler</span>来处理。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+
+	<li>
+		<h3>
+			ThreadPoolExecutor状态
+		</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">ThreadPoolExecutor</span>中有几个重要的状态，如下图：
+	</p>
+	<img src="{{site.url}}/images/java/thread-pool-status.png" width="80%">
+	<p class="wrap">
+		比较巧妙的是，<span class="highlight">ThreadPoolExecutor</span>的实现中，通过一个<span class="highlight">int</span>字段来保存了<span class="highlight">workerCount</span>和<span class="highlight">线程池状态</span>:
+	</p>
+	<img src="{{site.url}}/images/java/thread-pool-ctl.png" width="80%">
+	{% highlight java %}
+// 用于保存线程池状态和工作线程数int变量，
+// 线程池初始为RUNNING状态，0个工作线程
+private final AtomicInteger ctl = new AtomicInteger(ctlOf(RUNNING, 0));
+
+// 用29位表示工作线程数，能达到500百万个线程
+private static final int COUNT_BITS = Integer.SIZE - 3;
+// 00011111 11111111 11111111 11111111
+private static final int CAPACITY   = (1 << COUNT_BITS) - 1;
+
+// ====== 线程池状态枚举，可见其是单调递增的 ======
+// 11111111 11111111 11111111 11111111 << 29 = 11100000 00000000 00000000 00000000
+private static final int RUNNING    = -1 << COUNT_BITS;
+
+// 00000000 00000000 00000000 00000000 << 29 = 00000000 00000000 00000000 00000000
+private static final int SHUTDOWN   =  0 << COUNT_BITS;
+
+// 00000000 00000000 00000000 00000001 << 29 = 00100000 00000000 00000000 00000000
+private static final int STOP       =  1 << COUNT_BITS;
+
+// 00000000 00000000 00000000 00000010 << 29 = 01000000 00000000 00000000 00000000
+private static final int TIDYING    =  2 << COUNT_BITS;
+
+// 00000000 00000000 00000000 00000011 << 29 = 01100000 00000000 00000000 00000000
+private static final int TERMINATED =  3 << COUNT_BITS;
+
+// 获取线程池当前状态
+private static int runStateOf(int c) { 
+	return c & ~CAPACITY; 
+}
+
+// 获取线程池工作线程数
+private static int workerCountOf(int c) { 
+	return c & CAPACITY; 
+}
+
+// 获取int变量值
+private static int ctlOf(int rs, int wc) { 
+	return rs | wc; 
+}
+
+// c状态是否在s状态之前
+private static boolean runStateLessThan(int c, int s) {
+    return c < s;
+}
+
+// c状态是否在s状态之后
+private static boolean runStateAtLeast(int c, int s) {
+    return c >= s;
+}
+
+// 线程池是否处于运行状态，即小于SHUTDOWN
+private static boolean isRunning(int c) {
+    return c < SHUTDOWN;
+}
+
+/**
+ * 增加工作线程数
+ */
+private boolean compareAndIncrementWorkerCount(int expect) {
+    return ctl.compareAndSet(expect, expect + 1);
+}
+
+/**
+ * 减少工作线程数
+ */
+private boolean compareAndDecrementWorkerCount(int expect) {
+    return ctl.compareAndSet(expect, expect - 1);
+}
+
+/**
+ * 减少工作线程数，仅当一个线程突然终止时调用，可见processWorkerExit()
+ */
+private void decrementWorkerCount() {
+    do {} while (! compareAndDecrementWorkerCount(ctl.get()));
+}
+	{% endhighlight %}
+	<p class="wrap">
+		<span class="highlight">ThreadPoolExecutor</span>中其它一些重要属性：
+	</p>
+    {% highlight java %}
+/**
+ * 任务队列
+ */
+private final BlockingQueue<Runnable> workQueue;
+
+/**
+ * 访问工作线程和相关统计操作时，使用到的锁
+ */
+private final ReentrantLock mainLock = new ReentrantLock();
+
+/**
+ * 工作线程集，仅当获取到mainLock时可访问
+ */
+private final HashSet<Worker> workers = new HashSet<Worker>();
+
+/**
+ * awaitTermination()时的等待条件
+ */
+private final Condition termination = mainLock.newCondition();
+
+/**
+ * 跟踪线程池达到的最大工作线程数(仅在获取到mainLock后可访问)
+ */
+private int largestPoolSize;
+
+/**
+ * 统计完成的任务数，仅当工作线程终止后更新(仅在获取到mainLock后可访问)
+ */
+private long completedTaskCount;
+
+/**
+ * 线程工厂，用于创建Worker
+ */
+private volatile ThreadFactory threadFactory;
+
+/**
+ * 任务拒绝策略处理器
+ */
+private volatile RejectedExecutionHandler handler;
+
+/**
+ * 超过corePoolSize的线程的空闲存活时间
+ */
+private volatile long keepAliveTime;
+
+/**
+ * 基本线程是否会空闲超时
+ */
+private volatile boolean allowCoreThreadTimeOut;
+
+/**
+ * 线程池基本大小
+ */
+private volatile int corePoolSize;
+
+/**
+ * 线程池最大线程数
+ */
+private volatile int maximumPoolSize;
+
+/**
+ * 默认的任务拒绝策略处理器
+ */
+private static final RejectedExecutionHandler defaultHandler = new AbortPolicy();
+
+/**
+ * 调用shutdown和shutdownNow时，所需要的权限
+ */
+private static final RuntimePermission shutdownPerm = new RuntimePermission("modifyThread");
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">ThreadPoolExecutor</span>实现了<span class="highlight">execute()</span>方法，完成任务的提交逻辑：	
+    </p>
+    {% highlight java %}
+public void execute(Runnable command) {
+    if (command == null)
+        throw new NullPointerException();
+    int c = ctl.get();
+    // 1. 如果线程数小于corePoolSize，则创建新的Worker，将该任务作为Worker的初始任务
+    if (workerCountOf(c) < corePoolSize) {
+        if (addWorker(command, true))
+            return;
+        c = ctl.get();
+    }
+    // 2. 线程池处于运行中，且新任务入队成功
+    if (isRunning(c) && workQueue.offer(command)) {
+        int recheck = ctl.get();
+        if (!isRunning(recheck) && remove(command)){
+        	// 线程池未运行，则拒绝任务
+            reject(command);
+        } else if (workerCountOf(recheck) == 0){
+        	// 线程池处于运行，且工作线程数为0
+            addWorker(null, false);
+        }
+    // 3. 若队列已满，尝试创建新的Worker
+    } else if (!addWorker(command, false)){
+    	// 线程池已经关闭，或数量已达到maximumPoolSize，则拒绝任务
+        reject(command);
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	在<span class="highlight">ThreadPoolExecutor</span>中，将工作者线程抽象为<span class="highlight">Worker</span>。<span class="highlight">Worker</span>实现了<span class="highlight">Runnable</span>，即将作为线程启动，同时也继承了<span class="highlight">AbstractQueuedSynchronizer</span>，<span class="highlight">AbstractQueuedSynchronizer</span>是一个<span class="highlight">基于队列的同步器</span>，其作为Java并发的核心基础类，这里先简单知道<span class="highlight">Worker</span>是一个<span class="highlight">同步器</span>，具有<span class="highlight">非重入的互斥锁</span>的功能：
+    </p>
+    {% highlight java %}
+private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
+    
+    private static final long serialVersionUID = 6138294804551838833L;
+
+    /** 
+     * 当前Worker所使用的Thread，由ThreadFactory创建
+     */
+    final Thread thread;
+
+    /** 
+     * 初始任务，可以为null
+     */
+    Runnable firstTask;
+
+    /** 
+     * 完成的任务数
+     */
+    volatile long completedTasks;
+
+    /**
+     * Creates with given first task and thread from ThreadFactory.
+     * @param firstTask the first task (null if none)
+     */
+    Worker(Runnable firstTask) {
+    	// 禁止中断，直到runWorker
+        setState(-1); 
+        // 初始任务
+        this.firstTask = firstTask;
+        // 创建工作线程
+        this.thread = getThreadFactory().newThread(this);
+    }
+
+    /**
+     * 启动Worker 
+     */
+    public void run() {
+        runWorker(this);
+    }
+
+    // 以下实现AbstractQueuedSynchronizer
+
+    // 0 解锁状态.
+    // 1 加锁状态.
+    protected boolean isHeldExclusively() {
+        return getState() != 0;
+    }
+
+    protected boolean tryAcquire(int unused) {
+        if (compareAndSetState(0, 1)) {
+            setExclusiveOwnerThread(Thread.currentThread());
+            return true;
+        }
+        return false;
+    }
+
+    protected boolean tryRelease(int unused) {
+        setExclusiveOwnerThread(null);
+        setState(0);
+        return true;
+    }
+
+    public void lock()        { acquire(1); }
+    public boolean tryLock()  { return tryAcquire(1); }
+    public void unlock()      { release(1); }
+    public boolean isLocked() { return isHeldExclusively(); }
+
+    // 中断工作线程
+    void interruptIfStarted() {
+        Thread t;
+        if (getState() >= 0 && (t = thread) != null && !t.isInterrupted()) {
+            try {
+                t.interrupt();
+            } catch (SecurityException ignore) {
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	看看<span class="highlight">Worker</span>如何被创建：
+    </p>
+    {% highlight java %}
+private boolean addWorker(Runnable firstTask, boolean core) {
+    retry:
+    for (;;) {
+        int c = ctl.get();
+        // 线程池当前状态
+        int rs = runStateOf(c);
+
+        
+        // 下面3个条件中一个满足，则拒绝创建新的Worker
+        // 1. 线程池处于STOP，TIDYING或TERMINATED
+        // 2. 线程池状态 >= SHUTDOWN，且有新任务提交(firstTask != null)
+        // 3. 线程池状态 >= SHUTDOWN，没有新任务且任务队列为空
+        if (rs >= SHUTDOWN &&
+            ! (rs == SHUTDOWN &&
+               firstTask == null &&
+               ! workQueue.isEmpty())) // rs >= SHUTDOWN && (rs != SHUTDOWN || firstTask != null || workQueue.isEmpty())
+            return false;
+
+        // 线程池处于RUNNING
+            
+        for (;;) {
+        	// 线程池线程数
+            int wc = workerCountOf(c);
+            // 超出容量，或超过了基本大小/最大大小，则拒绝创建新的Worker
+            if (wc >= CAPACITY || wc >= (core ? corePoolSize : maximumPoolSize))
+                return false;
+            // 利用CAS增加线程池线程数    
+            if (compareAndIncrementWorkerCount(c))
+                break retry; // 跳出retry
+            
+            c = ctl.get(); 
+            // 线程池状态发生，重新执行retry
+            if (runStateOf(c) != rs)
+                continue retry;
+            
+            // 由于workerCount发生改变，导致compareAndIncrementWorkerCount失败，再次循环执行
+        }
+    }
+
+    // 线程池线程数+1完成
+
+    // Worker是否已启动
+    boolean workerStarted = false;
+
+    // Workder是否已添加
+    boolean workerAdded = false;
+    
+    Worker w = null;
+    try {
+        final ReentrantLock mainLock = this.mainLock;
+        // 创建工作线程
+        w = new Worker(firstTask);
+        final Thread t = w.thread;
+        // 线程创建成功
+        if (t != null) {
+        	// 下面访问workers之前，需先持有mainLock锁
+            mainLock.lock();
+            try {
+                // 在锁住之后再重新检测一下状态
+                int c = ctl.get();
+                int rs = runStateOf(c);
+
+                // 1. 线城池处于RUNNING状态
+                // 2. 线程池处于SHUTDOWN状态，且没有新任务提交(firstTask = null)
+                if (rs < SHUTDOWN ||
+                    (rs == SHUTDOWN && firstTask == null)) {
+                    // 线程已激活
+                    if (t.isAlive()) 
+                        throw new IllegalThreadStateException();
+                    // 添加Worker    
+                    workers.add(w);
+                    int s = workers.size();
+                    if (s > largestPoolSize)
+                        largestPoolSize = s;
+                    workerAdded = true;
+                }
+            } finally {
+            	// 释放mainLock锁
+                mainLock.unlock();
+            }
+            if (workerAdded) {
+            	// 启动Worker
+                t.start();
+                workerStarted = true;
+            }
+        }
+    } finally {
+	if (!workerStarted){
+		// 启动工作线程失败时
+		// 1. 移除workers.add(w)此处添加的workder
+		// 2. 减少worker数量
+		// 3. 尝试中止线程池
+		addWorkerFailed(w);
+	}        	
+    }
+    return workerStarted;
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	当创建好<span class="highlight">Worker</span>后，即<span class="highlight">启动Worker</span>，<span class="highlight">Worker</span>本质是一个<span class="highlight">Runnable</span>，其运行逻辑由自己实现：
+    </p>
+    {% highlight java %}
+// Worker.run()    
+public void run() {
+    runWorker(this);
+}
+
+// ThreadPoolExecutor.runWorker()
+final void runWorker(Worker w) {
+	// 获取当前工作线程
+    Thread wt = Thread.currentThread();
+    Runnable task = w.firstTask;
+    // 置空工作线程的初始任务
+    w.firstTask = null;
+    // 允许工作线程被中断
+    w.unlock(); 
+    // 标志该Worker是否异常中断
+    boolean completedAbruptly = true;
+    try {
+    	// 初始任务不为空，或尝试获取一个任务
+        while (task != null || (task = getTask()) != null) {
+        	// 锁住当前工作线程
+            w.lock();
+
+            // 以下情况会中断工作线程：
+            // 1. 线程池状态 >=STOP
+            // 2. 线程池还处于RUNNING或SHUTDOWN状态，且当前线程已经被中断，重新检查一下线程池状态，若处于STOP状态并且当前线程没有被中断
+            if ((runStateAtLeast(ctl.get(), STOP) ||
+                 (Thread.interrupted() &&
+                  runStateAtLeast(ctl.get(), STOP))) &&
+                !wt.isInterrupted())
+                // 中断工作线程
+                wt.interrupt();
+            try {
+            	// 执行任务前回调
+                beforeExecute(wt, task);
+                Throwable thrown = null;
+                try {
+                	// 执行任务
+                    task.run();
+                } catch (RuntimeException x) {
+                    thrown = x; 
+                    throw x;
+                } catch (Error x) {
+                    thrown = x; 
+                    throw x;
+                } catch (Throwable x) {
+                    thrown = x; 
+                    throw new Error(x);
+                } finally {
+                	// 执行任务后回调
+                    afterExecute(task, thrown);
+                }
+            } finally {
+                task = null;
+                // 增加该工作线程完成的任务数
+                w.completedTasks++;
+                // 解锁该工作线程
+                w.unlock();
+            }
+        }
+        completedAbruptly = false;
+    } finally {
+    	// 处理工作线程销毁的逻辑
+    	// 1. 更新线程池完成的任务数
+    	// 2. 减少线程池Worker数
+    	// 3. 移除Worker
+        processWorkerExit(w, completedAbruptly);
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	再看看<span class="highlight">Worker</span>如何去获取一个任务：
+    </p>
+    {% highlight java %}
+/**
+ * 该方法返回null，意味着该Worker要正常退出，有几种情况:
+ * 1. 由于调用了setMaximumPoolSize()，导致worker数超过maximumPoolSize；
+ * 2. 线程池状态处于STOP
+ * 3. 线程池处于SHUTDOWN，且任务队列为空
+ * 4. 获取任务超时
+ */   
+private Runnable getTask() {
+	// 是否超时
+    boolean timedOut = false;
+
+    retry:
+    for (;;) {
+        int c = ctl.get();
+        int rs = runStateOf(c);
+
+        // 线程池状态处于STOP 或 
+        // 线程池处于SHUTDOWN，且任务队列为空
+        if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
+            // Worker正常退出时，在这里减少Worker数，非正常退出时，在processWorkerExit()中减少Worker数
+            decrementWorkerCount();
+            return null;
+        }
+
+        // 标志从该Worker是否有可能被回收
+        boolean timed;      
+
+        for (;;) {
+            // 获取Worker数
+            int wc = workerCountOf(c);
+
+            // 两种情况下，标志该Worker有可能被回收：
+            // 1. 允许超时回收core线程；
+            // 2. 线程数已超过corePoolSize
+            timed = allowCoreThreadTimeOut || wc > corePoolSize;
+
+            if (wc <= maximumPoolSize && ! (timedOut && timed))
+                break;
+
+            // 获取任务超时，减少Worker数
+            if (compareAndDecrementWorkerCount(c))
+                return null;
+
+            c = ctl.get();  
+            // 线程池状态发生改变，重试
+            if (runStateOf(c) != rs)
+                continue retry;
+            
+            // 由于workerCount发生改变，导致compareAndIncrementWorkerCount失败，再次循环执行
+        }
+
+        try {
+            // 从任务队列获取任务，有可能回收则用poll超时获取任务，否则用take永久等待任务
+            Runnable r = timed ?
+                workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
+                workQueue.take();
+            if (r != null){
+                // 返回获取的任务
+                return r;
+            }
+
+            // 获取任务超时
+            timedOut = true;
+        } catch (InterruptedException retry) {
+            // 被中断，不算超时
+            timedOut = false;
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	看看<span class="highlight">Worker</span>是如何被回收的：
+    </p>
+    {% highlight java %}
+private void processWorkerExit(Worker w, boolean completedAbruptly) {
+    // Worker异常中断时，减少Worker数
+    if (completedAbruptly)
+        decrementWorkerCount();
+
+    final ReentrantLock mainLock = this.mainLock;
+    mainLock.lock();
+    try {
+    	// 统计线程池完成的任务数
+        completedTaskCount += w.completedTasks;
+        // 移除Worker
+        workers.remove(w);
+    } finally {
+        mainLock.unlock();
+    }
+
+    // 线程池尝试终止自己
+    tryTerminate();
+
+
+    // 下面尝试是否需要创建新的Worker
+
+    int c = ctl.get();
+    // 若线程池状态 < STOP
+    if (runStateLessThan(c, STOP)) {
+    	// Worker正常退出
+        if (!completedAbruptly) {
+            // 线程池应该保持的最小Worker数
+            int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
+            if (min == 0 && ! workQueue.isEmpty())
+                min = 1;
+            if (workerCountOf(c) >= min)
+            	// 没有必要新创建Worker
+                return; 
+        }
+        // 有必要创建Worker
+        addWorker(null, false);
+    }
+}
+
+final void tryTerminate() {
+    for (;;) {
+        int c = ctl.get();
+        
+        // 三种情况不用终止线程池
+        // 1. 线程池处于RUNNING状态
+        // 2. 线程池状态 >= TIDYING，即已经调用过tryTerminate()，并调用过ctl.compareAndSet(c, ctlOf(TIDYING, 0))
+        // 3. 线程池处于SHUTDOWN，且任务队列不为空，这时需要等待任务队列中的任务执行完
+        if (isRunning(c) ||
+            runStateAtLeast(c, TIDYING) ||
+            (runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty()))
+            return;
+        
+        // Worker数不为0
+        if (workerCountOf(c) != 0) { 
+            // 尝试中断一个空闲线程
+            interruptIdleWorkers(ONLY_ONE);
+            return;
+        }
+
+        final ReentrantLock mainLock = this.mainLock;
+        mainLock.lock();
+        try {
+            // 设置线程池状态为TIDYING
+            if (ctl.compareAndSet(c, ctlOf(TIDYING, 0))) {
+                try {
+                    // 回调子类terminated()方法
+                    terminated();
+                } finally {
+                    // 设置线程池状态为TERMINATED
+                    ctl.set(ctlOf(TERMINATED, 0));
+                    // 通知所有等待条件
+                    termination.signalAll();
+                }
+                return;
+            }
+        } finally {
+            mainLock.unlock();
+        }
+
+        // ctl.compareAndSet(c, ctlOf(TIDYING, 0))时失败，则循环重试
+    }
+}
+
+private void interruptIdleWorkers(boolean onlyOne) {
+    final ReentrantLock mainLock = this.mainLock;
+    mainLock.lock();
+    try {
+        for (Worker w : workers) {
+            Thread t = w.thread;
+            // 在runWorker()中，每当Worker执行任务前会先lock自己，只有任务执行完在unlock自己(闲置自己)，期间处于空闲
+            if (!t.isInterrupted() && w.tryLock()) {
+                try {
+                    // 中断工作线程
+                    t.interrupt();
+                } catch (SecurityException ignore) {
+                } finally {
+                    w.unlock();
+                }
+            }
+            if (onlyOne)
+                break;
+        }
+    } finally {
+        mainLock.unlock();
+    }
+}
+    {% endhighlight %}
+    <li>
+    	<h3>线程池关闭</h3>	
+    </li>
+    <p class="wrap">
+    	开发人员可以通过<span class="highlight">shutdown()</span>或<span class="highlight">shutdownNow()</span>来关闭线程池：
+    </p>
+    {% highlight java %}
+public void shutdown() {
+    final ReentrantLock mainLock = this.mainLock;
+    mainLock.lock();
+    try {
+        checkShutdownAccess();
+        // 线程池状态置为SHUTDOWN
+        advanceRunState(SHUTDOWN);
+        // 中断空闲Worker
+        interruptIdleWorkers();
+        // 回调，ScheduledThreadPoolExecutor会用
+        onShutdown();
+    } finally {
+        mainLock.unlock();
+    }
+    // 尝试终止线程池
+    tryTerminate();
+}
+
+public List<Runnable> shutdownNow() {
+    List<Runnable> tasks;
+    final ReentrantLock mainLock = this.mainLock;
+    mainLock.lock();
+    try {
+        checkShutdownAccess();
+        // 线程池状态置为STOP
+        advanceRunState(STOP);
+        // 中断所有Worker
+        interruptWorkers();
+        // 获取任务队列中的任务
+        tasks = drainQueue();
+    } finally {
+        mainLock.unlock();
+    }
+    // 尝试终止线程池
+    tryTerminate();
+    return tasks;
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	以上则是<span class="highlight">线程池</span>基本的工作原理，主要包括<span class="highlight">任务提交</span>，<span class="highlight">启动工作线程</span>，<span class="highlight">回收工作线程</span>，<span class="highlight">线程池状态维护</span>等。		
+    </p>
+
+    <li>
+    	<h2>线程池使用</h2>
+    </li>
+
+    <li>
+    	<h3>Executors</h3>
+    </li>
+    <p class="wrap">
+    	日常开发中使用<span class="highlight">线程池</span>时，常常使用<span class="highlight">Executors</span>来创建自己的线程池，<span class="highlight">Executors</span>提供了几个方便的工厂方法：
+    </p>
+    <table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th>线程池类型</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td>
+    				<span class="highlight">newFixedThreadPool</span>
+				</td>	
+    			<td>
+    				{% highlight java %}
+new ThreadPoolExecutor(nThreads, nThreads, 
+    0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>())
+    				{% endhighlight %}
+    				线程数固定大小，无空闲线程回收，无界的阻塞队列。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">newSingleThreadExecutor</span>
+
+				</td>	
+    			<td>
+    				{% highlight java %}
+// FinalizableDelegatedExecutorService在finalize()时会调用shutdown()
+new FinalizableDelegatedExecutorService
+    (new ThreadPoolExecutor(1, 1,
+        0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>()))
+    				{% endhighlight %}
+    				线程数大小为1，无空闲线程回收，无界的阻塞队列。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">newCachedThreadPool</span>
+
+				</td>	
+    			<td>
+    				{% highlight java %}
+new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+    60L, TimeUnit.SECONDS, new SynchronousQueue<Runnable>())
+    				{% endhighlight %}
+    				线程数大小不限，空闲线程超时时间为60s，空元素阻塞队列。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td>
+    				<span class="highlight">newScheduledThreadPool</span>
+
+				</td>	
+    			<td>
+    				{% highlight java %}
+new ScheduledThreadPoolExecutor(int corePoolSize,
+    ThreadFactory threadFactory, RejectedExecutionHandler handler)
+    				{% endhighlight %}
+    				具有调度或周期执行的线程池。    				
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+
+
+    <li>
+    	<h3>配置线程池大小</h3>
+    </li>
+    <p class="wrap">
+    	在使用<span class="highlight">线程池</span>时，还有一个比较关键的地方是<span class="highlight">配置合理的线程池大小</span>，通常会有一些<span class="highlight">基本原则</span>：
+    </p>
+    <div class="ui bulleted list">
+		<div class="item">
+			<span class="highlight">CPU密集型任务</span>。CPU密集型任务配置应该配置尽可能小的线程，如<span class="highlight">Runtime.getRuntime().availableProcessors() + 1</span>。
+		</div>
+		<div class="item">
+			<span class="highlight">I/O密集型任务</span>。IO密集型任务则由于线程并不是一直在执行任务，则配置尽可能多的线程，如<span class="highlight">Runtime.getRuntime().availableProcessors() * 2</span>。
+		</div>
+		<div class="item">
+			<span class="highlight">混合型的任务</span>。如果可以拆分，则将其拆分成一个CPU密集型任务和一个IO密集型任务，只要这两个任务执行的时间相差不是太大，那么分解后执行的吞吐率要高于串行执行的吞吐率，如果这两个任务执行时间相差太大，则没必要进行分解。
+		</div>
+		<div class="item">
+			<a href="http://wiki.mbalib.com/wiki/%E5%88%A9%E7%89%B9%E5%B0%94%E6%B3%95%E5%88%99" target="_blank"><span class="highlight">利特尔原则</span></a>。利特尔法则（Little’s law）是说，一个系统请求数等于请求的到达率与平均每个单独请求花费的时间之乘积，可以帮助开发人员调优比较合理的线程数。
+		</div>
+	</div>
+	<p class="wrap">
+		当然，上面只是一些原则性问题，实际生产是应该作一些测试来进行更精确地验证得。
+	</p>
+
+	<p class="wrap">
+		以上则是<span class="highlight">Java线程池</span>相关的部分实现。明白了实现细节，不仅有利于对线程池运行机制有所理解，也会其他线程池的工作原理能触类旁通。
+	</p>
+	<li>
+    	<h2>
+    		参考文献
+    	</h2>
+    </li>
+    <p class="wrap">
+    	<a href="" target="_blank">JDK7</a>
+		<br><a href="" target="_blank">Java并发编程第六章</a>
+		<br><a href="https://www.ibm.com/developerworks/cn/java/l-threadPool/" target="_blank">https://www.ibm.com/developerworks/cn/java/l-threadPool</a>
+		<br><a href="http://www.infoq.com/cn/articles/java-threadPool">http://www.infoq.com/cn/articles/java-threadPool</a>
+		<br><a href="http://www.infoq.com/cn/articles/Java-Thread-Pool-Performance-Tuning?utm_source=infoq&amp;utm_medium=popular_links_homepage">http://www.infoq.com/cn/articles/Java-Thread-Pool-Performance-Tuning?utm_source=infoq&amp;utm_medium=popular_links_homepage</a>
+	</p>
+
+</ul>
