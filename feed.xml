@@ -24,4 +24,5 @@
       </item>
     {% endfor %}
   </channel>
+  <lastBuildDate>{{ site.time | date_to_rfc822 }}</lastBuildDate>
 </rss>
