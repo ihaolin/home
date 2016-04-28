@@ -256,5 +256,10 @@ div.ui.bulleted.list{
     padding-left: 20px;
 }
 
+.ui.teal.list .item a {
+    color: #00b5ad!important;
+}
+
+
 
 
