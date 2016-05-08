@@ -1,0 +1,858 @@
+---
+title : JVM各类GC日志剖析
+category : [jvm]
+tags : [jvm, gc]
+layout : post
+show : 1
+keywords: jvm,gc,gc日志,gc log，垃圾收集器日志分析
+---
+
+<ul>
+    <p class="intro">
+        在日常开发中，除了编写程序外，其他比较关注的会有<span class="highlight">垃圾收集器(GC)</span>相关的问题，在默认的<span class="highlight">JVM</span>行为下，可能会随着业务量或应用需求，这样的默认行为可能无法满足需求(主要可从<span class="highlight">吞吐量</span>或<span class="highlight">系统暂停响应</span>等因素考虑)，对<span class="highlight">垃圾收集器(GC)</span>的调整，是比较普遍的，当然也可能会针对使用不同的<span class="highlight">垃圾收集器(GC)</span>时，进一步调整一些JVM参数，如<span class="highlight">堆大小</span>，<span class="highlight">分代配额</span>等信息，而能帮助开发人员在调整这些参数前，作一些跟踪判断的重要信息，则是<span class="highlight">垃圾收集日志</span>。本文将详述相关的一些<span class="highlight">GC日志细节</span>。
+    </p>
+
+
+    <li>
+    	<h2>不同的GC收集器组合</h2>
+    </li>
+    <p class="wrap">
+    	尽管在<a href="/jvm/2016/02/20/java-memory-manage.html" target="_blank">Java内存管理基础</a>中，提到了一些常见的<span class="highlight">垃圾收集器</span>，但在现实应用中，比较常见的组合使用大概就四种：
+    </p>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<span class="highlight">年轻代</span>和<span class="highlight">老年代</span>均使用<span class="highlight">Serial GC</span>。
+    	</div>
+    	<div class="item">
+    		<span class="highlight">年轻代</span>和<span class="highlight">老年代</span>均使用<span class="highlight">Parallel GC</span>。
+    	</div>
+    	<div class="item">
+    		<span class="highlight">年轻代</span>使用<span class="highlight">Parallel GC</span>，<span class="highlight">年轻代</span>使用<span class="highlight">CMS</span>收集器。
+    	</div>
+    	<div class="item">
+    		不进行<span class="highlight">年轻代</span>和<span class="highlight">老年代</span>区分，使用<span class="highlight">G1</span>收集器。
+    	</div>
+	</div>
+	<p class="wrap">
+		为了触发各类GC组合触发<span class="highlight">垃圾收集</span>，本文将使用如下代码：
+	</p>
+	{% highlight java %}
+public class GCLogDetailTest {
+
+    // 1M
+    private static int M_1 = 1024 * 1024;
+
+    public static void main(String[] args) {
+
+        Set<byte[]> lives = new HashSet<>();
+        byte[] dead = null;
+
+        dead = new byte[M_1 * 2];
+        System.out.println("dead allocated 2M");
+
+        dead = new byte[M_1 * 3];
+        System.out.println("dead allocated 3M");
+
+        lives.add(new byte[M_1 * 2]);
+        System.out.println("lives allocated 2M");
+        lives.add(new byte[M_1 * 2]);
+        System.out.println("lives allocated 2M");
+        lives.add(new byte[M_1 * 2]);
+        System.out.println("lives allocated 2M");
+        lives.add(new byte[M_1 * 2]);
+        System.out.println("lives allocated 2M");
+        lives.add(new byte[M_1 * 2]);
+        System.out.println("lives allocated 2M");
+
+        dead = new byte[M_1 * 2];
+        System.out.println("dead allocated 2M");
+    }
+}
+	{% endhighlight %}
+	<p class="wrap">
+		运行的<span class="highlight">Java环境</span>为:
+	</p>
+	{% highlight java %}
+java -version
+java version "1.7.0_80"
+Java(TM) SE Runtime Environment (build 1.7.0_80-b15)
+Java HotSpot(TM) 64-Bit Server VM (build 24.80-b11, mixed mode)
+	{% endhighlight %}
+	<p class="wrap">
+		<span class="highlight">VM参数</span>设置为:
+	</p>
+	{% highlight java %}
+-Xms20M -Xmx20M -XX:+PrintGCDetails -XX:+PrintGCDateStamps {定义垃圾收集器}
+	{% endhighlight %}
+
+	<li>
+		<h2>Serial GC</h2>
+	</li>
+	<p class="wrap">
+		开发人员可通过<span class="highlight">-XX:+UseSerialGC</span>启用<span class="highlight">Serial GC</span>，此时，年轻代将使用<span class="highlight">标记-复制(mark-copy)</span>算法，老年代使用<span class="highlight">标记-清理-压缩(mark-sweep-compact)</span>算法，并且均以<span class="highlight">单线程</span>，<span class="highlight">stop-the-world</span>的方式运行垃圾收集过程。
+	</p>
+	<h3>
+		Minor GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T14:57:43.807-0800: 0.260: [GC2016-03-14T14:57:43.807-0800: 0.260: [DefNew: 4185K->6K(6144K), 0.0046780 secs] 11665K->11583K(19840K), 0.0047270 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">2016-03-14T14:57:43.807-0800</span>
+				</td>	
+    			<td>
+    				GC触发时的系统时间
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">0.260</span>
+				</td>	
+    			<td>
+    				GC触发时，相对于JVM启动后的时间
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">DefNew</span>
+				</td>	
+    			<td>
+    				使用的垃圾收集器名称。<span class="highlight">DefNew</span>表示的是发生在年轻代的<span class="highlight">单线程</span>，<span class="highlight">标记-复制</span>，<span class="highlight">stop-the-world</span>的垃圾收集器
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">4185K->6K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">年轻代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">6144K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">年轻代</span>的总大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">11665K->11583K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">整个堆</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">19840K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">整个堆</span>的总大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">0.0047270 secs</span>
+				</td>	
+    			<td>
+    				<span class="highlight">Young GC</span>耗时
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Times: user=0.00 sys=0.00, real=0.01 secs</span>
+				</td>	
+    			<td>
+    				<span class="highlight">Young GC</span>不同维度的耗时。
+    				<div class="ui bulleted list">
+				    	<div class="item">
+				    		<span class="highlight">user</span>：GC线程在垃圾收集过程中<span class="highlight">消耗的CPU时间</span>。  		
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">sys</span>：<span class="highlight">OS调用</span>或<span class="highlight">等待系统事件</span>所耗费的时间。		
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">real</span>：应用暂停的时钟时间。理论上，由于<span class="highlight">Serial GC</span>是<span class="highlight">单线程，串行执行</span>，因此<span class="highlight">real = user + sys</span>，但实时并不是那么精确。
+				    	</div>
+			    	</div>
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<h3>
+		Full GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T14:57:43.813-0800: 0.265: [GC2016-03-14T14:57:43.813-0800: 0.265: [DefNew: 4157K->4157K(6144K), 0.0000210 secs]2016-03-14T14:57:43.813-0800: 0.266: [Tenured: 11576K->13630K(13696K), 0.0111960 secs] 15733K->13630K(19840K), [Perm : 2934K->2934K(21248K)], 0.0112660 secs] [Times: user=0.01 sys=0.00, real=0.01 secs]
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Tenured</span>
+				</td>	
+    			<td>
+    				使用的垃圾收集器名称。<span class="highlight">Tenured</span>表示的是发生在老年代的<span class="highlight">单线程</span>，<span class="highlight">标记-清理-压缩</span>，<span class="highlight">stop-the-world</span>的垃圾收集器
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">11576K->13629K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">老年代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">13696K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">老年代</span>的总大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">15733K->13630K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">年轻代和老年代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Perm : 2923K->2923K(21248K)</span>
+				</td>	
+    			<td>
+    				<span class="highlight">永久代</span>垃圾收集前后的占用情况，总大小为21248K。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+
+	<h2>
+		Parallel GC
+	</h2>
+	<p class="wrap">
+		开发人员可通过<span class="highlight">-XX:+UseParallelGC</span>启用<span class="highlight">Parallel GC</span>，此时，年轻代将使用<span class="highlight">标记-复制(mark-copy)</span>算法，老年代使用<span class="highlight">标记-清理-压缩(mark-sweep-compact)</span>算法，并且均以<span class="highlight">多线程</span>，<span class="highlight">stop-the-world</span>的方式运行垃圾收集过程，还可通过<span class="highlight">-XX:ParallelGCThreads=N</span>来指定运行垃圾收集过程的线程数，默认为<span class="highlight">CPU核数</span>。<span class="highlight">Parallel GC</span>收集器将有效<span class="highlight">提升应用吞吐量</span>，也常被称为<span class="highlight">吞吐量收集器</span>。
+	</p>
+	<h3>
+		Minor GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T20:24:01.895-0800: 0.181: [GC [PSYoungGen: 4525K->384K(6656K)] 11693K->11648K(20480K), 0.0169150 secs] [Times: user=0.01 sys=0.01, real=0.02 secs] 
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC</span>
+				</td>	
+    			<td>
+    				表示发生一次<span class="highlight">Minor GC</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">PSYoungGen</span>
+				</td>	
+    			<td>
+    				垃圾收集器名称。<span class="highlight">PSYoungGen</span>表示发生在<span class="highlight">年轻代</span>的<span class="highlight">并行</span>，<span class="highlight">标记-复制</span>，<span class="highlight">stop-the-world</span>的垃圾收集器。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">4525K->384K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">年轻代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">6656K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">年轻代</span>的总大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">11693K->11648K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">整个堆</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">20480K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">整个堆</span>的总大小
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<h3>
+		Full GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T20:24:01.912-0800: 0.198: [Full GC [PSYoungGen: 384K->0K(6656K)] [ParOldGen: 11264K->11591K(13824K)] 11648K->11591K(20480K) [PSPermGen: 2936K->2935K(21504K)], 0.0216520 secs] [Times: user=0.02 sys=0.00, real=0.02 secs]
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Full GC</span>
+				</td>	
+    			<td>
+    				发生一次<span class="highlight">Full GC</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">ParOldGen</span>
+				</td>	
+    			<td>
+    				垃圾收集器名称。<span class="highlight">ParOldGen</span>表示发生在<span class="highlight">老年代</span>的<span class="highlight">并行</span>，<span class="highlight">标记-清理-压缩</span>，<span class="highlight">stop-the-world</span>的垃圾收集器。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">11264K->11591K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">老年代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">13824K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">老年代</span>的总大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">15733K->13630K</span>
+				</td>	
+    			<td>
+    				垃圾收集前后，<span class="highlight">年轻代和老年代</span>的占用情况
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">PSPermGen: 2936K->2935K(21504K)</span>
+				</td>	
+    			<td>
+    				<span class="highlight">永久代</span>垃圾收集前后的占用情况，总大小为21504K。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+
+	<h2>
+		Concurrent Mark and Sweep(CMS)
+	</h2>
+	<p class="wrap">
+		在<a href="/jvm/2016/02/20/java-memory-manage.html" target="_blank">Java内存管理基础</a>一文中，已经知道<span class="highlight">CMS</span>并非完全并发执行，仅第二个和第四个阶段是并发执行的。当使用<span class="highlight">CMS</span>垃圾收集器时，<span class="highlight">年轻代</span>将采用<span class="highlight">并行</span>，<span class="highlight">stop-the-world</span>，<span class="highlight">标记-复制</span>的收集算法，<span class="highlight">老年代</span>则采用<span class="highlight">并发-标记-清理(Concurrent Mark-Sweep)</span>的收集算法，该算法有利于<span class="highlight">降低应用暂定时间</span>，可通过<span class="highlight">-XX:+UseConcMarkSweepGC</span>开启。
+	</p>
+	<h3>
+		Minor GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T22:08:21.466-0800: 0.148: [GC2016-03-14T22:08:21.466-0800: 0.148: [ParNew: 3039K->334K(6144K), 0.0024730 secs] 3039K->2384K(19840K), 0.0025280 secs] [Times: user=0.00 sys=0.00, real=0.00 secs]
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC</span>
+				</td>	
+    			<td>
+    				表示发生一次<span class="highlight">Minor GC</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">ParNew</span>
+				</td>	
+    			<td>
+    				垃圾收集器名称。<span class="highlight">PSYoungGen</span>表示发生在<span class="highlight">年轻代</span>的<span class="highlight">并行</span>，<span class="highlight">标记-复制</span>，<span class="highlight">stop-the-world</span>的垃圾收集器，与<span class="highlight">老年代的<span class="highlight">并发-标记-清理</span>算法协同工作。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<h3>
+		Full GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T22:00:06.326-0800: 0.155: [GC [1 CMS-initial-mark: 7172K(13696K)] 9689K(19840K), 0.0004470 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T22:00:06.327-0800: 0.156: [CMS-concurrent-mark-start]
+2016-03-14T22:00:06.329-0800: 0.158: [CMS-concurrent-mark: 0.002/0.002 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T22:14:39.383-0800: 2.163: [CMS-concurrent-preclean-start]
+2016-03-14T22:14:39.383-0800: 2.163: [CMS-concurrent-preclean: 0.000/0.000 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T22:00:06.329-0800: 0.158: [CMS-concurrent-abortable-preclean-start]
+2016-03-14T22:00:06.336-0800: 0.165: [CMS-concurrent-abortable-preclean: 0.002/0.006 secs] [Times: user=0.01 sys=0.01, real=0.01 secs] 
+2016-03-14T22:00:06.336-0800: 0.165: [GC[YG occupancy: 2535 K (6144 K)]
+2016-03-14T22:00:06.336-0800: 0.165: [Rescan (parallel) , 0.0005600 secs]
+2016-03-14T22:00:06.336-0800: 0.166: [weak refs processing, 0.0000350 secs]
+2016-03-14T22:00:06.336-0800: 0.166: [scrub string table, 0.0001500 secs] [1 CMS-remark: 11268K(13696K)] 13803K(19840K), 0.0008010 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+2016-03-14T22:00:06.337-0800: 0.166: [CMS-concurrent-sweep-start]
+2016-03-14T22:00:06.337-0800: 0.166: [CMS-concurrent-sweep: 0.000/0.000 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T22:00:06.337-0800: 0.166: [CMS-concurrent-reset-start]
+2016-03-14T22:00:06.337-0800: 0.166: [CMS-concurrent-reset: 0.000/0.000 secs]
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">1 CMS-initial-mark</span>
+				</td>	
+    			<td>
+    				<span class="highlight">CMS</span>第一阶段<span class="highlight">初始化标记</span>。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">7172K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">老年代</span>当前占用的大小。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">13696K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">老年代</span>的总大小。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">9689K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">整个堆</span>的占用大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">19840K</span>
+				</td>	
+    			<td>
+    				<span class="highlight">整个堆</span>的大小
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-mark-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">CMS</span>的<span class="highlight">并发标记阶段</span>开始，该阶段将标记出存活的对象。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-mark</span>
+				</td>	
+    			<td>
+    				<span class="highlight">CMS</span>的<span class="highlight">并发标记阶段</span>结束。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">0.002/0.002 secs</span>
+				</td>	
+    			<td>
+    				消耗的用户时间和及CPU时钟时间。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-preclean-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">CMS</span>的<span class="highlight">并发预清理阶段</span>开始，该阶段将统计出上一阶段引用发生变化的对象。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-preclean</span>
+				</td>	
+    			<td>
+    				<span class="highlight">CMS</span>的<span class="highlight">并发标记阶段</span>结束。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-abortable-preclean-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">CMS</span>的<span class="highlight">并发中止预清理阶段</span>开始，该阶段将为后面的<span class="highlight">最终重标记阶段(Final Remark)</span>尽可能作一些工作。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-abortable-preclean</span>
+				</td>	
+    			<td>
+    				<span class="highlight">CMS</span>的<span class="highlight">并发中止预清理阶段</span>结束。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC[YG occupancy: 2535 K (6144 K)]</span>
+				</td>	
+    			<td>
+    				当前<span class="highlight">年轻代</span>的总大小为6144K，已占用2535K。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Rescan (parallel) , 0.0005600 secs</span>
+				</td>	
+    			<td>
+    				<span class="highlight">Rescan</span>将以<span class="highlight">并行</span>，<span class="highlight">stop-the-world</span>的方式标记存活的对象，并耗时0.00056秒。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">weak refs processing, 0.0000350 secs</span>
+				</td>	
+    			<td>
+    				处理<span class="highlight">弱引用对象</span>，耗时0.000035秒。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">scrub string table, 0.0001500 secs</span>
+				</td>	
+    			<td>
+    				清理<span class="highlight">符号及字符串表</span>，耗时0.00015秒。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">[1 CMS-remark: 11268K(13696K)] 13803K(19840K)</span>
+				</td>	
+    			<td>
+    				CMS<span class="highlight">重标记</span>后，<span class="highlight">老年代</span>总大小为13696K，被占用11268K，<span class="highlight">整个堆</span>总大小为19840K，被占用13803K。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-sweep-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发清理阶段</span>开始，准备清理未标记的对象，以释放内存空间。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-sweep</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发清理阶段</span>结束。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-reset-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发重置阶段</span>开始，准备重置CMS算法的内部数据结构，及为下一次GC作准备。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">CMS-concurrent-reset</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发重置阶段</span>结束。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		以上则是<span class="highlight">CMS</span>垃圾收集器的过程，其通过尽可能<span class="highlight">并发执行某些阶段</span>，以达到<span class="highlight">降低暂停应用的时间</span>，但<span class="highlight">CMS</span>垃圾收集器也有一个明显的缺点，由于不进行<span class="highlight">内存压缩(Compact)</span>，将导致内存碎片的堆积，在大堆的场景下，应用暂停时间可能不可预测。还有一个不利就是，有可能<span class="highlight">增加年轻代垃圾收集暂停时间</span>，由于老年代回收的内存片段通过链表想连接，在分配晋升的对象时，需要通过链表索引一块足够容纳晋升对象的内存。开发人员可通过<span class="highlight"></span>启用<span class="highlight">G1垃圾收集器</span>，其工作原理可见<a href="http://www.oracle.com/technetwork/tutorials/tutorials-1876574.html" target="_blank">这里</a>。
+	</p>
+	<h2>
+		G1(Garbage First)
+	</h2>
+	<p class="wrap">
+		<span class="highlight">G1</span>垃圾收集器的关键设计之一则是使得由于垃圾收集造成的<span class="highlight">应用暂停时间和分布</span>变得<span class="highlight">可预测，可配置</span>。<span class="highlight">G1</span>物理上将整个堆分成了不同大小的固定区域(差不多2048个)，每个区域都可以被称为<span class="highlight">Eden区</span>，<span class="highlight">Survivor区</span>，或<span class="highlight">Old区</span>，逻辑上<span class="highlight">Eden区+Survivor区</span>为<span class="highlight">年轻代</span>，<span class="highlight">Old区</span>则为<span class="highlight">老年代</span>，从而避免了每次GC时，回收整个堆空间。
+	</p>
+	<h3>
+		GC日志
+	</h3>
+	{% highlight java %}
+2016-03-14T14:25:26.731-0800: 0.150: [GC pause (young) (initial-mark), 0.0018610 secs]
+[Parallel Time: 1.5 ms, GC Workers: 4]
+	[GC Worker Start (ms): Min: 149.6, Avg: 149.7, Max: 149.9, Diff: 0.3]
+	[Ext Root Scanning (ms): Min: 0.5, Avg: 0.8, Max: 1.1, Diff: 0.6, Sum: 3.3]
+	[Code Root Marking (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+	[Update RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+	   [Processed Buffers: Min: 0, Avg: 2.8, Max: 11, Diff: 11, Sum: 11]
+	[Scan RS (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+	[Code Root Scanning (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+	[Object Copy (ms): Min: 0.2, Avg: 0.4, Max: 0.6, Diff: 0.3, Sum: 1.8]
+	[Termination (ms): Min: 0.0, Avg: 0.0, Max: 0.0, Diff: 0.0, Sum: 0.0]
+	[GC Worker Other (ms): Min: 0.0, Avg: 0.0, Max: 0.1, Diff: 0.1, Sum: 0.2]
+	[GC Worker Total (ms): Min: 1.1, Avg: 1.3, Max: 1.4, Diff: 0.3, Sum: 5.3]
+	[GC Worker End (ms): Min: 151.0, Avg: 151.0, Max: 151.0, Diff: 0.1]
+[Code Root Fixup: 0.0 ms]
+[Clear CT: 0.1 ms]
+[Other: 0.3 ms]
+  [Choose CSet: 0.0 ms]
+  [Ref Proc: 0.2 ms]
+  [Ref Enq: 0.0 ms]
+  [Free CSet: 0.0 ms]
+[Eden: 1024.0K(14.0M)->0.0B(6144.0K) Survivors: 0.0B->1024.0K Heap: 7886.9K(25.0M)->7560.1K(25.0M)]
+[Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T14:25:26.733-0800: 0.152: [GC concurrent-root-region-scan-start]
+2016-03-14T14:25:26.734-0800: 0.152: [GC concurrent-root-region-scan-end, 0.0008520 secs]
+2016-03-14T14:25:26.734-0800: 0.152: [GC concurrent-mark-start]
+2016-03-14T14:25:26.734-0800: 0.152: [GC concurrent-mark-end, 0.0000760 secs]
+2016-03-14T14:25:26.735-0800: 0.153: [GC remark 2016-03-14T14:25:26.735-0800: 0.153: [GC ref-proc, 0.0000390 secs], 0.0006540 secs]
+ [Times: user=0.01 sys=0.00, real=0.00 secs] 
+2016-03-14T14:25:26.735-0800: 0.154: [GC cleanup 9669K->7621K(25M), 0.0003380 secs]
+ [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-03-14T14:25:26.736-0800: 0.154: [GC concurrent-cleanup-start]
+2016-03-14T14:25:26.736-0800: 0.154: [GC concurrent-cleanup-end, 0.0000270 secs]
+	{% endhighlight %}
+	<table class="ui celled teal small table">
+    	<thead>
+    		<tr>
+    			<th class="center aligned" width="30%">日志项</th>
+    			<th>描述</th>
+    		</tr>
+    	</thead>
+    	<tbody>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">0.150: GC pause (young) (initial-mark), 0.0018610 secs</span>
+				</td>	
+    			<td>
+    				<span class="highlight">G1</span>以<span class="highlight">并行</span>，<span class="highlight">stop-the-world</span>的方式清理<span class="highlight">年轻代</span>，触发时间在JVM启动后0.15秒，暂停的时间为0.001861secs(CPU时钟时间)。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Parallel Time: 1.5 ms, GC Workers: 4</span>
+				</td>	
+    			<td>
+    				表示以下的操作以4个线程并行，耗时1.5ms：
+    				<div class="ui bulleted list">
+				    	<div class="item">
+				    		<span class="highlight">GC Worker Start</span>：<span class="highlight">GC Worker线程</span>开始工作的时间，若Min和Max相差(Diff)太大，说明有其他进程在争用CPU。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Ext Root Scanning</span>：扫描<span class="highlight">堆外</span>的<span class="highlight">GC Root对象</span>，如<span class="highlight">累加载器</span>，<span class="highlight">JNI引用</span>，<span class="highlight">JVM系统root对象</span>等，其中<span class="highlight">Sum</span>为CPU时间。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Code Root Scanning</span>：扫描<span class="highlight">代码中</span>的<span class="highlight">GC Root对象</span>，如<span class="highlight">局部变量</span>等。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Object Copy</span>：从<span class="highlight">收集区</span>中复制<span class="highlight">存活对象</span>。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Termination</span>：<span class="highlight">GC Worker线程</span>确认可以安全停止并且没有其他工作要做时，则终止。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">GC Worker Other</span>：<span class="highlight">GC Worker线程</span>锁作的其他一些琐碎工作。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">GC Worker Total</span>：<span class="highlight">GC Worker线程</span>总共工作了多长时间。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">GC Worker End</span>：<span class="highlight">GC Worker线程</span>完成工作所耗时间。
+				    	</div>
+					</div>
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Code Root Fixup: 0.0 ms</span>
+				</td>	
+    			<td>
+    				释放在管理并行操作中使用到的数据结构，该操作为串行操作。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Clear CT: 0.1 ms</span>
+				</td>	
+    			<td>
+    				清理<span class="highlight">卡表(card table)</span>数据耗时0.1ms。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Other: 0.3 ms</span>
+				</td>	
+    			<td>
+    				其他操作耗时0.3ms，通常是并行执行的：
+    				<div class="ui bulleted list">
+				    	<div class="item">
+				    		<span class="highlight">Choose CSet</span>：选定<span class="highlight">收集区</span>所耗时间，通常耗时很短，当需要选择<span class="highlight">Old区</span>时，要稍微长些。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Ref Proc</span>：处理<span class="highlight">soft</span>，<span class="highlight">weak</span>等引用耗时。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Ref Enq</span>：将<span class="highlight">soft</span>，<span class="highlight">weak</span>等引用放入<span class="highlight">ReferenceQueue</span>队列的耗时。
+				    	</div>
+				    	<div class="item">
+				    		<span class="highlight">Free CSet</span>：释放<span class="highlight">收集区</span>空闲内存所耗时。
+				    	</div>
+					</div>
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Eden: 1024.0K(14.0M)->0.0B(6144.0K)</span>
+				</td>	
+    			<td>
+    				暂停前后，<span class="highlight">Eden区</span>的占用内存/总内存分别为1024.0K(14.0M)和0.0B(6144.0K)。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Survivors: 0.0B->1024.0K</span>
+				</td>	
+    			<td>
+    				暂停前后，<span class="highlight">Survivor区</span>的内存占用分别为0.0B和1024.0K。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">Heap: 7886.9K(25.0M)->7560.1K(25.0M)</span>
+				</td>	
+    			<td>
+    				暂停前后，<span class="highlight">整个堆</span>的占用内存/总内存分别为7886.9K(25.0M)和7560.1K(25.0M)。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-root-region-scan-start</span>
+				</td>	
+    			<td>
+    				标志扫描<span class="highlight">根对象区</span>开始，该阶段将标记从<span class="highlight">Root对象区</span>可达的对象。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-root-region-scan-end, 0.0008520 secs</span>
+				</td>	
+    			<td>
+    				标志扫描<span class="highlight">根对象区</span>结束，耗时0.0008520secs。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-mark-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发标记阶段</span>开始，该阶段类似于<span class="highlight">CMS</span>中的<span class="highlight">并发标记</span>，会记录可达的对象，但<span class="highlight">G1</span>中的该阶段，会记录当对象引用会应用线程改变时，需要记录对象之前的引用，以达到<span class="highlight">Snapshot-At-The-Beginning</span>的语义，为了实现这样的目的，主要使用了<span class="highlight">预写屏障(Pre-Write barriers)</span>，当发生字段写操作时，会将该字段之前的引用记录到日志缓冲区中。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-mark-end, 0.0000760 secs</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发标记阶段</span>结束，耗时0.0000760secs。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC remark</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">重标记阶段</span>开始，该阶段会<span class="highlight">stop-the-world</span>，
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC ref-proc</span>
+				</td>	
+    			<td>
+    				处理<span class="highlight">weak，soft</span>等引用。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC cleanup 9669K->7621K(25M)</span>
+				</td>	
+    			<td>
+    				清理前后，整个堆的占用分别为9669K，7621K，总大小为25M。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-cleanup-start</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发清理一些只包含垃圾对象的区域</span>开始。
+				</td>	
+    		</tr>
+    		<tr>
+    			<td class="center aligned">
+    				<span class="highlight">GC concurrent-cleanup-end</span>
+				</td>	
+    			<td>
+    				标志<span class="highlight">并发清理一些只包含垃圾对象的区域</span>结束。
+				</td>	
+    		</tr>
+    	</tbody>
+	</table>
+	<p class="wrap">
+		以上，则是JVM使用不同<span class="highlight">垃圾收集器</span>时，记录了一些GC日志，这将有助于开发人员在遇到Java应用出现一些GC性能问题时，能分析其中有可能的原因及其问题根源。
+	</p>
+</ul>
+
