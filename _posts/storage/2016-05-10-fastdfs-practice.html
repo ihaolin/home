@@ -1,0 +1,985 @@
+---
+title : 分布式文件系统FastDFS实践
+category : [storage]
+tags : [fastdfs]
+layout : post
+show : 1
+keywords: fastdfs,fastdfs安装配置,fastdfs原理
+---
+
+
+<ul>
+    <p class="intro">
+        最近，需要搭建一个<span class="highlight">图片及文件存储系统</span>，早前，接触过的一些存储方案大概有：利用Linux系统级别的<span class="highlight">NFS文件服务</span>，即在<span class="highlight">NFS Server</span>和<span class="highlight">NFS Client</span>之间进行文件同步，但<span class="highlight">NFS</span>不太容易实现集群，从而<span class="highlight">避免单点问题</span>，而且维护起来也比较麻烦，需要同步在接收上传的机器上建立<span class="highlight">NFS Client</span>。最近接触到一个<span class="highlight">轻量的分布式文件系统</span>--<a href="https://github.com/happyfish100/fastdfs" target="_blank">FastDFS</a>，是由国人开发，比较遗憾的是关于<span class="highlight">FastDFS</span>的文档都比较零散，在<a href="http://bbs.chinaunix.net/forum-240-1.html" target="_blank">这个站点</a>上要稍微集中一些。本文将对<span class="highlight">FastDFS</span>进行一番探究实践。
+    </p>
+
+
+    <li>
+    	<h2>FastDFS特性</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">FastDFS</span>是一款类<a href="http://os.inf.tu-dresden.de/Studium/DOS/SS2012/GFS-SOSP03.pdf" target="_blank">Google FS</a>的开源分布式文件系统，它用纯C语言实现，支持Linux、FreeBSD、AIX等UNIX系统。它只能通过专有API对文件进行存取访问，不支持POSIX接口方式，不能mount使用。准确地讲，<span class="highlight">Google FS</span>以及<span class="highlight">FastDFS</span>、<a href="https://code.google.com/p/mogilefs/" target="_blank">MogileFS</a>、<a href="https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-hdfs/HdfsUserGuide.html" target="_blank">HDFS</a>、<a href="http://tfs.taobao.org/" target="_blank">TFS</a>等类Google FS都不是系统级的分布式文件系统，而是应用级的分布式文件存储服务。其基本架构，如：
+    </p>
+    <li>
+    	<h3>轻量级设计</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">FastDFS</span>中只有两个角色：<span class="highlight">Tracker Server</span>和<span class="highlight">Storage Server</span>。<span class="highlight">Tracker Server</span>作为中心结点，其主要作用是<span class="highlight">维护Storage Server信息</span>，<span class="highlight">负载均衡</span>和<span class="highlight">调度</span>等。<span class="highlight">Tracker Server</span>会在<span class="highlight">内存和临时文件</span>中记录<span class="highlight">Storage分组</span>和<span class="highlight">Storage Server的状态</span>等信息，不记录文件索引信息，占用的内存量很少。而重要的<span class="highlight">文件索引信息</span>将附属在<span class="highlight">Storage Server</span>生成的<span class="highlight">文件ID</span>中，这无疑去掉<span class="highlight">文件索引</span>这一步，也提高了<span class="highlight">文件检索</span>的性能。
+    </p>
+    <li>
+    	<h3>分组存储</h3>
+    </li>
+    <p class="wrap">
+    	FastDFS采用了<span class="highlight">分组存储</span>方式来保存文件的多个备份。<span class="highlight">存储集群</span>由一个或多个逻辑组构成，集群存储总容量为集群中所有<span class="highlight">组的存储容量</span>(<span class="highlight">一个存储组的容量由该组中容量最小的Storage Server决定</span>)之和。一个组由一台或多台<span class="highlight">Storage Server</span>组成，同组内的多台<span class="highlight">Storage Server</span>之间是互备关系，<span class="highlight">同组内的存储服务器上的文件是完全一致的</span>。<span class="highlight">文件上传</span>、<span class="highlight">下载</span>、<span class="highlight">删除</span>等操作可以在组内任意一台Storage Server上进行。
+    </p>
+    <li>
+    	<h3>节点对等</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">FastDFS</span>集群中的<span class="highlight">Tracker Server</span>也可以有多台，<span class="highlight">Tracker Server</span>和<span class="highlight">Storage Server</span>均不存在单点问题。<span class="highlight">Tracker Server</span>之间是<span class="highlight">对等关系</span>，存储组内的<span class="highlight">Storage Server</span>之间也是<span class="highlight">对等关系</span>。传统的Master-Slave架构中的Master是单点，写操作仅针对Master。如果Master失效，需要将Slave提升为Master，实现逻辑会比较复杂。和Master-Slave架构相比，对等结构中所有结点的地位是相同的，每个结点都是Master，不存在单点问题。
+    </p>
+
+    <li>
+    	<h2>FastDFS架构</h2>
+    </li>
+    <div align="center">
+    	<img src="{{site.url}}/images/fastdfs/fastdfs-arch.png" width="80%">
+	</div>
+    <p class="wrap">
+    	<span class="highlight">Client</span>和<span class="highlight">Storage Server</span>主动连接<span class="highlight">Tracker Server</span>。<span class="highlight">Storage Server</span>主动向<span class="highlight">Tracker Server</span>报告其状态信息，包括<span class="highlight">磁盘剩余空间</span>、<span class="highlight">文件同步状况</span>、<span class="highlight">文件上传下载次数</span>等统计信息。<span class="highlight">Storage Server</span>会启动<span class="highlight">一个单独的线程</span>来完成对一台<span class="highlight">Tracker Server</span>的连接和定时报告。需要说明的是，一个组包含的<span class="highlight">Storage Server</span>不是通过配置文件设定的，而是通过<span class="highlight">Tracker Server</span>获取到的。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">文件操作</span>。<span class="highlight">Storage Server</span>采用<span class="highlight">binlog</span>文件记录文件上传、删除等更新操作。<span class="highlight">binlog</span>中只记录<span class="highlight">时间戳</span>，<span class="highlight">操作类型</span>，<span class="highlight">文件路径</span>。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">文件同步</span>。不同组的<span class="highlight">Storage Server</span>相互独立，同组内的<span class="highlight">Storage Server</span>之间会相互连接进行文件同步，采用<span class="highlight">push</span>的方式。
+    </p>
+
+    <li>
+    	<h2>FastDFS 集群部署 & 配置 & 基本操作</h2>
+    </li>
+    <li>
+    	<h3>软硬件环境</h3>
+    </li>
+    <table class="ui celled teal small table">
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">操作系统</span>
+                </td>   
+                <td>
+                    Centos6.7 Final
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">FastDFS版本</span>
+                </td>   
+                <td>
+                    <a href="/files/fastdfs-5.05.tar.gz">fastdfs-5.05.tar.gz</a>
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">libfastcommon</span>
+                </td>   
+                <td>
+                    <a href="https://github.com/happyfish100/libfastcommon" target="_blank">https://github.com/happyfish100/libfastcommon</a>
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">nginx</span>
+                </td>   
+                <td>
+                    <a href="http://nginx.org/download/nginx-1.9.9.tar.gz">nginx-1.9.9.tar.gz</a>
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">fastdfs-nginx-module</span>
+                </td>   
+                <td>
+                    <a href="/files/fastdfs-nginx-module_v1.16.tar.gz">fastdfs-nginx-module_1.16</a>
+                </td>   
+            </tr>
+        </tbody>
+    </table>
+    <p class="wrap">
+    	假设现在的开发环境如下：
+    </p>
+    <div align="center">
+    	<img src="{{site.url}}/images/fastdfs/dev-fdfs-cluster.png" width="80%">
+    </div>
+    <li>
+    	<h3>Tracker Server安装</h3>
+    </li>
+    <div class="ui bulleted list">
+	    <div class="item">
+	        安装fastdfs公共库<span class="highlight">libfastcommon</span>，需要注意<span class="highlight">fastdfs</span>和<span class="highlight">fastcommon</span>的安装目录，后面安装<span class="highlight">fastdfs-nginx-module</span>时需要配置：
+	    </div>
+	    {% highlight java %}
+git clone git@github.com:happyfish100/libfastcommon.git
+cd libfastcommon 
+./make.sh 
+./make.sh install
+    	{% endhighlight %}
+    	<div class="item">
+	        安装fastdfs：
+	    </div>
+	    {% highlight java %}
+tar -zxf fastdfs-5.05.tar.gz
+cd fastdfs-5.05
+./make.sh
+./make.sh install
+    	{% endhighlight %}
+    	<div class="item">
+	        配置<span class="highlight">Tracker</span>(<span class="highlight">vim /etc/fdfs/tracker.conf</span>)：
+	    </div>
+	    {% highlight shell %}	    
+# 是否禁用该配置文件
+# false：开启
+# true：禁用
+disabled=false
+# 绑定地址
+# 空字符表示绑定所有地址
+bind_addr=
+# 端口设置
+port=22122
+# 连接超时设置
+connect_timeout=30
+# 网络超时设置
+network_timeout=30
+# 存储数据和日志的目录
+base_path=/mnt/fastdfs
+# 最大并发连接数
+max_connections=256
+# 接受请求的线程数
+accept_threads=1
+# 执行请求的线程数 <= max_connections
+work_threads=4
+# 如何选择上传文件的存储group
+# 0: 轮询
+# 1: 制定group名称
+# 2: 负载均衡, 选择空闲空间最大的存储group
+store_lookup=2
+# 选择哪一个存储group，当store_lookup=1时，须指定存储group的名称
+store_group=group2
+# 如何选择上传文件的存储server
+# 0: 轮询
+# 1: 以ip地址排序的第一个地址
+# 2: 以优先级排序
+store_server=0
+# 选择存储server的哪一个路径(磁盘或挂载点)上传文件
+# 0: 轮询
+# 2: 负载均衡, 选择空闲空间最大的路径来存储文件
+store_path=0
+# 选择哪一个存储server下载文件
+# 0: 轮询
+# 1: 选择该文件上传时的那个存储server
+download_server=0
+# 预留的存储空间 G(GB) M(MB) K(KB) 默认byte(B)，% 表示比例，如下，预留的存储空间为10%，即只占用90%
+reserved_storage_space = 10%
+# log级别：alert error notice info debug
+log_level=info
+# 运行用户组，默认当前用户组
+run_by_group=
+# 运行用户，默认当前用户
+run_by_user=
+# 允许的host，例子如下
+# "*" 表示所有
+# 10.0.1.[1-15,20]
+# host[01-08,20-25].domain.com:
+# allow_hosts=10.0.1.[1-15,20]
+# allow_hosts=host[01-08,20-25].domain.com
+allow_hosts=*
+# 同步内存日志到磁盘的间隔时间，默认10s
+sync_log_buff_interval = 10
+# 检查存储server存活的间隔时间，默认120s
+check_active_interval = 120
+# 线程栈大小 >= 64KB
+thread_stack_size = 64KB
+# 当存储server变化时，是否自动调整存储server的ip
+storage_ip_changed_auto_adjust = true
+# 存储server同步文件的最大延时，默认86400s(1天)
+storage_sync_file_max_delay = 86400
+# 存储server同步一个文件的最大时间
+storage_sync_file_max_time = 300
+# 是否用一个主文件存储多个小文件
+use_trunk_file = false
+# 最小的slot大小(多个小文件之间的空隙大小)，小于4k
+slot_min_size = 256
+# 最大的slot大小(多个小文件之间的空隙大小) > slot_min_size
+# 当上传的文件大小 < slot_max_size时，那么该文件将合并到一个主文件
+slot_max_size = 16MB
+# 主文件大小 >= 4MB
+trunk_file_size = 64MB
+# 是否提前创建trunk文件
+trunk_create_file_advance = false
+# 创建trunk文件的基准时间
+trunk_create_file_time_base = 02:00
+# 创建trunk文件的间隔时间，默认86400s(1天)
+trunk_create_file_interval = 86400
+# 创建trunk文件的阈值空间
+trunk_create_file_space_threshold = 20G
+# 当加载trunk空间空间时，是否检查trunk空间占用情况，设置为true，启动会变慢 
+trunk_init_check_occupying = false
+# 是否忽略storage_trunk.dat
+trunk_init_reload_from_binlog = false
+# 压缩trunk binlog文件的间隔时间
+# 0表示不压缩
+trunk_compress_binlog_min_interval = 0
+# 是否使用storage ID，而不是ip地址
+use_storage_id = false
+# 定义storage ids文件，相对或绝对路径
+storage_ids_filename = storage_ids.conf
+# 存储id类型，当use_storage_id=true时有效
+## ip: 存储server的IP
+## id: 存储server的ID
+id_type_in_filename = ip
+# 是否使用链接文件存储slave文件
+store_slave_file_use_link = false
+# 是否滚动错误日志文件
+rotate_error_log = false
+# 滚动错误日志文件的时间点
+error_log_rotate_time=00:00
+# 当错误日志文件超出该值时，滚动错误日志文件
+rotate_error_log_size = 0
+# 保存日志文件的天数
+# 0表示不删除日志文件
+log_file_keep_days = 0
+# 是否使用连接池
+use_connection_pool = false
+# 连接最大空闲时间
+connection_pool_max_idle_time = 3600
+# tracker的http端口
+http.server_port=8080
+# 检查http server存活的时间间隔
+http.check_alive_interval=30
+# 检查http sever存活的类型
+#   tcp : 仅连接http端口，不发请求
+#   http: 发http请求，并需返回200
+# default value is tcp
+http.check_alive_type=tcp
+# 检查http server的uri
+http.check_alive_uri=/status.html
+	    {% endhighlight %}
+	    <div class="item">
+	        启动<span class="highlight">Tracker</span>：
+	    </div>
+	    {% highlight shell %}
+/usr/bin/fdfs_trackerd /etc/fdfs/tracker.conf restart	    
+	    {% endhighlight %}
+	    <div class="item">
+	        自启动<span class="highlight">Tracker</span>：
+	    </div>
+	    {% highlight shell %}
+ echo '/usr/bin/fdfs_trackerd /etc/fdfs/tracker.conf restart' >> /etc/rc.d/rc.local
+	    {% endhighlight %}
+	</div>
+     <li>
+    	<h3>Storage Server安装</h3>
+    </li>
+    <div class="ui bulleted list">
+	    <div class="item">
+	        安装同<span class="highlight">Tracker Server</span>。
+	    </div>
+	    <div class="item">
+	        配置<span class="highlight">Storage</span>(<span class="highlight">vim /etc/fdfs/storage.conf</span>)：
+	    </div>
+	    {% highlight shell %}
+	    ## 是否禁用该配置文件# false：开启
+# true：禁用
+disabled=false
+# 组名称
+group_name=group1
+# 绑定地址
+# 空字符表示绑定所有地址
+bind_addr=
+# 当连接其他存储server时，是否绑定地址 
+client_bind=true
+# 存储server端口
+port=23000
+# 连接超时
+connect_timeout=30
+# 网络超时
+network_timeout=60
+# 心跳
+heart_beat_interval=30
+# 磁盘使用报道的时间间隔
+stat_report_interval=60
+# 数据和日志目录
+base_path=/mnt/fastdfs
+# 最大并发连接数
+max_connections=256
+# 接收和发送数据的缓冲区大小
+buff_size = 256KB
+# 接受请求的线程数
+accept_threads=1
+# 执行请求的线程数
+work_threads=4
+# 磁盘读写是否分开
+disk_rw_separated = true
+# 每个存储基路径的读线程数
+disk_reader_threads = 1
+# 每个存储基路径的写线程数
+disk_writer_threads = 1
+# 当没有进行同步时, 多少毫秒后读取binlog
+sync_wait_msec=50
+# 当同步完一个文件后, 暂停多少毫秒
+# 0 表示不调用usleep
+sync_interval=0
+# 每天存储同步的开始时间
+sync_start_time=00:00
+# 每天存储同步的结束时间
+sync_end_time=23:59
+# 同步多少个文件后，写入mark文件
+write_mark_file_freq=500
+# 路径(磁盘或挂载点)数
+store_path_count=1
+# 存储路径
+store_path0=/mnt/fastdfs
+# 子目录数
+subdir_count_per_path=256
+# tracker地址，可以配置多个tracker_server
+tracker_server=10.112.88.105:22122
+# tracker_server=10.112.88.104:22122
+# 日志级别：alert error notice info debug
+log_level=debug
+# 运行进程的用户组，默认当前用户组
+run_by_group=
+# 运行进程的用户，默认当前用户
+run_by_user=
+# 允许的host，例子如下# "*" 表示所有
+# 10.0.1.[1-15,20]
+# host[01-08,20-25].domain.com:
+# allow_hosts=10.0.1.[1-15,20]
+# allow_hosts=host[01-08,20-25].domain.com
+allow_hosts=*
+# 文件分布模式
+# 0: 轮询
+# 1: 随机
+file_distribute_path_mode=0
+# 写多少个文件后，轮到下一个路径 
+file_distribute_rotate_count=100
+# 当写入多大文件时，调用fsync
+# 0: 不调用
+# other: 文件大小(byte)
+fsync_after_written_bytes=0
+# 同步内存日志到磁盘的间隔时间，默认10s
+sync_log_buff_interval=10
+# 同步binlog到磁盘的间隔时间，默认10s
+sync_binlog_buff_interval=10
+# 同步存储状态信息到磁盘的间隔时间，默认300s
+sync_stat_file_interval=300
+# 线程栈大小 >= 512KB
+thread_stack_size=512KB
+# 上传文件的优先级，tracker中使用
+upload_priority=10
+# the NIC alias prefix, such as eth in Linux, you can see it by ifconfig -a
+# multi aliases split by comma. empty value means auto set by OS type
+# default values is empty
+if_alias_prefix=
+# 是否检查文件重复
+check_file_duplicate=0
+# 文件签名方法
+## hash: hash
+## md5: MD5
+file_signature_method=hash
+# 存储文件索引的命名空间，check_file_duplicate=true时
+key_namespace=FastDFS
+# 设置与FastDHT保持长连接的数目，0表示使用短连接
+keep_alive=0
+# FastDHT server列表，需要安装FastDHT
+##include /home/yuqing/fastdht/conf/fdht_servers.conf
+# 是否记录访问日志
+use_access_log = true
+# 是否每天滚动访问日志文件
+rotate_access_log = true
+# 访问日志滚动时间点
+access_log_rotate_time=00:00
+# 是否每天滚动错误日志文件
+rotate_error_log = true
+# 错误日志滚动时间点
+error_log_rotate_time=00:00
+# 访问日志滚动大小
+rotate_access_log_size = 0
+# 错误日志滚动大小
+rotate_error_log_size = 0
+# 日志保留天数
+log_file_keep_days = 7
+# 同步文件时是否跳过无效的文件
+file_sync_skip_invalid_record=false
+# 是否使用连接池
+use_connection_pool = false
+# 连接最大空间时间
+connection_pool_max_idle_time = 3600
+# 域名
+http.domain_name=
+# http端口
+http.server_port=8888
+	    {% endhighlight %}
+	    <div class="item">
+	        启动<span class="highlight">Storage</span>：
+	    </div>
+	    {% highlight shell %}
+/usr/bin/fdfs_storaged /etc/fdfs/storage.conf restart	    
+	    {% endhighlight %}
+	    <div class="item">
+	        自启动<span class="highlight">Storage</span>：
+	    </div>
+	    {% highlight shell %}
+ echo '/usr/bin/fdfs_storaged /etc/fdfs/storage.conf restart' >> /etc/rc.d/rc.local
+	    {% endhighlight %}
+	<li>
+		<h3>FastDFS基本操作</h3>
+	</li>
+	<li>
+		<h4>集群监控</h4>
+	</li>
+	<p class="wrap">
+        <span class="highlight">Tracker</span>和<span class="highlight">Storage</span>都启动好后，可以通过<span class="highlight">fdfs_monitor</span>监控当前集群情况：
+    </p>
+	{% highlight shell %}
+ # vim /etc/fdfs/client.conf
+connect_timeout=30
+network_timeout=60
+base_path=/mnt/fastdfs_client
+tracker_server=10.112.88.105:22122
+log_level=debug
+use_connection_pool = false
+connection_pool_max_idle_time = 3600
+load_fdfs_parameters_from_tracker=false
+use_storage_id = false
+storage_ids_filename = storage_ids.conf
+	    {% endhighlight %}
+	    {% highlight shell %}
+ /usr/bin/fdfs_monitor /etc/fdfs/client.conf
+	    {% endhighlight %}
+	    {% highlight shell %}
+server_count=1, server_index=0
+
+tracker server is 10.112.88.105:22122
+
+group count: 2
+
+Group 1:
+group name = group1
+disk total space = 184022 MB
+disk free space = 183969 MB
+trunk free space = 0 MB
+storage server count = 3
+active server count = 3
+...
+
+	Storage 1:
+		id = 10.112.88.106
+		ip_addr = 10.112.88.106  ACTIVE
+		...
+	Storage 2:
+		id = 10.112.88.109
+		ip_addr = 10.112.88.109 (vm-10-112-88-109)  ACTIVE
+		...
+	Storage 3:
+		id = 10.112.88.151
+		ip_addr = 10.112.88.151  ACTIVE
+		...
+
+Group 2:
+group name = group2
+disk total space = 184022 MB
+disk free space = 183695 MB
+trunk free space = 0 MB
+storage server count = 2
+active server count = 2
+...
+
+	Storage 1:
+		id = 10.112.88.153
+		ip_addr = 10.112.88.153  ACTIVE
+		...
+	Storage 2:
+		id = 10.112.88.158
+		ip_addr = 10.112.88.158  ACTIVE
+		...
+    {% endhighlight %}
+    <li>
+		<h4>文件上传</h4>
+	</li>
+	<img src="{{site.url}}/images/fastdfs/fdfs-file-upload.png" width="80%">
+	<p class="wrap">
+        <span class="highlight">文件上传</span>可通过<span class="highlight">fdfs_test</span>进行测试：
+    </p>
+    {% highlight shell %}
+/usr/bin/fdfs_test /etc/fdfs/client.conf upload /var/log/yum.log
+    {% endhighlight %}
+    {% highlight shell %}
+tracker_query_storage_store_list_without_group:
+	server 1. group_name=, ip_addr=10.112.88.106, port=23000
+	server 2. group_name=, ip_addr=10.112.88.109, port=23000
+	server 3. group_name=, ip_addr=10.112.88.151, port=23000
+
+group_name=group1, ip_addr=10.112.88.109, port=23000
+storage_upload_by_filename
+group_name=group1, remote_filename=M00/00/00/CnBYbVc8AaOAL78UAAADvvLPPRA782.log
+source ip address: 10.112.88.109
+file timestamp=2016-05-09 13:46:11
+file size=958
+file crc32=4073667856
+example file url: http://10.112.88.109/group1/M00/00/00/CnBYbVc8AaOAL78UAAADvvLPPRA782.log
+storage_upload_slave_by_filename
+group_name=group1, remote_filename=M00/00/00/CnBYbVc8AaOAL78UAAADvvLPPRA782_big.log
+source ip address: 10.112.88.109
+file timestamp=2016-05-09 13:46:11
+file size=958
+    {% endhighlight %}
+    <li>
+		<h4>文件下载</h4>
+	</li>
+	<img src="{{site.url}}/images/fastdfs/fdfs-file-upload.png" width="80%">
+	<p class="wrap">
+        <span class="highlight">文件下载</span>也可通过<span class="highlight">fdfs_test</span>进行测试：
+    </p>
+    {% highlight shell %}
+/usr/bin/fdfs_test /etc/fdfs/client.conf download group1 M00/00/00/CnBYbVc8AaOAL78UAAADvvLPPRA782_big.log
+    {% endhighlight %}
+    {% highlight shell %}
+storage=10.112.88.109:23000
+download file success, file size=958, file save to CnBYbVc8AaOAL78UAAADvvLPPRA782_big.log
+    {% endhighlight %}
+    <li>
+		<h4>文件访问</h4>
+	</li>
+	<p class="wrap">
+		通常，对于<span class="highlight">图片和文件的访问</span>，是不太可能走<span class="highlight">TCP</span>，而是通过简单的<span class="highlight">HTTP</span>访问，这时需要通过一些<span class="highlight">Web服务器</span>(如<span class="highlight">nginx</span>，<span class="highlight">apache</span>)来代理，<span class="highlight">fastdfs</span>也有了<span class="highlight">nginx</span>的支持，下面则将通过安装nginx来完成文件访问，之前的开发环境将变为：
+	</p>
+	<div align="center">
+		<img src="{{site.url}}/images/fastdfs/dev-fdfs-cluster-with-nginx.png" width="80%">
+	</div>
+	<div class="item">
+        在<span class="highlight">Storage Server</span>上配置<span class="highlight">fastdfs-nginx-module</span>所需的配置文件：
+    </div>
+    {% highlight shell %}
+# 配置fastdfs-nginx-module所需的配置文件mod_fastdfs.conf，http.conf，mime.types
+# vim /etc/fdfs/mod_fastdfs.conf
+connect_timeout=5
+network_timeout=30
+base_path=/mnt/fastdfs/logs
+load_fdfs_parameters_from_tracker=true
+storage_sync_file_max_delay = 86400
+use_storage_id = false
+storage_ids_filename = storage_ids.conf
+tracker_server=10.112.88.105:22122
+storage_server_port=23000
+group_name=group1 			# 与该Storage Server的配置一致
+url_have_group_name = true
+store_path_count=1 			# 与该Storage Server的配置一致
+store_path0=/mnt/fastdfs 	# 与该Storage Server的配置一致
+log_level=debug
+log_filename=/usr/local/nginx/logs/mod_fastdfs.log
+response_mode=proxy
+if_alias_prefix=
+#include http.conf
+flv_support = true
+flv_extension = flv
+group_count = 0
+
+# vim /etc/fdfs/http.conf
+http.default_content_type = application/octet-stream
+http.mime_types_filename=mime.types
+http.anti_steal.check_token=false
+http.anti_steal.token_ttl=900
+http.anti_steal.secret_key=FastDFS1234567890
+http.anti_steal.token_check_fail=/path/to/check_failed.jpg
+
+# 配置mime.types
+cp /path/to/fastdfs/conf/mime.types /etc/fdfs/mime.types
+    {% endhighlight %}
+    
+    {% highlight shell %}
+# 解压缩fastdfs-nginx-module_v1.16.tar.gz
+tar -zxf fastdfs-nginx-module_v1.16.tar.gz
+
+# 配置fastdfs-nginx-module/src/config
+# vim fastdfs-nginx-module/src/config
+# CORE_INCS 和 CFLAGS
+ngx_addon_name=ngx_http_fastdfs_module
+HTTP_MODULES="$HTTP_MODULES ngx_http_fastdfs_module"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/ngx_http_fastdfs_module.c"
+CORE_INCS="$CORE_INCS /path/to/fastdfs /path/to/fastcommon/"
+CORE_LIBS="$CORE_LIBS -L/usr/local/lib -lfastcommon -lfdfsclient"
+CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -DFDFS_OUTPUT_CHUNK_SIZE='256*1024' -DFDFS_MOD_CONF_FILENAME='\"/path/to/mod_fastdfs.conf\"'"
+    {% endhighlight %}
+    <div class="item">
+        在<span class="highlight">Storage Server</span>上安装<span class="highlight">nginx</span>：
+    </div>
+    {% highlight shell %}
+# 安装nginx依赖包
+yum -y install gcc gcc-c++ make zlib-devel pcre-devel openssl-devel  
+
+# 建立nginx用户
+groupadd nginx
+useradd -g nginx nginx --shell=/sbin/nologin
+
+# 配置，编译，安装nginx
+tar -zxf nginx-1.9.9.tar.gz
+cd nginx-1.9.9
+./configure --prefix=/usr/local/nginx --add-module=/path/to/fastdfs-nginx-module/src --group=nginx --user=nginx
+make && make install
+ 
+# 更改nginx目录权限
+chown -R nginx:nginx /usr/local/nginx
+
+    {% endhighlight %}
+    {% highlight shell %}
+# 最简配置/usr/local/nginx/conf/nginx.conf
+user  nginx;
+worker_processes  1;
+events {
+    worker_connections  1024;
+}
+ 
+http {
+    
+    server {
+        listen       80;
+        server_name  localhost;
+ 
+        # group1为该Storage Server所在的group
+        location /group1/M00 { 
+            # 该Storage Server的data目录
+            root /mnt/fastdfs/data;
+            # 由于fastdfs保存的文件名已经编码，源文件名将丢失，应用可通过在请求url后加oname参数指定源文件名
+            if ($arg_oname != ''){
+                add_header Content-Disposition "attachment;filename=$arg_oname";
+            }
+            # 调用nginx-fastdfs-module模块
+            ngx_fastdfs_module;
+        }
+    }
+}
+    {% endhighlight %}
+    {% highlight shell %}
+# 启动nginx，logs/error.log没有错误，即启动成功
+/usr/local/nginx/sbin/nginx
+    {% endhighlight %}
+    <div class="item">
+        在其他服务器上安装用于<span class="highlight">图片文件负载</span>的<span class="highlight">nginx</span>：
+    </div>
+	{% highlight shell %}
+# 安装过程同上，只是不需要配置和安装fastdfs-nginx-module模块
+{% endhighlight %}
+{% highlight shell %}
+# 最简配置/usr/local/nginx/conf/nginx.conf
+user  nginx;
+worker_processes  1;
+events {
+    worker_connections  1024;
+}
+ 
+http {
+    
+	# group1的Storage集群
+	upstream group1_cluster {
+	    server 10.112.88.106;
+	    server 10.112.88.109;
+	    server 10.112.88.151;
+	}
+
+	# group2的Storage集群
+	upstream group2_cluster {
+	    server 10.112.88.153;
+	    server 10.112.88.158;
+	}
+
+	server {
+	    listen       80;
+	    server_name  10.112.88.105;
+
+	    location /group1 {
+	        proxy_pass              http://group1_cluster;
+	        proxy_set_header        X-Real-IP $remote_addr;
+	        proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+	        proxy_set_header        Host $http_host;
+	    }
+
+	   location /group2 {
+	        proxy_pass              http://group2_cluster;
+	        proxy_set_header        X-Real-IP $remote_addr;
+	        proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+	        proxy_set_header        Host $http_host;
+	    }
+	}
+}
+	{% endhighlight %}
+	<div class="item">
+        下面是一种可供参考的<span class="highlight">图片文件服务器部署策略</span>：
+    </div>
+    <div align="center">
+    	<img src="{{site.url}}/images/fastdfs/prod-fdfs-cluster.png" width="80%">	
+    </div>
+    <li>
+		<h2>FastDFS的一些运行机制</h2>
+	</li>
+	<li>
+		<h3>Client与Tracker通讯</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Client</span>大部分的操作过程都是要先查询<span class="highlight">Tracker Server</span>，<span class="highlight">Tracker Server</span>返回<span class="highlight">目标Storage IP</span>，然后<span class="highlight">Client</span>再连接到该<span class="highlight">Storage Server</span>，执行具体的操作。
+	</p>
+	<div class="item">
+        上传文件时，如何选择<span class="highlight">Storage Group</span>，<span class="highlight">Storage Server</span>及<span class="highlight">Storage Path</span>：
+    </div>
+	{% highlight shell %}
+# 上传时如何选择 Storage Group
+# 0: 轮询，这对于后期扩展group时，会有存储容量不均匀等问题，
+# 1: 制定group名称，
+# 2: 负载均衡, 选择空闲空间(group内空闲存储空间最小的Storage Server)最大的存储group，这比较适合后期扩展group，但扩展时最好能多于1个组，避免单个组的负载太大
+store_lookup=2
+# 选择哪一个存储group，当store_lookup=1时，须指定存储group的名称
+store_group=group2
+	{% endhighlight %}
+	{% highlight shell %}
+# 上传时如何选择 Storage Server
+# 0: 轮询，这是比较常用的策略
+# 1: 以ip地址排序的第一个地址
+# 2: 以优先级排序，优先级可在storage.conf中配置
+store_server=0
+	{% endhighlight %}
+	{% highlight shell %}
+# 上传时如何选择 Storage Path
+# 0: 轮询
+# 2: 负载均衡, 选择空闲空间最大的路径来存储文件
+store_path=0
+	{% endhighlight %}
+	<p class="wrap">
+		除上述策略外，<span class="highlight">Storage Server</span>需满足两个条件，才能最终被选择：<span class="highlight">Storage Server</span>的状态为<span class="highlight">ACTIVE</span>，及<span class="highlight">Storage Server</span>的<span class="highlight">空闲空间</span>大于配置的<span class="highlight">预留空间</span>。
+	</p>
+	<div class="item">
+        下载文件时，如何选择<span class="highlight">Storage Server</span>：
+    </div>
+	<p class="wrap">
+		<span class="highlight">Client</span>下载时，需要传入对应的<span class="highlight">group</span>，因此只需再选择其中一个<span class="highlight">Storage Server</span>：
+	</p>
+	{% highlight shell %}
+# 下载时如何选择 Storage Server
+# 0: 轮询
+# 1: 选择该文件上传时的源Storage Server，从文件ID中可以反解析出
+download_server=0
+	{% endhighlight %}
+	<div class="item">
+        删除文件时，策略同下载文件。
+    </div>
+
+    <li>
+    	<h3>同组Storage之间的文件同步</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">FastDFS</span>通过在<span class="highlight">同组内的多个Storage Server同步文件</span>来保证系统的<span class="highlight">容错性(Fault Tolerance)</span>。当<span class="highlight">Storage Server</span>启动时，会为同组内的其他<span class="highlight">Storage Server</span>分别开启一个线程，进行文件同步。<span class="highlight">文件同步</span>主要通过<span class="highlight">binlog</span>来实现，该文件被放置在<span class="highlight">/path/to/storage_data_path/sync</span>下：
+    </p>
+    {% highlight shell %}
+# Storage Server(10.112.88.106)    
+ll /mnt/fastdfs/data/sync
+total 24
+-rw-r--r-- 1 root root  130 May 10 18:15 10.112.88.109_23000.mark
+-rw-r--r-- 1 root root  130 May 10 18:15 10.112.88.151_23000.mark
+-rw-r--r-- 1 root root 9722 May 10 18:15 binlog.000
+-rw-r--r-- 1 root root    1 May 06 17:50 binlog.index
+    {% endhighlight %}
+    {% highlight shell %}
+cat binlog.index
+0
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">binlog.index</span>中记录了当前<span class="highlight">binlog文件</span>的索引号，如<span class="highlight">0表示binlog.000，1表示binlog.001</span>。
+    </p>
+    {% highlight shell %}
+cat binlog.000
+1462789147 C M00/00/00/CnBYalc5npuANWf2AAAALHr0pq04296.sh
+1462799147 c M00/00/00/CnBYbVc7ygaAWBVsAAxRqMiPPm805.docx
+1462789147 c M00/00/00/CnBYl1c7ywuAJmkjAAxRqMiPPm827.docx
+1462789147 C M00/00/00/CnBYalc757uAQmahAAAAK4C4i08968.png
+1462789147 c M00/00/00/CnBYbVc8AaOAL78UAAADvvLPPRA782.log
+...
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">binlog.000</span>中则记录了各项操作，如第一行：
+    </p>
+    <table class="ui celled teal small table">
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">1462789147</span>
+                </td>   
+                <td>
+                    <span class="highlight">操作的时间戳</span>。
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">C</span>
+                </td>   
+                <td>
+                    <span class="highlight">操作类型</span>。其中<span class="highlight">大写字母</span>的操作表示为<span class="highlight">源操作</span>，span class="highlight">小写字母</span>的操作表示为<span class="highlight">备份操作</span>(由同组其他<span class="highlight">Storage Server</span>同步的操作)，如：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                        	<span class="highlight">C</span>表示源创建、<span class="highlight">c</span>表示备份创建；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">A</span>表示源追加、<span class="highlight">a</span>表示备份追加；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">D</span>表示源删除、<span class="highlight">d</span>表示备份删除；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">U</span>表示源更新(如元数据)、<span class="highlight">u</span>表示备份更新；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">M</span>表示源修改(部分修改)、<span class="highlight">m</span>表示备份修改；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">T</span>表示源截取、<span class="highlight">t</span>表示备份截取；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">L</span>表示源创建符号链接、<span class="highlight">l</span>表示备份创建符号链接；
+                        </div>
+                    </div>
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">
+                    	M00/00/00/CnBYalc5npuANW<br>f2AAAALHr0pq04296.sh
+                    </span>
+                </td>   
+                <td>
+                    <span class="highlight">文件ID</span>。文件ID由以下几部分组成：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                        	<span class="highlight">M00</span>：<span class="highlight">Storage Server</span>配置的虚拟路径，与选项<span class="highlight">store_path*</span>对应；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">/00/00</span>：<span class="highlight">Storage Server</span>在每个虚拟磁盘路径下创建的两级目录；
+                        </div>
+                        <div class="item">
+                        	<span class="highlight">CnBYalc5npuANWf2AAAALHr0pq04296.sh</span>：由<span class="highlight">Storage Server</span>生成，其中包括<span class="highlight">源Storage Server IP</span>，<span class="highlight">文件创建时间戳</span>，<span class="highlight">文件大小</span>，<span class="highlight">crc32码</span>及<span class="highlight">文件扩展名</span>。
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="wrap">
+    	还有比较重要<span class="highlight">mark文件</span>，该文件描述了<span class="highlight">当前Storage Server</span>同步源操作到<span class="highlight">同组内其他Storage Server</span>的进度：
+    </p>
+    {% highlight shell %}
+cat 10.112.88.109_23000.mark
+binlog_index=0 			# 同步的binlog文件索引号
+binlog_offset=9722		# 同步完的binlog文件位置
+need_sync_old=1			# 本机器曾作为10.112.88.109的源机器
+sync_old_done=1			# 源同步已完成
+until_timestamp=1463393441
+scan_row_count=167
+sync_row_count=56
+    {% endhighlight %}
+    <p class="wrap">
+    	从该文件中可以知道，当前同步给<span class="highlight">10.112.88.109</span>这台<span class="highlight">Storage Server</span>的binlog文件为<span class="highlight">binlog.000</span>，已同步到偏移量为<span class="highlight">9722</span>的位置，恰好为<span class="highlight">binlog.000</span>的文件大小，说明已经完全同步。<span class="highlight">need_sync_old</span>表示是否需要同步旧文件给对方，<span class="highlight">sync_old_done</span>表示若需要同步旧文件，那么旧文件是否同步完成，<span class="highlight">until_timestamp</span>表示源主机同步的操作截止时间，<span class="highlight">scan_row_count</span>表示扫描过的操作记录行数，<span class="highlight">sync_row_count</span>表示同步完的操作记录行数，
+    </p>
+
+    <li>
+    	<h3>文件同步延迟问题</h3>
+    </li>
+    <p class="wrap">
+    	当用户上传文件后，还未完全同步到同组内其他<span class="highlight">Storage Server</span>时，那么用户下载文件时，如何避免文件同步延迟问题呢？
+    	一个最简单的解决办法则是，优先选择<span class="highlight">源Storage Server</span>下载文件即可，这可以在<span class="highlight">Tracker Server</span>的配置文件中设置，对应的参数名为<span class="highlight">download_server</span>。另外一种选择<span class="highlight">Storage Server</span>的方法是<span class="highlight">轮询选择(round-robin)</span>，当<span class="highlight">Client</span>询问<span class="highlight">Tracker Server</span>时，有哪些<span class="highlight">Storage Server</span>可以下载指定文件呢？<span class="highlight">Tracker Server</span>将返回满足如下四个条件之一的<span class="highlight">Storage Server</span>：
+    </p>
+    <ul>
+    	<li>
+    		1. 该<span class="highlight">Storage Server</span>是该文件的<span class="highlight">源Storage Server</span>，<span class="highlight">文件ID</span>中可以解析出其<span class="highlight">源Storage Server IP</span>；
+    	</li>
+    	<li>
+    		2. 文件的<span class="highlight">创建时间戳</span> < <span class="highlight">Storage Server</span>被同步到的<span class="highlight">文件时间戳</span>，这意味着该文件已经同步了该<span class="highlight">Storage Server</span>上。
+    	</li>
+    	<li>
+    		3. 文件的<span class="highlight">创建时间戳</span> = <span class="highlight">Storage Server</span>被同步到的<span class="highlight">文件时间戳</span>，且<span class="highlight">(当前时间—文件创建时间戳)</span> > <span class="highlight">一个文件同步完成需要的最大时间</span>(可配置<span class="highlight">storage_sync_file_max_time</span>，如5分钟)；
+    	</li>
+    	<li>
+    		4. <span class="highlight">(当前时间 — 文件创建时间戳)</span> > <span class="highlight">文件同步延迟阈值</span>(可配置<span class="highlight">storage_sync_file_max_delay</span>，比如把阈值设置为1天，表示文件同步在1天内肯定可以完成)。
+    	</li>
+    </ul>
+    <p class="wrap">
+    	那么<span class="highlight">Tracker Server</span>如何知道各组内<span class="highlight">Storage Server</span>之间的同步进度呢，<span class="highlight">Storage Server</span>会为每个<span class="highlight">Tracker Server</span>分别开启一个线程，将同步信息报道给<span class="highlight">Tracker Server</span>，其中当前<span class="highlight">Storage Server</span>被同步的最近时间戳为<span class="highlight">同组内其他Storage Server同步的最小时间戳</span>，如一组内有Storage-A、Storage-B、Storage-C三台机器，B最后同步给A的Binlog-timestamp为100，C最后同步给A的Binlog-timestamp为200，那么A机器的被同步最小时间戳就为100。<span class="highlight">Tracker Server</span>会将该信息记录到<span class="highlight">storage_sync_timestamp.dat</span>文件中：
+    </p>
+    {% highlight python %}
+# cat /mnt/fastdfs/data/storage_sync_timestamp.dat
+group1,10.112.88.106,0,1463739193,1463739193
+group1,10.112.88.109,1463739283,0,1463739283
+group1,10.112.88.151,1463739079,1463739079,0
+group2,10.112.88.158,0,1463815913
+group2,10.112.88.153,1463815051,0
+    {% endhighlight %}
+    <p class="wrap">
+    	如第一行，在组group1内，<span class="highlight">10.112.88.106</span>这台<span class="highlight">Storage Server</span>同步给<span class="highlight">10.112.88.109</span>的最后时间戳为<span class="highlight">1463739193</span>，同步给<span class="highlight">10.112.88.151</span>的最后时间戳为<span class="highlight">1463739193</span>，而第一个0表示自己同步自己。那么从第三列可以看出，<span class="highlight">10.112.88.106</span>被同步的最小时间戳为<span class="highlight">1463739079</span>。上述文件<span class="highlight">storage_sync_timestamp.dat</span>，并不会被实时更新(当<span class="highlight">Tracker Server</span>重启时会更新)，<span class="highlight">Storage Server</span>同步信息会实时在<span class="highlight">Tracker Server</span>内存中，可通过<span class="highlight">fdfs_monitor</span>查看。
+    </p>
+	
+    <li>
+    	<h3>集群扩展</h3>
+    </li>
+    <li>
+    	<h4>增加Storage Group</h4>
+    </li>
+    <p class="wrap">
+    	增加<span class="highlight">Storage Group</span>将直接对集群进行<span class="highlight">容量扩展</span>。这也是后期维护比较常见的操作，新组添加进来后，若配置了<span class="highlight">store_lookup=2</span>时，新加入的组将在一段时间内成为文件上传的单点，有可能对性能有所下降，比较建议在新加组时，能添加1个以上的组。
+    </p>
+    <li>
+    	<h4>增加Storage Server</h4>
+    </li>
+    <p class="wrap">
+    	在同组内添加<span class="highlight">Storage Server</span>后，将会开启一个叫<span class="highlight">源同步</span>的过程，也就是从组内现有的一台机器(这台机器称为<span class="highlight">源机器</span>)上同步历史数据到新机器的过程。
+    </p>
+    <div class="item">
+    	<span class="highlight">源机器</span>选择：
+    </div>
+    <p class="wrap">
+    	当<span class="highlight">Storage Server</span>是首次加入组时，会向<span class="highlight">Tracker Server集群</span>中的一个发送<span class="highlight">TRACKER_PROTO_CMD_STORAGE_SYNC_DEST_REQ(87)</span>命令，向<span class="highlight">Tracker Server</span>查询，由同组内哪一台<span class="highlight">Storage Server</span>作为源机器。当<span class="highlight">Tracker Server</span>收到该请求后，根据当前组内的机器状态，若组内没有机器，则告诉新机器不需要进行源同步；若组内有机器但是没有状态为<span class="highlight">ACTIVE</span>的机器，那么返回一个错误，新机器将睡眠后重试；若组内有机器并且有状态为<span class="highlight">ACTIVE</span>的机器，那么选择一台作为其源，返回两个值：<span class="highlight">当前时间作为源同步截止时间</span>与<span class="highlight">源机器IP</span>，新机器将该信息记录在本地(<span class="highlight">/mnt/fastdfs/data/.data_init_flag</span>)，同时将自己状态设置成<span class="highlight">WAIT_SYNC</span>：
+    </p>
+    {% highlight python %}
+# cat /mnt/fastdfs/data/.data_init_flag
+storage_join_time=1463393440 	# 加入集群的时间戳
+sync_old_done=1				 	# 已完成获取源主机的操作
+sync_src_server=10.112.88.106	# 源机器IP
+sync_until_timestamp=1463393441	# 源同步截止时间
+last_ip_addr=10.112.88.109
+last_server_port=23000
+last_http_port=8888
+current_trunk_file_id=0
+trunk_last_compress_time=0
+    {% endhighlight %}
+    <div class="item">
+    	<span class="highlight">源同步</span>过程：
+    </div>
+    <p class="wrap">
+    	对于源机器，如<span class="highlight">10.112.88.106</span>，通过与<span class="highlight">Tracker Server</span>通讯，得知有新机器加入，如<span class="highlight">10.112.88.109</span>，于是启动一个线程与<span class="highlight">10.112.88.109</span>进行通讯；再通过<span class="highlight">Tracker Server</span>查询<span class="highlight">10.112.88.109</span>的<span class="highlight">源机器IP</span>和<span class="highlight">源同步截止时间</span>，发现自己是其源机器，并在本地创建<span class="highlight">10.112.88.109_23000.mark</span>，并写入<span class="highlight">need_sync_old=1; sync_old_done=0; util_timestamp = 查询到的源同步截止时间</span>；接着请求<span class="highlight">Tracker Server</span>将<span class="highlight">10.112.88.109</span>的状态设置成<span class="highlight">SYNING</span>，然后开始读取<span class="highlight">binlog</span>中的源操作同步给<span class="highlight">10.112.88.109</span>，直到在某一个时刻，取不到更多的<span class="highlight">binlog</span>时，请求<span class="highlight">Tracker Server</span>将<span class="highlight">10.112.88.109</span>状态设置成<span class="highlight">OFFLINE</span>，此时源同步完成；在下一个心跳中，<span class="highlight">Tracker Server</span>会将<span class="highlight">10.112.88.109</span>状态设置成<span class="highlight">ACTIVE</span>。
+    </p>
+    <p class="wrap">
+    	对于非源机器，如<span class="highlight">10.112.88.151</span>，也会在本地创建<span class="highlight">10.112.88.109_23000.mark</span>，并写入<span class="highlight">need_sync_old=0; sync_old_done=0; util_timestamp = 0</span>；此时，并不会对<span class="highlight">10.112.88.109</span>进行同步操作，而会等等待<span class="highlight">10.112.88.109</span>状态为<span class="highlight">ACTIVE</span>后，才开始同步操作。
+    </p>
+       
+    <li>
+        <h2>总结</h2>
+    </li>   
+    <p class="wrap">
+    	以上，则是关于<span class="highlight">FastDFS</span>的一些实践，对于一些图片，文件的存储，也算是一种比较轻量的解决方案。
+    </p>
+
+    <li>
+        <h2>参考文献</h2>
+    </li>
+    <p class="wrap">
+    	<a href="http://tech.uc.cn/?p=221">http://tech.uc.cn/?p=221</a>
+    	<br><a href="http://blog.csdn.net/hfty290/article/details/42064429" target="_blank">http://blog.csdn.net/hfty290/article/details/42064429</a>
+        <br><a href="http://blog.csdn.net/hfty290/article/details/42041155">http://blog.csdn.net/hfty290/article/details/42041155</a>
+        <br><a href="http://blog.csdn.net/hfty290/article/details/42041953">http://blog.csdn.net/hfty290/article/details/42041953</a>
+        <br><a href="http://blog.csdn.net/hfty290/article/details/42030339">http://blog.csdn.net/hfty290/article/details/42030339</a>
+    </p>
+</ul>
