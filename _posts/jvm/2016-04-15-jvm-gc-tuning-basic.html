@@ -1,0 +1,1391 @@
+---
+title : JVM GC调优基础
+category : [jvm]
+tags : [jvm, gc, tuning]
+layout : post
+show : 1
+keywords: jvm,gc,gc tuning,gc调优
+---
+
+<ul>
+    <p class="intro">
+        随着Java应用地运行，可能会出现一系列性能问题，如<span class="highlight">系统吞吐量低</span>，<span class="highlight">系统延迟高</span>等，这些通常会直接影响用户体验，造成用户流失，严重时，系统将会崩溃，为了避免这样的情况发生在线上，通常会在上线系统前作一些指标测试，如<span class="highlight">吞吐量</span>，<span class="highlight">延迟</span>等，当然影响这些指标的因素可能会有很多，如<span class="highlight">计算复杂度</span>，<span class="highlight">网络问题</span>，但本文将仅从JVM的垃圾收集调优讲起。
+    </p>
+
+
+    <li>
+    	<h2>性能指标</h2>
+    </li>
+    <p class="wrap">
+        通常，在<span class="highlight">系统调优</span>中，都会涉及几个指标:
+    </p>
+    <table class="ui celled teal small table">
+        <thead>
+            <tr>
+                <th class="center aligned" width="30%">指标项</th>
+                <th>描述</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">延迟时间(Latency)</span>
+                </td>   
+                <td>
+                    <span class="highlight">延迟时间</span>指的是完成一个操作所需要的时间。
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">吞吐量(Throughput)</span>
+                </td>   
+                <td>
+                    <span class="highlight">吞吐量</span>指的是单位时间内完成了多少次某项操作。
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">容量(Capacity)</span>
+                </td>   
+                <td>
+                    <span class="highlight">容量</span>指的是完成某项操作使用的资源容量。
+                </td>   
+            </tr>
+        </tbody>
+    </table>
+
+    <li>
+        <h2>垃圾收集(GC)中的性能指标</h2>
+    </li>
+    <li>
+        <h3>延迟时间(Latency)</h3>
+    </li>
+    <p class="wrap">
+        在日常开发中，经常会有这样的需求，<span class="highlight">要求用户的某个操作，必须在1秒内得到响应</span>，这个时候首先需要确认的是，<span class="highlight">垃圾收集(GC)</span>造成的暂停时间是否占用得过多，若<span class="highlight">GC</span>造成的暂停时间仅几十毫秒，则可以尝试从其他层面去作优化处理，比如<span class="highlight">外部数据源</span>，<span class="highlight">锁争用</span>等问题，事实证明，这些问题可能会比<span class="highlight">GC问题</span>出现得更多。假设，现在的性能需求是：<span class="highlight">90%的操作的响应时间必须小于1000ms，没有任何操作的响应时间大于10000ms</span>，并假设<span class="highlight">GC停顿占用的时间不能超过10%</span>，即<span class="highlight">90%的GC暂停时间不能超过100ms，没有一次GC的暂停时间超过1000ms</span>。如下面的GC日志：
+    </p>
+    {% highlight java %}
+[Full GC (Ergonomics) [PSYoungGen: 93677K- >70109K(254976K)] [ParOldGen: 499597K->511230K(761856K)] 593275K->581339K(1016832K), [Metaspace: 2936K->2936K(1056768K)], 0.0713174 secs] [Times: user=0.21 sys=0.02, real=0.07 secs
+    {% endhighlight %}
+    <p class="wrap">
+        本次GC的暂停时间为<span class="highlight">0.0713174 secs</span>，尽管耗费的总CPU时间为<span class="highlight">0.21 secs</span>，但我们更专注的是<span class="highlight">应用暂停时间</span>，由于采用的是<span class="highlight">并行垃圾收集器</span>，真实耗时仅<span class="highlight">0.07 secs</span>，满足了延迟性能需求。
+    </p>
+    <li>
+        <h3>吞吐量(Throughput)</h3>
+    </li>
+    <p class="wrap">
+        与<span class="highlight">延迟时间</span>不同，<span class="highlight">吞吐量</span>更关注<span class="highlight">垃圾收集(GC)</span>在应用运行时所<span class="highlight">占用的时间比</span>。假设，现在性能的需求是：<span class="highlight">系统每分钟处理1000次事务，要求GC占用的总时间不能超过10%，即6s</span>。如上面的GC日志，一次GC耗时<span class="highlight">0.07 secs</span>，若一分钟内的<span class="highlight">GC次数 * 70ms</span>不超过6000ms，也满足了吞吐量性能需求。
+    </p>
+    <li>
+        <h3>容量(Capacity)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">容量</span>要求对运行时环境作出更改(如<span class="highlight">调整内存大小</span>，<span class="highlight">限制成本</span>等)，以达到<span class="highlight">延迟</span>和<span class="highlight">吞吐量</span>的性能需求。
+    </p>
+
+	<li>
+    	<h2>参考文献</h2>
+    </li>
+	<p class="wrap">
+		<a href="https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/" target="_blank">https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/</a><br>
+        <a href="https://plumbr.eu/java-garbage-collection-handbook">https://plumbr.eu/java-garbage-collection-handbook</a>
+	</p>
+
+    <li>
+        <h2>
+            调优案例
+        </h2>    
+    </li>
+    <li>
+        <h3>代码示例</h3>
+    </li>
+    {% highlight java %}
+public class GCTuningTest implements Runnable {
+
+    private static ScheduledExecutorService executorService = Executors.newScheduledThreadPool(2);
+
+    private Deque<byte[]> deque;
+
+    private int objectSize;
+
+    private int queueSize;
+
+    public GCTuningTest(int objectSize, int ttl) {
+        this.deque = new ArrayDeque<>();
+        this.objectSize = objectSize;
+        this.queueSize = ttl * 1000;
+    }
+
+    @Override
+    public void run() {
+        for (int i = 0; i < 100; i++) {
+            deque.add(new byte[objectSize]);
+            if (deque.size() > queueSize) {
+                deque.poll();
+            }
+        }
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        // 每隔100ms，申请大小为0.2M的对象
+        executorService.scheduleAtFixedRate(new GCTuningTest(200 * 1024 * 1024 / 1000, 5), 0, 100, TimeUnit.MILLISECONDS);
+        // 每隔100ms，申请大小为0.05M的对象
+        executorService.scheduleAtFixedRate(new GCTuningTest(50 * 1024 * 1024 / 1000, 120), 0, 100, TimeUnit.MILLISECONDS);
+        TimeUnit.MINUTES.sleep(10);
+        executorService.shutdownNow();
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        通过以下VM参数，可看出类似的GC日志信息：
+    </p>
+    {% highlight java %}
+-Xms2g -Xmx2g -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps
+    {% endhighlight %}
+    {% highlight java %}
+2016-04-14T20:26:13.202-0800: 2.040: [GC [PSYoungGen: 525312K->87030K(612352K)] 525312K->489822K(2010624K), 0.2176960 secs] [Times: user=0.19 sys=0.55, real=0.22 secs] 
+2016-04-14T20:26:15.200-0800: 4.038: [GC [PSYoungGen: 612183K->87023K(612352K)] 1014975K->1006816K(2010624K), 0.3084190 secs] [Times: user=0.24 sys=0.63, real=0.30 secs] 
+2016-04-14T20:26:15.508-0800: 4.346: [Full GC [PSYoungGen: 87023K->0K(612352K)] [ParOldGen: 919793K->1006703K(1398272K)] 1006816K->1006703K(2010624K) [PSPermGen: 3183K->3181K(21504K)], 0.2024470 secs] [Times: user=0.09 sys=0.08, real=0.21 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        上面的GC日志表明，使用的是<span class="highlight">并行垃圾收集器(Parallel Garbage Collector)</span>，并且从日志可以看出，<span class="highlight">Young GC</span>和<span class="highlight">Full GC</span>耗时都比较长，达到了100ms级别，下面将从不同维度进行一些简单调优。
+    </p>
+    <li>
+        <h3>优化延迟时间(Latency)</h3>
+    </li>
+    <p class="wrap">
+        假如，现在需求是，大部分<span class="highlight">GC的暂停时间</span>必须小于100ms，最简单直接的做法，尝试将默认是<span class="highlight">并行垃圾收集器</span>改为<span class="highlight">CMS垃圾收集器</span>，即:
+    </p>
+    {% highlight java %}
+-Xms2g -Xmx2g -XX:+UseConcMarkSweepGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps
+    {% endhighlight %}
+    {% highlight java %}
+2016-04-14T20:34:29.573-0800: 40.386: [GC2016-04-14T20:34:29.573-0800: 40.386: [ParNew: 306602K->306602K(306688K), 0.0000340 secs]2016-04-14T20:34:29.573-0800: 40.386: [CMS: 1756394K->1756394K(1756416K), 0.0794200 secs] 2062997K->2062887K(2063104K), [CMS Perm : 3183K->3183K(21248K)], 0.0795220 secs] [Times: user=0.08 sys=0.00, real=0.08 secs] 
+2016-04-14T20:34:29.652-0800: 40.465: [GC [1 CMS-initial-mark: 1756394K(1756416K)] 2063041K(2063104K), 0.0007970 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-04-14T20:34:29.653-0800: 40.466: [CMS-concurrent-mark-start]
+2016-04-14T20:34:29.653-0800: 40.467: [Full GC2016-04-14T20:34:29.653-0800: 40.467: [CMS2016-04-14T20:34:29.667-0800: 40.480: [CMS-concurrent-mark: 0.014/0.014 secs] [Times: user=0.02 sys=0.00, real=0.01 secs] 
+ (concurrent mode failure): 1756394K->1756394K(1756416K), 0.0394660 secs] 2063041K->2063041K(2063104K), [CMS Perm : 3183K->3183K(21248K)], 0.0395070 secs] [Times: user=0.04 sys=0.00, real=0.04 secs] 
+2016-04-14T20:34:29.693-0800: 40.506: [Full GC2016-04-14T20:34:29.693-0800: 40.506: [CMS: 1756394K->1756394K(1756416K), 0.0256660 secs] 2063041K->2063041K(2063104K), [CMS Perm : 3183K->3183K(21248K)], 0.0257160 secs] [Times: user=0.03 sys=0.00, real=0.02 secs] 
+2016-04-14T20:34:31.720-0800: 42.534: [GC [1 CMS-initial-mark: 1756394K(1756416K)] 2063041K(2063104K), 0.0010680 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-04-14T20:34:31.722-0800: 42.535: [CMS-concurrent-mark-start]
+2016-04-14T20:34:31.736-0800: 42.549: [CMS-concurrent-mark: 0.014/0.014 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+2016-04-14T20:34:31.736-0800: 42.549: [CMS-concurrent-preclean-start]
+2016-04-14T20:34:31.748-0800: 42.562: [CMS-concurrent-preclean: 0.012/0.012 secs] [Times: user=0.02 sys=0.00, real=0.01 secs] 
+2016-04-14T20:34:31.749-0800: 42.562: [CMS-concurrent-abortable-preclean-start]
+2016-04-14T20:34:31.749-0800: 42.562: [CMS-concurrent-abortable-preclean: 0.000/0.000 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+2016-04-14T20:34:31.749-0800: 42.562: [GC[YG occupancy: 306646 K (306688 K)]2016-04-14T20:34:31.749-0800: 42.562: [Rescan (parallel) , 0.0022080 secs]2016-04-14T20:34:31.751-0800: 42.564: [weak refs processing, 0.0000270 secs]2016-04-14T20:34:31.751-0800: 42.564: [scrub string table, 0.0001950 secs] [1 CMS-remark: 1756394K(1756416K)] 2063041K(2063104K), 0.0024900 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+2016-04-14T20:34:31.751-0800: 42.564: [CMS-concurrent-sweep-start]
+2016-04-14T20:34:31.760-0800: 42.573: [CMS-concurrent-sweep: 0.008/0.008 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+2016-04-14T20:34:31.760-0800: 42.573: [CMS-concurrent-reset-start]
+2016-04-14T20:34:31.761-0800: 42.575: [CMS-concurrent-reset: 0.001/0.001 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        在<a href="/jvm/2016/03/15/jvm-gc-log.html" target="_blank">JVM各类GC日志剖析</a>一文中可知，在使用<span class="highlight">CMS垃圾收集器</span>时，<span class="highlight">Young GC阶段</span>和<span class="highlight">Old GC</span>的<span class="highlight">CMS-initial-mark</span>，<span class="highlight">CMS-initial-mark</span>，<span class="highlight">Rescan</span>，<span class="highlight">Remark</span>阶段是以<span class="highlight">Stop-The-World</span>的形式执行，这样的确降低不少<span class="highlight">GC的暂停时间</span>，但由于使用<span class="highlight">CMS</span>后，可能导致<span class="highlight">GC次数</span>上升，单位时间内，<span class="highlight">GC的总时间</span>或许会占用更多，因此<span class="highlight">延迟时间(Latency)</span>和<span class="highlight">吞吐量</span>这两个维度的性能指标本身就是相生相克，但对于面向用户的应用，通常更注重<span class="highlight">延迟时间</span>的性能指标。
+    </p>
+    <li>
+        <h3>吞吐量(Throughput)</h3>
+    </li>
+    <p class="wrap">
+        如上面所述，当使用<span class="highlight">并行垃圾收集器</span>(<span class="highlight">-XX:+UseParallelGC</span>)时，虽然每次<span class="highlight">GC</span>造成的<span class="highlight">应用暂停时间</span>增加，但单位时间内，<span class="highlight">GC次数</span>减少，<span class="highlight">GC的总时间</span>或许会占用更少，因此保证了<span class="highlight">更多的CPU时间在执行应用程序</span>，这种场景则比较适合<span class="highlight">非面向用户</span>的应用，如一些<span class="highlight">后台计算任务</span>，<span class="highlight">离线分析</span>应用等。
+    </p>
+    <li>
+        <h3>容量(Capacity)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">容量</span>作为应用的一些硬性限制，如<span class="highlight">内存</span>，<span class="highlight">CPU</span>等。针对<span class="highlight">容量调优</span>，作得较多可能就是调整<span class="highlight">JVM堆大小</span>，<span class="highlight">JVM堆分布</span>等，如当需要适当减少比较耗时的<span class="highlight">Full GC</span>次数，可以<span class="highlight">适当增大老年代</span>，又或者<span class="highlight">适当增加对象晋升年龄(-XX:MaxTenuringThreshold=n)</span>等。
+    </p>
+
+    <li>
+        <h2>常见的GC调优工具</h2>
+    </li>
+    <p class="wrap">
+        在进行<span class="highlight">GC性能优化</span>之前，通常需要借助一些工具来查看GC活动信息(如<span class="highlight">当前内存占用情况</span>，<span class="highlight">内存容量</span>，<span class="highlight">单个GC持续时间</span>，<span class="highlight">GC不同阶段的持续时间</span>等)，从而诊断GC如何影响应用程序的性能，下面将介绍一些常用的工具。
+    </p>
+    <li>
+        <h3>JMX API</h3>
+    </li>
+    <p class="wrap">
+        <a href="https://docs.oracle.com/javase/tutorial/jmx/index.html" target="_blank">JMX</a>作为最基本的获取GC信息的方式，其也是JVM暴露内部运行时状态的标准方式，开发人员可以在应用程序内部使用<span class="highlight">JMX API</span>，或者通过<span class="highlight">JMX Client</span>进行远程访问，比较熟悉的<span class="highlight">JMX Client</span>则是<a href="http://docs.oracle.com/javase/7/docs/technotes/guides/management/jconsole.html" target="_blank">JConsole</a>和<a href="" target="_blank">JVisualVM</a>(两者均通过安装对应的插件)，<span class="highlight">jdk7u40</span>之后有了另一个第三方工具<a href="http://www.oracle.com/technetwork/java/javaseproducts/mission-control/java-mission-control-1998576.html" target="_blank">Java Mission Control</a>(可通过<span class="highlight">jmc</span>命令运行)。为了通过<span class="highlight">JMX Client</span>远程连接到<span class="highlight">目标JVM进程</span>，需要在启动<span class="highlight">目标JVM进程</span>时，开启<span class="highlight">jmx远程端口</span>：
+    </p>
+    {% highlight java %}
+java -Dcom.sun.management.jmxremote.port=5432 -Dcom.sun.management.jmxremote.authenticate=false mainClass 
+    {% endhighlight %}
+    <p class="wrap">
+        初次运行<span class="highlight">jvisualvm</span>，需要安装MBean插件<span class="highlight">VisualVM-MBeans</span>，<span class="highlight">Mission Control</span>已经自带MBean插件：
+    </p>
+    <img src="{{site.url}}/images/jvm/jvisualvm.png" width="100%">
+    <img src="{{site.url}}/images/jvm/jmc.png" width="100%">
+    <p class="wrap">
+        在<span class="highlight">java.lang.GarbageCollector</span>目录下，能看到当前JVM正在使用的<span class="highlight">垃圾收集器</span>，并且还暴露了一些其他信息：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">CollectionCount</span>：该垃圾收集器运行的次数；
+        </div>
+        <div class="item">
+            <span class="highlight">CollectionTime</span>：所有GC事件累计的时间总和；
+        </div>
+        <div class="item">
+            <span class="highlight">LastGcInfo</span>：最近一次垃圾收集的相关信息，如持续时间，GC前后堆使用情况；
+        </div>
+        <div class="item">
+            <span class="highlight">MemoryPoolNames</span>：该垃圾收集器使用的内存区名称；
+        </div>
+        <div class="item">
+            <span class="highlight">Name</span>：该垃圾收集器的名称；
+        </div>
+        <div class="item">
+            <span class="highlight">ObjectName</span>：MBean的名称；
+        </div>
+        <div class="item">
+            <span class="highlight">Valid</span>：该垃圾收集器是否有效；
+        </div>
+    </div>
+
+    <li>
+        <h3>JVisualVM</h3>
+    </li>
+    <p class="wrap">
+        相比标准<span class="highlight">JMX Client</span>提供的JVM基本信息，<span class="highlight">JVisualVM</span>通过<span class="highlight">VisualGC</span>插件，能够实时获取<span class="highlight">不同区GC的详细信息</span>，如：
+    </p>
+    <img src="{{site.url}}/images/jvm/jvisualvm-visual-gc.png" width="100%">
+
+    <li>
+        <h3>jstat</h3>
+    </li>
+    <p class="wrap">
+        有些时候可能不能直接使用<span class="highlight">JConsole</span>，<span class="highlight">JVisualVM</span>等界面工具分析Java应用，这个时候<a href="https://docs.oracle.com/javase/8/docs/technotes/tools/unix/jstat.html" target="_blank">jstat</a>则可以发挥作用，其可以在命令直接监控JVM目标进程，并且提供较多可选项，如
+    </p>
+    <table class="ui celled teal small table" style="table-layout:fixed;">
+        <thead>
+            <tr>
+                <th class="center aligned" width="18%">可选项</th>
+                <th class="center aligned"  width="45%">样例</th>
+                <th class="center aligned">描述</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">class</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -class 7479 1000 5
+Loaded  Bytes  Unloaded  Bytes     Time
+1419  2754.9       10    16.4       0.37
+1419  2754.9       10    16.4       0.37
+1419  2754.9       10    16.4       0.37
+1419  2754.9       10    16.4       0.37
+1419  2754.9       10    16.4       0.37
+                    {% endhighlight %}
+                </td>
+                <td>
+                    类加载器相关的信息:
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">Loaded</span>：加载的类的数量；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Bytes</span>：加载的字节数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Unloaded</span>：卸载的类的数量；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Bytes</span>：卸载的字节数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Time</span>：执行类加载和卸载的耗费时间。
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">compiler</span>
+                </td>     
+                <td>
+                    {% highlight python %}
+jstat -compiler 7479 1000 5
+Compiled Failed Invalid   Time   FailedType FailedMethod
+      47      0       0     0.20          0
+      47      0       0     0.20          0
+      47      0       0     0.20          0
+      47      0       0     0.20          0
+      47      0       0     0.20          0
+                    {% endhighlight %}
+                </td>
+                <td>
+                    JIT编译器相关的信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">Compiled</span>：完成编译的次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Failed</span>：编译失败的次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Invalid</span>：编译非法的次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Time</span>：编译的时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FailedType</span>：编译失败的类型；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FailedMethod</span>：最近一次编译失败的类及其方法名。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gc</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gc 7479 1000 5
+S0C    S1C    S0U    S1U      EC       EU        OC         OU       PC     PU    YGC     YGCT    FGC    FGCT     GCT
+34048.0 34048.0  0.0   34009.2 272640.0 272637.5 1756416.0    1842.8   21248.0 8129.4     24    3.438  77      7.860   11.298
+34048.0 34048.0  0.0   34009.2 272640.0 272637.5 1756416.0    1842.8   21248.0 8129.4     24    3.438  77      7.860   11.298
+34048.0 34048.0  0.0   34009.2 272640.0 272637.5 1756416.0    1842.8   21248.0 8129.4     24    3.438  77      7.860   11.298
+34048.0 34048.0  0.0   34009.2 272640.0 272637.5 1756416.0    1842.8   21248.0 8129.4     24    3.438  77      7.860   11.298
+34048.0 34048.0  0.0   34009.2 272640.0 272637.5 1756416.0    1842.8   21248.0 8129.4     24    3.438  77      7.860   11.298
+                    {% endhighlight %}
+                </td>
+                <td>
+                    垃圾收集相关的信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">S0C</span>：Survivor 0区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1C</span>：Survivor 1区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S0U</span>：Survivor 0区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1U</span>：Survivor 1区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EC</span>：Eden区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EU</span>：Eden区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OC</span>：Old区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OU</span>：Old区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PC</span>：Perm区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PU</span>：Perm区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGCT</span>：Young GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGCT</span>：Full GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCT</span>：GC总时间。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gccapacity</span>
+                </td>    
+                <td>
+                        {% highlight ruby %}
+jstat -gccapacity 7479 1000 5
+NGCMN    NGCMX     NGC     S0C   S1C       EC      OGCMN      OGCMX       OGC         OC      PGCMN    PGCMX     PGC       PC     YGC    FGC
+340736.0 340736.0 340736.0 34048.0 34048.0 272640.0  1756416.0  1756416.0  1756416.0  1756416.0  21248.0  83968.0  21248.0  21248.0     24    77
+340736.0 340736.0 340736.0 34048.0 34048.0 272640.0  1756416.0  1756416.0  1756416.0  1756416.0  21248.0  83968.0  21248.0  21248.0     24    77
+340736.0 340736.0 340736.0 34048.0 34048.0 272640.0  1756416.0  1756416.0  1756416.0  1756416.0  21248.0  83968.0  21248.0  21248.0     24    77
+340736.0 340736.0 340736.0 34048.0 34048.0 272640.0  1756416.0  1756416.0  1756416.0  1756416.0  21248.0  83968.0  21248.0  21248.0     24    77
+340736.0 340736.0 340736.0 34048.0 34048.0 272640.0  1756416.0  1756416.0  1756416.0  1756416.0  21248.0  83968.0  21248.0  21248.0     24    77
+                    {% endhighlight %}
+                </td>
+                <td>
+                    分代容量及对应的区信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">NGCMN</span>：年轻代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">NGCMX</span>：年轻代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">NGC</span>：年轻代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S0C</span>：Survivor 0区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1C</span>：Survivor 1区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EC</span>：Eden区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OGCMN</span>：老年代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OGCMX</span>：老年代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OGC</span>：老年代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OC</span>：老年代的总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PGCMN</span>：永久代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PGCMX</span>：永久代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PGC</span>：永久代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PC</span>：永久代的总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数。
+                        </div>
+                    </div>
+                </td>  
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gccause</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gccause 8259 1000 5
+  S0     S1     E      O      P     YGC     YGCT    FGC    FGCT     GCT    LGCC                 GCC
+ 99.89   0.00 100.00   0.10  38.26     24    2.188    74    8.265   10.453 CMS Final Remark     No GC
+ 99.89   0.00 100.00   0.10  38.26     24    2.188    74    8.265   10.453 CMS Final Remark     No GC
+ 99.89   0.00 100.00   0.10  38.26     24    2.188    74    8.265   10.453 CMS Final Remark     No GC
+ 99.89   0.00 100.00   0.10  38.26     24    2.188    74    8.265   10.453 CMS Final Remark     No GC
+ 99.89   0.00 100.00   0.10  38.26     24    2.188    74    8.265   10.453 CMS Final Remark     No GC
+                    {% endhighlight %}
+                </td>
+                <td id="gc-cause">
+                    垃圾收集统计信息(类似gcutil)，及最近和当前的垃圾收集的触发事件信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">S0</span>：Survivor 0区的占用率；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1</span>：Survivor 1区的占用率；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">E</span>：Eden区的占用率；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">O</span>：Old区的占用率；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">P</span>：Perm区的占用率；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGCT</span>：Young GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGCT</span>：Full GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCT</span>：GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">LGCC</span>：最近一次GC的原因；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCC</span>：当前GC的原因。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcnew</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gcnew 8259 1000 5
+ S0C    S1C    S0U    S1U   TT MTT  DSS      EC       EU     YGC     YGCT
+34048.0 34048.0 34009.2    0.0  1   6 17024.0 272640.0 272637.5     24    2.188
+34048.0 34048.0 34009.2    0.0  1   6 17024.0 272640.0 272637.5     24    2.188
+34048.0 34048.0 34009.2    0.0  1   6 17024.0 272640.0 272637.5     24    2.188
+34048.0 34048.0 34009.2    0.0  1   6 17024.0 272640.0 272637.5     24    2.188
+34048.0 34048.0 34009.2    0.0  1   6 17024.0 272640.0 272637.5     24    2.188
+                    {% endhighlight %}
+                </td>
+                <td>
+                    年轻代相关的统计信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">S0C</span>：Survivor 0区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1C</span>：Survivor 1区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S0U</span>：Survivor 0区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1U</span>：Survivor 1区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">TT</span>：对象晋升阈值；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">MTT</span>：对象最大晋升阈值；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">DSS</span>：期望的Survivor区内存大小；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EC</span>：Eden区总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EU</span>：Eden区使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGCT</span>：Young GC总时间。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcnewcapacity</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gcnewcapacity 8938 1000 5
+NGCMN      NGCMX       NGC      S0CMX     S0C     S1CMX     S1C       ECMX        EC      YGC   FGC
+340736.0   340736.0   340736.0  34048.0  34048.0  34048.0  34048.0   272640.0   272640.0    19    63
+340736.0   340736.0   340736.0  34048.0  34048.0  34048.0  34048.0   272640.0   272640.0    19    63
+340736.0   340736.0   340736.0  34048.0  34048.0  34048.0  34048.0   272640.0   272640.0    19    63
+340736.0   340736.0   340736.0  34048.0  34048.0  34048.0  34048.0   272640.0   272640.0    19    63
+340736.0   340736.0   340736.0  34048.0  34048.0  34048.0  34048.0   272640.0   272640.0    19    63
+                    {% endhighlight %}
+                </td>
+                <td>
+                    年轻代大小及对应的空间信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">NGCMN</span>：年轻代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">NGCMX</span>：年轻代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">NGC</span>：年轻代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S0CMX</span>：Survivor 0区最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S0C</span>：Survivor 0区当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1CMX</span>：Survivor 1区最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">S1C</span>：Survivor 1区当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">ECMX</span>：Eden区总最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">EC</span>：Eden区当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcold</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gcold 8938 1000 5
+   PC       PU        OC          OU       YGC    FGC    FGCT     GCT
+ 21248.0   8128.9   1756416.0      1842.8     19    63    8.073    9.985
+ 21248.0   8128.9   1756416.0      1842.8     19    63    8.073    9.985
+ 21248.0   8128.9   1756416.0      1842.8     19    63    8.073    9.985
+ 21248.0   8128.9   1756416.0      1842.8     19    63    8.073    9.985
+ 21248.0   8128.9   1756416.0      1842.8     19    63    8.073    9.985
+                    {% endhighlight %}
+                </td>
+                <td>
+                    老年代及永久代相关的统计信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">PC</span>：永久代总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PU</span>：永久代使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OC</span>：老年代总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OU</span>：老年代使用内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGCT</span>：Full GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCT</span>：GC总时间。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcoldcapacity</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gcoldcapacity 8938 1000 5
+OGCMN       OGCMX        OGC         OC       YGC   FGC    FGCT     GCT
+1756416.0   1756416.0   1756416.0   1756416.0    19    63    8.073    9.985
+1756416.0   1756416.0   1756416.0   1756416.0    19    63    8.073    9.985
+1756416.0   1756416.0   1756416.0   1756416.0    19    63    8.073    9.985
+1756416.0   1756416.0   1756416.0   1756416.0    19    63    8.073    9.985
+1756416.0   1756416.0   1756416.0   1756416.0    19    63    8.073    9.985
+                    {% endhighlight %}
+                </td>
+                <td>
+                    老年代大小相关的信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">OGCMN</span>：老年代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OGCMX</span>：老年代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OGC</span>：老年代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">OC</span>：老年代的总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGCT</span>：Full GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCT</span>：GC总时间。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcpermcapacity</span>
+                </td>     
+                <td>
+                    {% highlight ruby %}
+jstat -gcpermcapacity 10090 1000 5
+PGCMN      PGCMX       PGC         PC      YGC   FGC    FGCT     GCT
+21504.0    83968.0    21504.0    21504.0     1     0    0.000    0.018
+21504.0    83968.0    21504.0    21504.0     1     0    0.000    0.018
+21504.0    83968.0    21504.0    21504.0     1     0    0.000    0.018
+21504.0    83968.0    21504.0    21504.0     1     0    0.000    0.018
+21504.0    83968.0    21504.0    21504.0     1     0    0.000    0.018
+                    {% endhighlight %}
+                </td>
+                <td>
+                    永久代大小相关的信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">PGCMN</span>：永久代的最小内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PGCMX</span>：永久代的最大内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PGC</span>：永久代的当前内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">PC</span>：永久代的总内存；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">YGC</span>：Young GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGC</span>：Full GC次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">FGCT</span>：Full GC总时间；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">GCT</span>：GC总时间。
+                        </div>
+                    </div>
+                </td> 
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">gcutil</span>
+                </td>   
+                <td>
+                    {% highlight ruby %}
+jstat -gcutil 10090 1000 5
+S0     S1     E      O      P     YGC     YGCT    FGC    FGCT     GCT
+0.00  76.07  66.31   0.01  72.84      1    0.018     0    0.000    0.018
+0.00  76.07  66.31   0.01  72.84      1    0.018     0    0.000    0.018
+0.00  76.07  66.31   0.01  72.84      1    0.018     0    0.000    0.018
+0.00  76.07  66.31   0.01  72.84      1    0.018     0    0.000    0.018
+0.00  76.07  66.31   0.01  72.84      1    0.018     0    0.000    0.018
+                    {% endhighlight %}
+                </td>
+                <td>
+                    垃圾收集相关的总结信息：可参见<a href="#gc-cause">gccause</a>的描述。
+                </td>   
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <span class="highlight">printcompilation</span>
+                </td>      
+                <td>
+                    {% highlight ruby %}
+jstat -printcompilation 10090 1000 5
+Compiled  Size  Type Method
+     219    533    1 java/util/concurrent/ConcurrentHashMap$Segment put
+     219    533    1 java/util/concurrent/ConcurrentHashMap$Segment put
+     219    533    1 java/util/concurrent/ConcurrentHashMap$Segment put
+     219    533    1 java/util/concurrent/ConcurrentHashMap$Segment put
+     219    533    1 java/util/concurrent/ConcurrentHashMap$Segment put
+                    {% endhighlight %}
+                </td>
+                <td>
+                    编译方法相关的信息：
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            <span class="highlight">Compiled</span>：完成的编译次数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Size</span>：方法的字节数；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Type</span>：编译类型；
+                        </div>
+                        <div class="item">
+                            <span class="highlight">Method</span>：编译的类及其方法名。
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <li>
+        <h3>GC logs</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">GC日志</span>作为跟踪GC活动最常用的手段，开发人员可以在启动Java应用前，配置GC日志文件，在<a href="/jvm/2016/03/15/jvm-gc-log.html" target="_blank">JVM各类GC日志剖析</a>一文中已分析了各类GC日志，可供参考：
+    </p>
+    {% highlight java %}
+-XX:+PrintGCTimeStamps -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:<filename>
+    {% endhighlight %}
+
+    <li>
+        <h3>hprof</h3>
+    </li>
+    <p class="wrap">
+        <a href="http://docs.oracle.com/javase/8/docs/technotes/samples/hprof.html" target="_blank">hprof</a>作为JDK自带的工具，可以用于收集<span class="highlight">CPU使用</span>和<span class="highlight">堆使用</span>信息，如:
+    </p>
+    {% highlight shell %}
+java -agentlib:hprof=heap=sites mainClass
+    {% endhighlight %}
+    <p class="wrap">
+        默认会在Java应用当前工作目录生成<span class="highlight">java.hprof.txt</span>文件：
+    </p>
+    {% highlight shell %}
+SITES BEGIN (ordered by live bytes) Thu May 19 21:11:59 2016
+          percent          live          alloc'ed  stack class
+ rank   self  accum     bytes objs     bytes  objs trace name
+    1 99.21% 99.21% 314006176 5987 1963803672 60017 307974 byte[]
+    2  0.03% 99.25%     98080   94     98080    94 302675 byte[]
+    3  0.02% 99.27%     70936   94     70936    94 302696 byte[]
+    4  0.01% 99.28%     39600  807     40112   819 302815 byte[]
+    5  0.01% 99.29%     37160  929     41800  1045 300316 java.util.LinkedHashMap$Entry
+    6  0.01% 99.30%     32736 1023     76288  2384 300070 java.util.HashMap$Entry
+SITES END
+    {% endhighlight %}
+    <p class="wrap">
+        可见，<span class="highlight">99.21%</span>的对象类型为<span class="highlight">byte[]</span>，可跟踪到<span class="highlight">TRACE 307974</span>：
+    </p>
+    {% highlight shell %}
+TRACE 307974:
+me.hao0.jvm.gc.GCTuningTest.run(GCTuningTest.java:33)
+java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:471)
+java.util.concurrent.FutureTask.runAndReset(FutureTask.java:304)
+java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.access$301(ScheduledThreadPoolExecutor.java:178)
+    {% endhighlight %}
+    <p class="wrap">
+        可以看到<span class="highlight">byte[]</span>在<span class="highlight">GCTuningTest</span>的33行被创建：
+    </p>
+    <img src="{{site.url}}/images/jvm/hprof-heap-demo.png">
+
+    <li>
+        <h2>一些典型的GC调优案例</h2>
+    </li>
+
+    <li>
+        <h3>分配率过高</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">分配率</span>指的是单位时间内，执行内存分配的次数，比如MB/sec。
+    </p>
+    <li>
+        <h4>如何测试分配率</h4>
+    </li>
+    {% highlight python %}
+0.291: [GC (Allocation Failure) [PSYoungGen: 33280K->5088K(38400K)] 33280K- >24360K(125952K), 0.0365286 secs] [Times: user=0.11 sys=0.02, real=0.04 secs]
+0.446: [GC (Allocation Failure) [PSYoungGen: 38368K->5120K(71680K)] 57640K- >46240K(159232K), 0.0456796 secs] [Times: user=0.15 sys=0.02, real=0.04 secs]
+0.829: [GC (Allocation Failure) [PSYoungGen: 71680K->5120K(71680K)] 112800K- >81912K(159232K), 0.0861795 secs] [Times: user=0.23 sys=0.03, real=0.09 secs]
+    {% endhighlight %}
+    <p class="wrap">
+        从上面的GC日志可以计算出对象分配率：
+    </p>
+    <table class="ui celled teal small table">
+        <thead>
+            <tr>
+                <th>GC事件</th>
+                <th>发生时刻</th>
+                <th>Young GC前</th>
+                <th>Young GC后</th>
+                <th>分配的内存大小</th>
+                <th>分配率</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    1st GC
+                </td>   
+                <td>
+                    291ms
+                </td> 
+                <td>
+                    33280KB
+                </td> 
+                <td>
+                    5088KB
+                </td>
+                <td>
+                    33280KB
+                </td>
+                <td>
+                    114MB/sec：[33280KB / 291ms]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    2nd GC
+                </td>   
+                <td>
+                    446ms
+                </td> 
+                <td>
+                    38368KB
+                </td> 
+                <td>
+                    5120KB
+                </td>
+                <td>
+                    33280KB
+                </td>
+                <td>
+                    215MB/sec：[33280KB / (446ms - 291ms)]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    3rd GC
+                </td>   
+                <td>
+                    829ms
+                </td> 
+                <td>
+                    71680KB
+                </td> 
+                <td>
+                    5120KB
+                </td>
+                <td>
+                    66560KB
+                </td>
+                <td>
+                    174MB/sec：[66560KB / (829ms - 446ms)]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    Total
+                </td>   
+                <td>
+                    829ms
+                </td> 
+                <td>
+                    N/A
+                </td> 
+                <td>
+                    N/A
+                </td>
+                <td>
+                    133120KB
+                </td>
+                <td>
+                    161MB/sec：[133120KB / 829ms]
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="wrap">
+        从上面的数据，可以看出内存分配率大概为161M/sec。那么<span class="highlight">内存分配率</span>与哪些因素相关呢？由于新对象都在年轻代的<span class="highlight">Eden</span>分配，因此可以判定<span class="highlight">内存分配率</span>会与<span class="highlight">Eden大小</span>有关，只要减少<span class="highlight">Minor GC次数</span>，应用线程有更多的时间的分配对象，因此适当增加<span class="highlight">Eden大小</span>(通过<span class="highlight">-XX:NewSize -XX:MaxNewSize & -XX:SurvivorRatio</span>等参数)是可以提升<span class="highlight">内存分配率</span>的。如下面的代码片段，当设置增加-XX:NewSize时，<span class="highlight">内存分配率</span>也得到提升:
+    </p>
+    {% highlight java %}
+import java.util.concurrent.locks.LockSupport;
+
+public class Boxing {
+
+    private static volatile Double sensorValue;
+
+    private static void readSensor() {
+        while(true) {
+            sensorValue = Math.random();
+        }
+    }
+
+    private static void processSensorValue(Double value) {
+        if(value != null) {
+            // Be warned: may take more than one usec on some machines, especially Windows
+            LockSupport.parkNanos(1000);
+        }
+    }
+
+    private static void initSensor() {
+
+        Thread sensorReader = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Boxing.readSensor();
+            }
+        });
+
+        sensorReader.setDaemon(true);
+        sensorReader.start();
+    }
+
+    public static void main(String[] args) {
+        int iterations = args.length > 0 ? Integer.parseInt(args[0]) : 1_000_000;
+
+        initSensor();
+
+        for(int i = 0; i < iterations; i ++) {
+            processSensorValue(sensorValue);
+        }
+    }
+}
+    {% endhighlight %}
+    <span class="highlight">
+        将JVM参数设置为<span class="highlight">-Xmx32m -XX:+PrintGCDetails -XX:+PrintGCTimeStamps</span>，运行程序后：
+    </span> 
+    {% highlight python %}
+0.262: [GC [PSYoungGen: 9216K->416K(10240K)] 9216K->416K(31744K), 0.0016750 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.278: [GC [PSYoungGen: 9632K->432K(10240K)] 9632K->432K(31744K), 0.0010580 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.293: [GC [PSYoungGen: 9648K->400K(10240K)] 9648K->400K(31744K), 0.0009980 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.309: [GC [PSYoungGen: 9616K->384K(10240K)] 9616K->384K(31744K), 0.0010410 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.324: [GC [PSYoungGen: 9600K->384K(10240K)] 9600K->384K(31744K), 0.0010620 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.340: [GC [PSYoungGen: 9600K->368K(10240K)] 9600K->368K(31744K), 0.0011530 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+0.356: [GC [PSYoungGen: 10096K->32K(10240K)] 10096K->372K(31744K), 0.0012630 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.373: [GC [PSYoungGen: 9760K->32K(10240K)] 10100K->372K(31744K), 0.0004440 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.387: [GC [PSYoungGen: 9248K->32K(10240K)] 9588K->372K(31744K), 0.0003680 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.402: [GC [PSYoungGen: 9248K->32K(10240K)] 9588K->372K(31744K), 0.0004320 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.416: [GC [PSYoungGen: 9248K->32K(10240K)] 9588K->372K(31744K), 0.0005660 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.431: [GC [PSYoungGen: 9248K->32K(10240K)] 9588K->372K(31744K), 0.0003950 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+... 
+    {% endhighlight %}
+    <p class="wrap">
+        可以看出<span class="highlight">Young GC</span>发生得十分频繁，每秒发生近70次，并且每次<span class="highlight">Young GC</span>后内存占用都很少，并为引起<span class="highlight">Full GC</span>，这导致<span class="highlight">GC时间增多</span>，从而应用吞吐量下降，需要降低GC次数，此时可以尝试增加堆大小，如<span class="highlight">-Xmx128m</span>：
+    </p>
+    {% highlight python %}
+0.196: [GC [PSYoungGen: 33792K->416K(38912K)] 33792K->416K(125952K), 0.0017080 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+0.250: [GC [PSYoungGen: 34208K->448K(38912K)] 34208K->448K(125952K), 0.0010780 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.309: [GC [PSYoungGen: 34240K->384K(38912K)] 34240K->384K(125952K), 0.0033450 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.367: [GC [PSYoungGen: 34176K->400K(38912K)] 34176K->400K(125952K), 0.0011970 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+0.419: [GC [PSYoungGen: 34192K->384K(38912K)] 34192K->384K(125952K), 0.0013190 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.471: [GC [PSYoungGen: 34176K->384K(38912K)] 34176K->384K(125952K), 0.0010080 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.530: [GC [PSYoungGen: 38784K->64K(38912K)] 38784K->408K(125952K), 0.0011870 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.590: [GC [PSYoungGen: 38464K->64K(43008K)] 38808K->408K(130048K), 0.0005810 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.659: [GC [PSYoungGen: 42048K->64K(43008K)] 42392K->408K(130048K), 0.0005950 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.733: [GC [PSYoungGen: 42048K->32K(43008K)] 42392K->376K(130048K), 0.0003790 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.796: [GC [PSYoungGen: 42016K->64K(43008K)] 42360K->408K(130048K), 0.0004490 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.862: [GC [PSYoungGen: 42048K->32K(43008K)] 42392K->376K(130048K), 0.0004920 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        可见，适当增加堆大小可以降低<span class="highlight">GC频率</span>，从而也会提高<span class="highlight">应用吞吐量</span>，但这可能并不会降低<span class="highlight">内存分配率</span>，应当使用之前的工具，如hprof，分析具体的对象实例，从程序级别减少对象分配。如上面的代码，之所以发生频繁GC，主要是<span class="highlight">sensorValue = Math.random()</span>不断地产生随机数，并装箱为<span class="highlight">Double类型</span>，若将sensorValue声明为<span class="highlight">double基本类型</span>，将不会产生新对象，仅仅是重写sensorValue的内存值，因此不会触发GC，当然对于这类情况，<span class="highlight">JIT</span>会通过<span class="highlight">逃逸分析技术</span>有可能做一些内部优化。
+    </p>
+
+    <li>
+        <h3>对象过早晋升</h3>
+    </li>
+    <p class="wrap">
+        对于<span class="highlight">对象晋升</span>，需要建立在<span class="highlight">晋升率</span>之上，即单位时间内从<span class="highlight">年轻代</span>晋升到<span class="highlight">老年代</span>的数据量，通常也是<span class="highlight">MB/sec</span>。对于存活时间长的对象，从<span class="highlight">年轻代</span>晋升到<span class="highlight">老年代</span>，这是正常的，但对于那些存活时间并不长的对象被提早晋升到<span class="highlight">老年代</span>时就需要注意了，这会导致<span class="highlight">老年代</span>内存占用增加过快，触发更多的<span class="highlight">Full GC</span>，影响应用吞吐量，这就是<span class="highlight">对象过早晋升</span>。
+    </p>
+    {% highlight python %}
+0.291: [GC (Allocation Failure) [PSYoungGen: 33280K->5088K(38400K)] 33280K- >24360K(125952K), 0.0365286 secs] [Times: user=0.11 sys=0.02, real=0.04 secs]
+0.446: [GC (Allocation Failure) [PSYoungGen: 38368K->5120K(71680K)] 57640K- >46240K(159232K), 0.0456796 secs] [Times: user=0.15 sys=0.02, real=0.04 secs]
+0.829: [GC (Allocation Failure) [PSYoungGen: 71680K->5120K(71680K)] 112800K- >81912K(159232K), 0.0861795 secs] [Times: user=0.23 sys=0.03, real=0.09 secs]
+    {% endhighlight %}
+    <p class="wrap">
+        如上面的GC日志，可以计算出对象晋升率：
+    </p>
+    <table class="ui celled teal small table">
+        <thead>
+            <tr>
+                <th>GC事件</th>
+                <th>发生时刻</th>
+                <th>年轻代占用减少</th>
+                <th>整个堆占用减少</th>
+                <th>对象晋升大小</th>
+                <th>对象晋升率</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="center aligned">
+                    1st GC
+                </td>   
+                <td>
+                    291ms
+                </td> 
+                <td>
+                    28192K
+                </td> 
+                <td>
+                     8920K
+                </td>
+                <td>
+                    19272K
+                </td>
+                <td>
+                    约66.2MB/sec：[19272K / 291ms]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    2nd GC
+                </td>   
+                <td>
+                    446ms
+                </td> 
+                <td>
+                    33248K
+                </td> 
+                <td>
+                    11400K
+                </td>
+                <td>
+                    21848K
+                </td>
+                <td>
+                    约140.95MB/sec：[21848K / (446ms - 291ms)]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    3rd GC
+                </td>   
+                <td>
+                    829ms
+                </td> 
+                <td>
+                    66560K
+                </td> 
+                <td>
+                    30888K
+                </td>
+                <td>
+                    35672KB
+                </td>
+                <td>
+                    约93.14MB/sec：[35672KB / (829ms - 446ms)]
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    Total
+                </td>   
+                <td>
+                    829ms
+                </td> 
+                <td>
+                    N/A
+                </td> 
+                <td>
+                    N/A
+                </td>
+                <td>
+                    76792K
+                </td>
+                <td>
+                    92.63MB/sec：[76792K / 829ms]
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="wrap">
+        如通过下面的代码片段：
+    </p>
+    {% highlight java %}
+public class PrematurePromotion {
+
+    private static final int MAX_CHUNKS = Integer.getInteger("max.chunks", 10_000);
+
+    private static final Collection<byte[]> accumulatedChunks = new ArrayList<>();
+
+    private static void onNewChunk(byte[] bytes) {
+        accumulatedChunks.add(bytes);
+
+        if (accumulatedChunks.size() > MAX_CHUNKS) {
+            processBatch(accumulatedChunks);
+            accumulatedChunks.clear();
+        }
+    }
+
+    public static void main(String[] args) {
+        while (true) {
+            onNewChunk(produceChunk());
+        }
+    }
+
+    private static byte[] produceChunk() {
+        byte[] bytes = new byte[1024];
+
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) (Math.random() * Byte.MAX_VALUE);
+        }
+
+        return bytes;
+    }
+
+    public static volatile byte sink;
+
+    public static void processBatch(Collection<byte[]> bytes) {
+        byte result = 0;
+
+        for (byte[] chunk : bytes) {
+            for (byte b : chunk) {
+                result ^= b;
+            }
+        }
+
+        sink = result;
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        设置JVM运行参数<span class="highlight">-Xmx24m -XX:NewSize=16m -XX:MaxTenuringThreshold=1 -XX:-UseAdaptiveSizePolicy -XX:+PrintGCDetails -XX:+PrintGCTimeStamps</span>：
+    </p> 
+    {% highlight python %}
+1.303: [Full GC [PSYoungGen: 2048K->0K(14336K)] [ParOldGen: 4702K->5347K(8192K)] 6750K->5347K(22528K) [PSPermGen: 3017K->3016K(21504K)], 0.0243080 secs] [Times: user=0.02 sys=0.00, real=0.03 secs] 
+1.771: [Full GC [PSYoungGen: 12288K->0K(14336K)] [ParOldGen: 5347K->7340K(8192K)] 17635K->7340K(22528K) [PSPermGen: 3016K->3016K(21504K)], 0.0144450 secs] [Times: user=0.02 sys=0.00, real=0.02 secs] 
+2.177: [Full GC [PSYoungGen: 12288K->1533K(14336K)] [ParOldGen: 7340K->7925K(8192K)] 19628K->9459K(22528K) [PSPermGen: 3016K->3016K(21504K)], 0.0097750 secs] [Times: user=0.02 sys=0.00, real=0.01 secs] 
+2.502: [Full GC [PSYoungGen: 12288K->2045K(14336K)] [ParOldGen: 7925K->8000K(8192K)] 20213K->10046K(22528K) [PSPermGen: 3016K->3016K(21504K)], 0.0104870 secs] [Times: user=0.02 sys=0.00, real=0.01 secs] 
+2.800: [Full GC [PSYoungGen: 12288K->2045K(14336K)] [ParOldGen: 8000K->8081K(8192K)] 20288K->10126K(22528K) [PSPermGen: 3016K->3016K(21504K)], 0.0100370 secs] [Times: user=0.03 sys=0.00, real=0.01 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        可以看到<span class="highlight">老年代</span>内存一直居高不下，导致<span class="highlight">Full GC</span>频率过高，因为不断有<span class="highlight">年轻代</span>对象晋升到了<span class="highlight">老年代</span>，这时需要适当增加年轻代大小试试：
+    </p>
+    {% highlight python %}
+-Xmx64m -XX:NewSize=32m -XX:MaxTenuringThreshold=1 -XX:-UseAdaptiveSizePolicy -XX:+PrintGCDetails -XX:+PrintGCTimeStamps
+0.906: [GC [PSYoungGen: 24576K->2934K(28672K)] 24576K->2942K(61440K), 0.0025130 secs] [Times: user=0.01 sys=0.01, real=0.00 secs] 
+1.739: [GC [PSYoungGen: 27510K->4096K(28672K)] 27518K->7179K(61440K), 0.0045100 secs] [Times: user=0.01 sys=0.01, real=0.00 secs] 
+2.491: [GC [PSYoungGen: 28672K->544K(28672K)] 31755K->3635K(61440K), 0.0004640 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+3.185: [GC [PSYoungGen: 25120K->4096K(28672K)] 28211K->7955K(61440K), 0.0016830 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+3.874: [GC [PSYoungGen: 28672K->4096K(28672K)] 32531K->13499K(61440K), 0.0043180 secs] [Times: user=0.01 sys=0.01, real=0.00 secs] 
+4.572: [GC [PSYoungGen: 28672K->3136K(28672K)] 38075K->12539K(61440K), 0.0010040 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+5.251: [GC [PSYoungGen: 27712K->4096K(28672K)] 37115K->17171K(61440K), 0.0030520 secs] [Times: user=0.00 sys=0.01, real=0.00 secs] 
+5.944: [GC [PSYoungGen: 28672K->1440K(28672K)] 41747K->14515K(61440K), 0.0006500 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+6.627: [GC [PSYoungGen: 26016K->4096K(28672K)] 39091K->18963K(61440K), 0.0023020 secs] [Times: user=0.01 sys=0.01, real=0.01 secs] 
+7.315: [GC [PSYoungGen: 28672K->4096K(28672K)] 43539K->25539K(61440K), 0.0044950 secs] [Times: user=0.01 sys=0.01, real=0.01 secs] 
+8.002: [GC [PSYoungGen: 28672K->4064K(28672K)] 50115K->25507K(61440K), 0.0013080 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+8.677: [GC [PSYoungGen: 28640K->4096K(28672K)] 50083K->30243K(61440K), 0.0035480 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+8.681: [Full GC [PSYoungGen: 4096K->0K(28672K)] [ParOldGen: 26147K->8701K(32768K)] 30243K->8701K(61440K) [PSPermGen: 3017K->3016K(21504K)], 0.0132600 secs] [Times: user=0.03 sys=0.01, real=0.01 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        这里，除了通过增加<span class="highlight">年轻代</span>内存大小，来降低对象晋升频率，还可以将<span class="highlight">max.chunks</span>减小也可以达到类似的目的，还有些情况可能需要，如<span class="highlight">年轻代</span>内存有较大空闲，但仍有对象晋升到<span class="highlight">老年代</span>，则有可能是对象太大或存活周期太大，可以关注下参数<span class="highlight">-XX:PetenureSizeThreshold</span>和<span class="highlight">-XX:MaxTenuringThreshold</span>。
+    </p>
+
+    <li>
+        <h3>Weak，Soft及Phantom引用</h3>
+    </li>
+    <p class="wrap">
+        还有一个会影响<span class="highlight">GC</span>的因素则是程序中的<span class="highlight">非强引用</span>，即<span class="highlight">软引用(Soft Ref)</span>，<span class="highlight">弱引用(Weak Ref)</span>及<span class="highlight">影子引用(Phantom Ref)</span>，它们具有各自的内存特性：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">软引用</span>：通过类<span class="highlight">SoftReference</span>来表示，它的作用是告诉垃圾回收器，程序中的这种对象不那么重要，当内存不足的时候(即<span class="highlight">JVM即将抛出OutOfMemoryError</span>时)，垃圾回收器会释放那些只被软引用所指向的对象，这隐含无疑会增加了<span class="highlight">GC的执行时间</span>，其非常适合用于<span class="highlight">缓存</span>。
+        </div>
+        <div class="item">
+            <span class="highlight">弱引用</span>：通过类<span class="highlight">WeakReference</span>来表示，它的作用是引用一个对象，但是并不阻止该对象被回收，。在垃圾回收器运行的时候，如果一个对象的所有引用都是弱引用的话，该对象会被回。常被用于集合类中，如<span class="highlight">WeakHashMap</span>。
+        </div>
+        <div class="item">
+            <span class="highlight">虚引用</span>：通过类<span class="highlight">PhantomReference</span>来表示，创建虚引用的时候必须要指定一个引用队列。当一个对象的<span class="highlight">finalize</span>方法已经被调用了之后，这个对象的虚引用会被加入到该队列中，通过检查该队列里面的内容就知道一个对象是不是已经准备要被回收了，主要用来实现比较精细的内存使用控制。
+        </div>
+    </div>
+    <p class="wrap">
+        运行下面的代码片段，看看<span class="highlight">WeakReference</span>如何影响GC：
+    </p>
+    {% highlight java %}
+public class WeakReferences {
+
+    private static final int OBJECT_SIZE           = Integer.getInteger("obj.size", 192);
+    private static final int BUFFER_SIZE           = Integer.getInteger("buf.size", 64 * 1024);
+    private static final boolean WEAK_REFS_FOR_ALL = Boolean.getBoolean("weak.refs");
+
+    private static Object makeObject() {
+        return new byte[OBJECT_SIZE];
+    }
+
+    public static volatile Object sink;
+
+    public static void main(String[] args) throws InterruptedException {
+
+        System.out.printf("Buffer size: %d; Object size: %d; Weak refs for all: %s%n", BUFFER_SIZE, OBJECT_SIZE, WEAK_REFS_FOR_ALL);
+
+        final Object substitute = makeObject(); // We want to create it in both scenarios so the footprint matches
+        final Object[] refs = new Object[BUFFER_SIZE];
+
+        System.gc(); // Clean up young gen
+
+        for (int index = 0;;) {
+            Object object = makeObject();
+            sink = object; // Prevent Escape Analysis from optimizing the allocation away
+
+            if (!WEAK_REFS_FOR_ALL) {
+                // 保证此时只会有一个对象被WeakReference引用
+                object = substitute;
+            }
+
+            refs[index++] = new WeakReference<>(object);
+
+            if (index == BUFFER_SIZE) {
+                // 标志对象可以被回收
+                Arrays.fill(refs, null);
+                index = 0;
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        运行该程序<span class="highlight">-Xmx24m -XX:NewSize=16m -XX:MaxTenuringThreshold=1 -XX:-UseAdaptiveSizePolicy -XX:+PrintGCDetails -XX:+PrintGCTimeStamps</span>：
+    </p>
+    {% highlight python %}
+0.146: [GC [PSYoungGen: 1731K->768K(14336K)] 1731K->768K(22528K), 0.0024160 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.148: [Full GC [PSYoungGen: 768K->0K(14336K)] [ParOldGen: 0K->703K(8192K)] 768K->703K(22528K) [PSPermGen: 3457K->3456K(21504K)], 0.0188450 secs] [Times: user=0.03 sys=0.00, real=0.02 secs] 
+0.194: [GC [PSYoungGen: 12288K->1632K(14336K)] 12991K->2335K(22528K), 0.0076960 secs] [Times: user=0.02 sys=0.00, real=0.01 secs] 
+0.211: [GC [PSYoungGen: 13920K->1216K(14336K)] 14623K->1927K(22528K), 0.0045920 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.221: [GC [PSYoungGen: 13504K->832K(14336K)] 14215K->1551K(22528K), 0.0041330 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+0.227: [GC [PSYoungGen: 13120K->384K(14336K)] 13839K->1103K(22528K), 0.0026100 secs] [Times: user=0.00 sys=0.00, real=0.00 secs] 
+0.232: [GC [PSYoungGen: 12672K->1696K(14336K)] 13391K->2799K(22528K), 0.0103530 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+0.246: [GC [PSYoungGen: 13984K->1664K(14336K)] 15087K->2767K(22528K), 0.0065740 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+0.257: [GC [PSYoungGen: 13952K->1216K(14336K)] 15055K->2319K(22528K), 0.0049490 secs] [Times: user=0.01 sys=0.00, real=0.01 secs] 
+0.264: [GC [PSYoungGen: 13504K->832K(14336K)] 14607K->1935K(22528K), 0.0031930 secs] [Times: user=0.01 sys=0.00, real=0.00 secs] 
+0.269: [GC [PSYoungGen: 13120K->416K(14336K)] 14223K->1519K(22528K), 0.0022340 secs] [Times: user=0.00 sys=0.00, real=0.01 secs] 
+0.274: [GC [PSYoungGen: 12704K->1696K(14336K)] 13807K->3183K(22528K), 0.0071170 secs] [Times: user=0.02 sys=0.00, real=0.00 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        由于<span class="highlight">WEAK_REFS_FOR_ALL=false</span>，object始终将被赋值为substitute，即最终所有WeakReference都指向同一个对象，其他申请的对象均为普通对象，因此这些对象将在<span class="highlight">Young GC</span>阶段被回收，这就造成了频繁的<span class="highlight">Young GC</span>。尝试将<span class="highlight">WEAK_REFS_FOR_ALL</span>打开，<span class="highlight">-Dweak.refs=true</span>：
+    </p>
+    {% highlight python %}
+0.402: [GC [PSYoungGen: 13504K->832K(14336K)] 19780K->8236K(22528K), 0.0089790 secs] [Times: user=0.02 sys=0.00, real=0.00 secs] 
+0.411: [Full GC [PSYoungGen: 832K->0K(14336K)] [ParOldGen: 7404K->8100K(8192K)] 8236K->8100K(22528K) [PSPermGen: 3459K->3459K(21504K)], 0.1004270 secs] [Times: user=0.17 sys=0.00, real=0.10 secs] 
+0.515: [Full GC [PSYoungGen: 12288K->204K(14336K)] [ParOldGen: 8100K->8175K(8192K)] 20388K->8380K(22528K) [PSPermGen: 3459K->3459K(21504K)], 0.0407580 secs] [Times: user=0.10 sys=0.01, real=0.04 secs] 
+0.559: [Full GC [PSYoungGen: 12288K->0K(14336K)] [ParOldGen: 8175K->7875K(8192K)] 20463K->7875K(22528K) [PSPermGen: 3459K->3459K(21504K)], 0.0506110 secs] [Times: user=0.11 sys=0.00, real=0.05 secs] 
+0.613: [Full GC [PSYoungGen: 12288K->0K(14336K)] [ParOldGen: 7875K->5160K(8192K)] 20163K->5160K(22528K) [PSPermGen: 3459K->3459K(21504K)], 0.0465770 secs] [Times: user=0.08 sys=0.00, real=0.04 secs] 
+0.663: [GC [PSYoungGen: 12288K->1216K(14336K)] 17448K->6376K(22528K), 0.0084050 secs] [Times: user=0.02 sys=0.00, real=0.00 secs] 
+    {% endhighlight %}
+    <p class="wrap">
+        这时，由于产生了很多WeakReference引用的对象，导致了偶尔频繁的<span class="highlight">Full GC</span>，日常开发这样使用<span class="highlight">WeakReference</span>是很常见的，比如用其作为<span class="highlight">Map</span>中的Key等，所以还得尝试增加堆大小，<span class="highlight">-Xmx64m -XX:NewSize=32m</span>，这将使得对象在<span class="highlight">Young GC</span>就被回收。若将上面的<span class="highlight">WeakReference</span>换为<span class="highlight">SoftReference</span>，理论上将导致更频繁的<span class="highlight">Full GC</span>，因为仅被<span class="highlight">SoftReference</span>所引用的对象，只会在<span class="highlight">OutOfMemoryError</span>之前被回收，可以通过<span class="highlight">-XX:+PrintReferenceGC</span>查看引用对象的收集情况。
+    </p>
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+        以上，则是有关JVM垃圾收集调优的基础，在调优之前，应事先明确应用性能是否由<span class="highlight">JVM GC</span>引起，确定后在通过相关工具，定位具体的<span class="highlight">GC问题所在</span>，再作参数调整和性能对比。以下是使用<span class="highlight">CMS</span>时的VM配置Demo，必要是使用<span class="highlight">G1</span>是不错的选择：
+    </p>
+    {% highlight python %}
+-server -Xms4096m -Xmx4096m -XX:MaxPermSize=512m -XX:+UseConcMarkSweepGC 
+-XX:CMSFullGCsBeforeCompaction=5        # 运行5次Full GC，进行一次内存压缩
+-XX:+UseCMSCompactAtFullCollection      # 打开对年老代的内存压缩
+-XX:CMSInitiatingOccupancyFraction=80   # 老年代占用80%后，启动GC
+    {% endhighlight %}
+
+    <li>
+        <h2>参考文献</h2>
+    </li>
+    <p class="wrap">
+        <a href="https://plumbr.eu/java-garbage-collection-handbook">https://plumbr.eu/java-garbage-collection-handbook</a>
+        <br><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/">https://docs.oracle.com/javase/8/docs/technotes/guides/vm/gctuning/</a>
+        <br><a href="https://docs.oracle.com/javase/tutorial/jmx/index.html">https://docs.oracle.com/javase/tutorial/jmx/index.html</a>
+        <br><a href="http://docs.oracle.com/javase/7/docs/technotes/guides/management/jconsole.html">http://docs.oracle.com/javase/7/docs/technotes/guides/management/jconsole.html</a>
+        <br><a href="http://docs.oracle.com/javase/7/docs/technotes/tools/share/jvisualvm.html">http://docs.oracle.com/javase/7/docs/technotes/tools/share/jvisualvm.html</a>
+        <br><a href="http://www.oracle.com/technetwork/articles/java/vmoptions-jsp-140102.html" target="_blank">http://www.oracle.com/technetwork/articles/java/vmoptions-jsp-140102.html</a>
+    </p>
+</ul>
