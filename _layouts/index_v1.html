@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+        <head>
+                {% include header.html %}
+                {% include custom_header.html %}
+        </head>
+        <body>
+        {% include sidebar.html %}
+        <div class="pusher">
+                {% include sidebar-toggle.html %}
+                <div class="ui grid">       
+                        {% include banner.html %} 
+                        <div class="row">
+                                <div class="two wide column">
+                                </div>
+                                <div class="twelve wide column">
+                                        {{ content }}
+                                </div>
+                                <div class="two wide column">   
+                                </div>
+                        </div>
+                </div>
+        </div>
+        </body>
+        {% include footer.html %}
+</html>

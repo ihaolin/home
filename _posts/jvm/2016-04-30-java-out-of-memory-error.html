@@ -1,0 +1,444 @@
+---
+title : OutOfMemoryError的几大症状
+category : [jvm]
+tags : [jvm, gc, OutOfMemoryError]
+layout : post
+show : 1
+keywords: jvm,java.lang.OutOfMemoryError
+---
+
+<ul>
+    <p class="intro">
+        不出意料，<span class="highlight">java.lang.OutOfMemoryError</span>可以算是Java应用中最常见的<span class="highlight">JVM错误</span>了，这类错误往往是Java堆没有足够的空间容纳新对象，但引起这类错误的原因还有诸多种，可能平时很少有缘分能相见，本文将探究其中几种引起该错误的场景，以备不时之需。
+    </p>
+
+    <li>
+    	<h2>java.lang.OutOfMemoryError: Java heap space</h2>
+    </li>
+    <p class="wrap">
+    	这应该是最常见的<span class="highlight">OutOfMemoryError</span>错误场景，通常JVM内存会被分成<span class="highlight">堆(Heap)</span>和<span class="highlight">永久代(Perm Gen，Java 8中已被Metaspace取代)</span>，可分别通过<span class="highlight">-Xmx</span>和<span class="highlight">-XX:MaxPermSize</span>来设置。而通常引起该错误的原因是，<span class="highlight">当程序正在尝试创建新对象，此时JVM堆中没有足够连续的空间容纳该对象</span>。除此之外，程序中的一些问题也可能引起这类错误：
+    </p>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<span class="highlight">用户/数据量达到峰值</span>。在业务面临峰值时，会有可能触发<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>，但随着业务趋于平缓，这种错误也会随之消失，这通常受限于自身配置。
+    	</div>
+    	<div class="item">
+    		<span class="highlight">内存泄露</span>。由于开发人员编写程序不当，造成某些对象既没有被应用程序使用，也不能被垃圾收集器回收，这类对象将不断消耗内存，最终也会导致<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>。
+    	</div>
+    </div>
+
+    <li>
+    	<h3>案例</h3>
+    </li>
+    <li>
+    	<h4>内存不足</h4>
+    </li>
+    {% highlight java %}
+class OOM {
+
+    static final int SIZE = 2 * 1024 * 1024;
+
+    public static void main(String[] a) {
+        int[] i = new int[SIZE];
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	当配置<span class="highlight">-Xmx12m</span>时，程序如下抛出了异常，配置为<span class="highlight">-Xmx13m</span>正常运行：
+    </p>
+    {% highlight python %}
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+at me.hao0.jvm.oom.OOM.main(OOM.java:8)
+at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)
+at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+at java.lang.reflect.Method.invoke(Method.java:606)
+    {% endhighlight %}
+    <li>
+    	<h4>内存泄露</h4>
+    </li>
+    <p id="keyless-entry" class="wrap">
+    	在Java中其实并没有确切存在<span class="highlight">内存泄露</span>，内存管理都交由<span class="highlight">JVM</span>自身去处理，如<span class="highlight">分配内存</span>，<span class="highlight">回收不用的对象</span>等。但在实际中，由于开发人员的疏忽，有可能导致<span class="highlight">内存泄露</span>的现象，如<span class="highlight">不再被应用使用的对象不能被垃圾收集器识别</span>等，导致Java堆占用持续增长，最终触发<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>。如下面的代码片段：
+    </p>
+    {% highlight java %}
+public class KeylessEntry {
+
+    static class Key {
+        Integer id;
+
+        Key(Integer id) {
+            this.id = id;
+        }
+
+        @Override
+        public int hashCode() {
+            return id.hashCode();
+        }
+    }
+
+    public static void main(String[] args){
+        Map m = new HashMap();
+        while (true){
+            for (int i=0; i<10000; i++){
+                if (!m.containsKey(new Key(i))){
+                    m.put(new Key(i), "Number:" + i);
+                }
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        上面的代码看似通过<span class="highlight">containsKey</span>来保证Map中最多含有10000个对象，但由于<span class="highlight">Key没有正确重写equals()</span>方法，导致<span class="highlight">containsKey</span>内部比较对象时，始终调用<span class="highlight">Object.equals()</span>，两个对象始终不相等，因此会不断往Map中放入新对象，造成<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>(但需将<span class="highlight">-Xmx</span>配置小些，如8M，否则抛出的是<a href="#gc-overhead-limit-exceeded">GC overhead limit exceeded</a>)。修复这个问题也很简单，即<span class="highlight">Key</span>重写<span class="highlight">equals()</span>方法：
+    </p>
+    {% highlight java %}
+@Override
+public boolean equals(Object o) {
+    boolean response = false; 
+    if (o instanceof Key) {
+        response = (((Key)o).id).equals(this.id); 
+    }
+    return response; 
+}
+    {% endhighlight %}
+    <p class="wrap">
+        但通常面临<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>，第一时间可能是<span class="highlight">增加堆大小</span>，但只要堆配置不是特别不合理，那么原因可能并不是堆大小的问题，所以建议启动JVM进程时都将<span class="highlight">GC日志</span>及<span class="highlight">堆dump信息</span>打开，便于排查。
+    </p>
+
+    <li>
+        <h2 id="gc-overhead-limit-exceeded">java.lang.OutOfMemoryError: GC overhead limit exceeded</h2>
+    </li>
+    <p class="wrap">
+        与其他一些语言相比，<span class="highlight">JVM</span>提供了一个举足轻重的功能就是<span class="highlight">自动内存回收</span>，JVM通过在运行时启动了专门的<span class="highlight">GC线程</span>来进行内存回收的工作，使得开发人员从<span class="highlight">内存管理的痛苦</span>中得以解脱。但不是任何时候，<span class="highlight">GC线程</span>都能安然无恙地工作，比如抛出异常<span class="highlight">java.lang.OutOfMemoryError: GC overhead limit exceeded</span>时，该错误表明<span class="highlight">垃圾收集器</span>正在尝试释放内存，但实际释放的内存却很少(<span class="highlight">默认情况下，当JVM在GC上花费了总时间的98%，然后GC之后却回收了不到2%的堆内存</span>)，出现这样的情况，则是由于应用程序<span class="highlight">耗尽了所有可用的内存，多次GC都不能回收这些内存</span>。
+    </p>
+    <li>
+        <h3>案例</h3>
+    </li>
+    <p class="wrap">
+        正如<a href="#keyless-entry">之前的代码片段</a>，若将堆大小设置大一些(如<span class="highlight">-Xms16m</span>)，最终抛出的异常会是<span class="highlight">GC overhead limit exceeded</span>：
+    </p>
+    {% highlight python %}
+Exception in thread "main" java.lang.OutOfMemoryError: GC overhead limit exceeded
+    at java.lang.Integer.valueOf(Integer.java:642)
+    at me.hao0.jvm.oom.KeylessEntry.main(KeylessEntry.java:31)
+    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)
+    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+    at java.lang.reflect.Method.invoke(Method.java:606)
+    at com.intellij.rt.execution.application.AppMain.main(AppMain.java:144)
+    {% endhighlight %}
+    <p class="wrap">
+        但当将GC换为<span class="highlight">-XX:+UseConcMarkSweepGC</span>或<span class="highlight">-XX:+UseG1GC</span>，上面的代码片段则只会抛出<span class="highlight">Java heap space</span>，JVM中也提供了<span class="highlight">-XX:-UseGCOverheadLimit</span>来去除<span class="highlight">GC overhead limit exceeded</span>这种异常消息，但并不推荐这么做，而是针对该问题进行修复。
+    </p>
+
+    <li>
+        <h2>java.lang.OutOfMemoryError: Permgen space</h2>
+    </li>
+    <p class="wrap">
+        Java 7及其之前，JVM内存被分为了几个不同的区：
+    </p>
+    <img src="{{site.url}}/images/jvm/jvm-heap-regions.png">
+    <p class="wrap">
+        <span class="highlight">Permgen space</span>表明该异常发生在<span class="highlight">永久代</span>，即<span class="highlight">永久代</span>内存已经耗尽。从<span class="highlight">JVM内存管理</span>中可知，<span class="highlight">永久代</span>主要用于存放<span class="highlight">已加载类的元数据</span>(包括类名称，字段及其方法字节码等)，<span class="highlight">常量池信息</span>，<span class="highlight">类相关的对象数据和类型数组</span>，及<span class="highlight">JIT编译器的优化信息</span>等，而往往出现这类错误的原因是<span class="highlight">JVM加载的类太多或太大</span>。
+    </p>
+    <li>
+        <h3>案例</h3>
+    </li>
+    <p class="wrap">
+        下面的例子通过<a href="http://jboss-javassist.github.io/javassist/tutorial/tutorial.html" target="_blank">javassist</a>库不断生成class：
+    </p>
+    {% highlight java %}
+import javassist.ClassPool;
+
+public class MicroGenerator {
+
+    public static void main(String[] args) throws Exception {
+        for (int i = 0; i < 100_000_000; i++) {
+            generate("eu.plumbr.demo.Generated" + i);
+        }
+    }
+
+    public static Class generate(String name) throws Exception {
+        ClassPool pool = ClassPool.getDefault();
+        return pool.makeClass(name).toClass();
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        然而，在本机环境(<span class="highlight">Mac OSX 10.11.5</span>，<span class="highlight">JDK 1.7.0_80</span>)中并没有抛出<span class="highlight">java.lang.OutOfMemoryError: PermGen space</span>，而是：
+    </p>
+    {% highlight bash %}
+Exception in thread "main" 
+Exception: java.lang.OutOfMemoryError thrown from the UncaughtExceptionHandler in thread "main"
+    {% endhighlight %}
+    <p class="wrap">
+        大概意思是说，<span class="highlight">java.lang.OutOfMemoryError</span>没有被main线程catch，调用了线程的<span class="highlight">UncaughtExceptionHandler</span>，出现该情况时，表明<span class="highlight">JVM已经没有足够内存</span>分配<span class="highlight">OutOfMemoryError实例</span>，因此将堆栈信息输出到了打印流(print stream)中，开发人员可以在运行程序前设置线程的<span class="highlight">UncaughtExceptionHandler</span>，输出对应的错误信息，如：
+    </p>
+    {% highlight java %}
+Thread.currentThread().setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+    @Override
+    public void uncaughtException(Thread t, Throwable e) {
+        System.err.println(e.getMessage());
+    }
+});
+    {% endhighlight %}
+    <p class="wrap">
+        除了上述这种情况，在平时重新部署应用时，有可能由于一些第三方库错误的资源处理，在每次重部署时，导致<span class="highlight">Class</span>的旧版本不能被<span class="highlight">ClassLoader</span>卸载，最终造成<span class="highlight">java.lang.OutOfMemoryError: PermGen space</span>，对于这类比较隐藏的问题，可以dump堆信息(<span class="highlight">jmap -dump:format=b, le=dump.hprof <process-id></span>)，通过<a href="http://www.eclipse.org/mat/" target="_blank">MAT</a>工具进行分析，如：
+    </p>
+    <img src="{{site.url}}/images/jvm/mat-heap-dump.png" width="100%">
+    <p class="wrap">
+        还有可能就是，JVM使用<span class="highlight">CMS</span>垃圾收集器时，会默认关闭<span class="highlight">卸载类</span>的选项，因而不会卸载一些已经不再使用类数据信息，导致<span class="highlight">java.lang.OutOfMemoryError: PermGen space</span>，可以通过<span class="highlight">-XX:+CMSClassUnloadingEnabled</span>开启该选项。
+    </p>
+
+    <li>
+        <h2>java.lang.OutOfMemoryError: Metaspace</h2>
+    </li>
+    <p class="wrap">
+        Java 8之后，<span class="highlight">永久代(Perm Gen)</span>被<span class="highlight">Metaspace</span>取代：
+    </p>
+    <img src="{{site.url}}/images/jvm/memo-regions-java8.png" width="100%">
+    <p class="wrap">
+        而之所以要用<span class="highlight">Metaspace</span>取代<span class="highlight">Perm Gen</span>，大致有如下原因：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">Perm Gen大小难以确定</span>。如果设置太小，则有可能导致<span class="highlight">java.lang.OutOfMemoryError: Permgen</span>，设置过大，则浪费了系统资源。
+        </div>
+        <div class="item">
+            通过<span class="highlight">并发地为类数据分配内存，且不用暂停垃圾收集</span>和<span class="highlight">特定的元数据迭代器</span>，提升了垃圾收集性能。
+        </div>
+        <div class="item">
+            针对G1垃圾收集器，支持<span class="highlight">并发地卸载类</span>。
+        </div>
+    </div>
+    <p class="wrap">
+        而引起<span class="highlight">java.lang.OutOfMemoryError: Metaspace</span>异常的原因，通常则是<span class="highlight">有太多的类或太大的类</span>被加载到<span class="highlight">Metaspace</span>区。
+    </p>
+    <li>
+        <h3>案例</h3>
+    </li>
+    <p class="wrap">
+        同样，利用<a href="http://jboss-javassist.github.io/javassist/tutorial/tutorial.html" target="_blank">javassist</a>不断生成类：
+    </p>
+    {% highlight java %}
+public class Metaspace {
+
+    static javassist.ClassPool cp = javassist.ClassPool.getDefault();
+
+    public static void main(String[] args) throws Exception {
+        for (int i = 0; ; i++) {
+            Class c = cp.makeClass("eu.plumbr.demo.Generated" + i).toClass();
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        将<span class="highlight">Metaspace</span>设置小一些，如<span class="highlight">-XX:MaxMetaspaceSize=64m</span>，运行一段时间，则会抛出：
+    </p>
+    {% highlight bash %}
+Exception in thread "main" javassist.CannotCompileException: by java.lang.OutOfMemoryError: Metaspace
+    at javassist.ClassPool.toClass(ClassPool.java:1170)
+    at javassist.ClassPool.toClass(ClassPool.java:1113)
+    at javassist.ClassPool.toClass(ClassPool.java:1071)
+    at javassist.CtClass.toClass(CtClass.java:1264)
+    at me.hao0.jvm.gc.Metaspace.main(Metaspace.java:9)
+    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+    at java.lang.reflect.Method.invoke(Method.java:498)
+    at com.intellij.rt.execution.application.AppMain.main(AppMain.java:144)
+Caused by: java.lang.OutOfMemoryError: Metaspace
+    at java.lang.ClassLoader.defineClass1(Native Method)
+    at java.lang.ClassLoader.defineClass(ClassLoader.java:763)
+    at java.lang.ClassLoader.defineClass(ClassLoader.java:642)
+    at sun.reflect.GeneratedMethodAccessor1.invoke(Unknown Source)
+    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+    at java.lang.reflect.Method.invoke(Method.java:498)
+    at javassist.ClassPool.toClass2(ClassPool.java:1183)
+    at javassist.ClassPool.toClass(ClassPool.java:1164)
+    ... 9 more
+    {% endhighlight %}
+    <p class="wrap">
+        面对这类错误，比较直接的办法就是增大<span class="highlight">Metaspace</span>，或者不设置<span class="highlight">MaxMetaspaceSize</span>，使得<span class="highlight">Metaspace</span>区能自动增长，但这有可能导致系统内存资源不足，造成严重的<span class="highlight">Swap</span>操作。更适合的做法，还是需要通过<span class="highlight">堆dump</span>分析是否存在内存泄露，确认是由于<span class="highlight">Metaspace</span>不足导致的。
+    </p>
+
+    <li>
+        <h2>
+            java.lang.OutOfMemoryError: Unable to create new native thread
+        </h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Unable to create new native thread</span>意味着，Java应用已经达到其能申请的最大线程数，而该值取决于不同的平台，而该异常通常会在以下几个阶段发生：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            Java应用尝试创建一个新线程；
+        </div>
+        <div class="item">
+            JVM本地代码<span class="highlight">代理</span>应用程序，向操作系统发起创建本地线程的请求；
+        </div>
+        <div class="item">
+            操作系统尝试创建新的本地线程，并为其分配内存；
+        </div>
+        <div class="item">
+            由于Java进程已耗尽了自己限制的内存地址空间，或者<span class="highlight">系统虚拟内存</span>已经耗尽，操作系统拒绝本地内存分配；
+        </div>
+        <div class="item">
+            <span class="highlight">java.lang.OutOfMemoryError: Unable to create new native thread</span>异常被抛出。
+        </div>
+    </div>
+    <li>
+        <h3>案例</h3>
+    </li>
+    <p class="wrap">
+        下面的代码片段，不断地创建新线程，不同平台创建的最大线程数也会不一致：
+    </p>
+    {% highlight java %}
+public class UnableCreateNativeThread {
+
+    private static int threadCount = 0;
+
+    public static void main(String[] args) {
+
+        while (true) {
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        System.out.println(++threadCount);
+                        Thread.sleep(10000000);
+                    } catch (InterruptedException e) {
+                    }
+                }
+            }).start();
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        默认情况下，在本机<span class="highlight">Mac 10.11.5，JDK8_91</span>上，默认创建了2027个线程后，抛出了该异常：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-native-thread-limit.png" width="100%">
+    <p class="wrap">
+        从<span class="highlight">堆dump信息</span>中看，可见Thread实例过多：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-thread-too-much.png" width="100%">
+    <p class="wrap">
+        除此外，<span class="highlight">线程dump信息(jstack pid)</span>，可以看见太多线程处于<span class="highlight">TIMED_WAITING (sleeping)</span>。对于这类情况，有时可以通过增大系统<span class="highlight">最大用户进程数</span>来解决无法创建本地线程的问题，如：
+    </p>
+    {% highlight bash %}
+ulimit -a
+...
+-u: processes                       709
+...
+    {% endhighlight %}
+
+    <li>
+        <h2>
+            java.lang.OutOfMemoryError: Out of swap space
+        </h2>
+    </li>
+    <p class="wrap">
+        当<span class="highlight">JVM</span>启动时，指定的堆大小(<span class="highlight">-Xmx</span>)比操作系统的可用内存大时，操作系统将会把内存数据保存至<span class="highlight">虚拟内存(Swap space)</span>，如：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-swap-space.png" width="100%">
+    <p class="wrap">
+        当Java应用请求内存分配时，但此时本地堆空间已经耗尽，则会抛出<span class="highlight">java.lang.OutOfMemoryError: Out of swap space</span>异常，而通常该异常由一些系统级别问题引起，如：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            操作系统配置的<span class="highlight">虚拟内存(Swap space)空间</span>不足；
+        </div>
+        <div class="item">
+            系统中的其他进程占用了所有的内存资源。
+        </div>
+    </div>
+    <p class="wrap">
+        当然，除了操作系统级别的问题，也有可能是Java应用程序的本地代码没有正确释放内存资源，导致本地内存泄露所致。当遇到这样的情况时，最直接简单的办法就是增加<span class="highlight">虚拟内存(Swap space)</span>，如：
+    </p>
+    {% highlight bash %}
+swapoff -a
+dd if=/dev/zero of=swap le bs=1024 count=655360 
+mkswap swapfile
+swapon swapfile
+    {% endhighlight %}
+    <p class="wrap">
+        但单纯增加<span class="highlight">虚拟内存(Swap space)</span>，是有可能延长GC暂停时间的，所以需要慎重考虑。也有可能Java应用所在机器上，有其他进程在争用物理内存，这时应该将该进程与Java进程隔离，或升级物理内存，以减少内存争用。而针对内存使用优化方面，则可以通过分析堆dump信息，减少一些不必要的内存分配。
+    </p>
+
+    <li>
+        <h2>
+            java.lang.OutOfMemoryError: Requested array size exceeds VM limit
+        </h2>
+    </li>
+    <p class="wrap">
+        对于Java应用中的数组对象，其最大长度(<span class="highlight">取决于不同的平台，通常在10亿到21亿之间</span>)是有限制的：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-array-len-limit.png" width="100%">
+    <p class="wrap">
+        该异常由JVM本地代码抛出，JVM在分配内存，会检查该数据结构在当前平台上是否可寻址。然而这个错误不会太常见，因为Java中数组以int型为下标，即最大值为<span class="highlight">2^31 – 1 = 2,147,483,647</span>，而平台对数据长度限制也接近该值，因此可能会优先抛出<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>
+    </p>
+    <li>
+        <h3>案例</h3>
+    </li>
+    <p class="wrap">
+        下面的代码片段设置数组长度接近为<span class="highlight">Integer.MAX_VALUE</span>：
+    </p>
+    {% highlight java %}
+public class ArrayLenLimit {
+
+    public static void main(String[] args) {
+        for (int i = 3; i >= 0; i--) {
+            try {
+                int[] arr = new int[Integer.MAX_VALUE - i];
+                System.out.format("Successfully initialized an array with %,d elements.\n", Integer.MAX_VALUE - i);
+            } catch (Throwable t) {
+                t.printStackTrace();
+            }
+        }
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        结果抛出了如下异常：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-array-len-limit-exception.png" width="100%">
+    <p class="wrap">
+        前两次由于分配内存时，超出了JVM堆大小，但未超出数组<span class="highlight">最大长度限制</span>，因此抛出了<span class="highlight">java.lang.OutOfMemoryError: Java heap space</span>异常，后面两次优先超出了<span class="highlight">最大长度限制</span>，抛出<span class="highlight">java.lang.OutOfMemoryError: Requested array size exceeds VM limit</span>。
+    </p>
+    <p class="wrap">
+        在实际应用中，有可能由于数组使用不当，造成数组长度不断增加，最终超出<span class="highlight">最大长度限制</span>，遇到这种情况，通常很少会需要这种大的数组，或者将大数组分割为多个小数组。
+    </p>
+
+    <li>
+        <h2>
+            Out of memory: Kill process or sacrifice child
+        </h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Out of memory: Kill process or sacrifice child</span>主要由操作系统内置的<a href="http://linux-mm.org/OOM_Killer" target="_blank">OOM Killer</a>机制造成的。<span class="highlight">OOM Killer</span>是Linux中的一种内存保护机制，当系统内存已经极限不足时，<span class="highlight">OOM Killer</span>将对现有进程作评分，将评分最低的进程kill掉，以释放内存供其他进程使用：
+    </p>
+    <img src="{{site.url}}/images/jvm/oom-process-kill.png" width="100%">
+    <p class="wrap">
+        当可用的虚拟内存(包括swap)达到某一程度(<span class="highlight">将给操作系统的稳定性带来风险</span>)时，<span class="highlight">OOM Killer</span>就会尝试kill掉那些<span class="highlight">游手好闲</span>的进程。
+    </p>
+    <p class="wrap">
+        针对这种情况，最简单直接的办法是将Java应用迁移到内存足够的机器上，或者当前机器进行<a href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html" target="_blank">OOM Killer内存调优</a>，以减少应用之间的内存争用。另外一个不推荐的做法，是增加<span class="highlight">虚拟内存(Swap space)</span>，但这却有可能带来系统性能上的问题。
+    </p>    
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+        以上，则是<span class="highlight">java.lang.OutOfMemoryError</span>异常相关的情形，有一些比较常见，有一些可能会很少碰到，待在实际中碰到时，能够对症下药。
+    </p>
+
+    <li>
+        <h2>参考文献</h2>
+    </li>
+    <p class="wrap">
+        <a href="https://plumbr.eu/outofmemoryerror" target="_blank">https://plumbr.eu/outofmemoryerror</a>
+        <br><a href="https://plumbr.eu/blog/memory-leaks/how-not-to-create-a-permgen-leak" target="_blank">https://plumbr.eu/blog/memory-leaks/how-not-to-create-a-permgen-leak</a>
+        <br><a href="http://linux-mm.org/OOM_Killer" target="_blank">http://linux-mm.org/OOM_Killer</a>
+        <br><a href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html" target="_blank">https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html</a>
+    </p>
+</ul>    
