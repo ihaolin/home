@@ -3,19 +3,547 @@ title : 统一日志平台构建
 category : [devops]
 tags : [devops, log platform]
 layout : post
-show : 0
+show : 1
 keywords: devops，日志平台，ELK，ElasticSearch，Logstash, Kibana
 ---
 
 
 <ul>
     <p class="intro">
-        随着业务不断扩大，系统产生的各种日志也已经趋于暴涨，要想从这些庞大的日志中检索出自己想要的信息，特别是一些<span class="highlight">错误信息</span>，是至关重要的。对于一个比较成熟的日志平台，需要解决几个问题：<span class="highlight">如何规范日志</span>，<span class="highlight">如何收集日志</span>，<span class="highlight">如何存储日志</span>，<span class="highlight">如何展示日志</span>，<span class="highlight">如何分析日志</span>，以及<span class="highlight">如何作日志监控</span>等等，恰逢最近需要为业务团队提供日志服务，旨在能及时发现并解决线上出现的异常问题，主要是从<a href="https://www.elastic.co/webinars/introduction-elk-stack" target="_blank">ELK Stack</a>出发进行<span class="highlight">日志平台构建</span>，本文将阐述其中的一些细节和思路。
+        随着业务不断扩大，系统产生的各种日志也已经趋于暴涨，要想从这些庞大的日志中检索出自己想要的信息，特别是一些<span class="highlight">错误信息</span>，是至关重要的。对于一个比较成熟的日志平台，需要解决几个问题：<span class="highlight">如何规范日志</span>，<span class="highlight">如何收集日志</span>，<span class="highlight">如何传输日志</span>，<span class="highlight">如何存储日志</span>，<span class="highlight">如何分析展示日志</span>等等，恰逢最近需要为业务团队提供日志服务，旨在能及时发现并解决线上出现的异常问题，主要是从<a href="https://www.elastic.co/webinars/introduction-elk-stack" target="_blank">ELK Stack</a>出发进行<span class="highlight">日志平台构建</span>，本文将阐述其中的一些细节和思路。
     </p>
 
     <li>
         <h2>日志平台构建背景</h2>
     </li>
-    
+    <p class="wrap">
+    	随着业务系统的不断增长，应用产生的日志会越来越庞大，则对这些日志进行收集，检索，分析，监控等操作，这些东西将成为开发人员分析和排查问题的利器。最近由于应用服务不断扩容，基本每个应用服务的实例会在10个以上，这对开发人员需要快速查看日志带来很大问题，所以需要将一些重要的日志信息(<span class="highlight">错误</span>，<span class="highlight">警告</span>等)收集起来，并作友好展示。
+    </p>
 
+    <li>
+        <h2>如何构建日志平台</h2>
+    </li>
+    <h3>
+    	如何收集日志
+    </h3>
+    <p class="wrap">
+    	<span class="highlight">收集日志</span>，即将应用或系统产生的日志进行<span class="highlight">近实时</span>收集，通常可以理解为Linux中的<span class="highlight">tail -f</span>命令，比较流行的收集工具大概有<a href="https://github.com/facebookarchive/scribe" target="_blank">Scribe</a>，<a href="https://cwiki.apache.org/FLUME/" target="_blank">Flume</a>，<a href="https://www.elastic.co/guide/en/logstash/current/introduction.html" target="_blank">Logstash</a>等。<span class="highlight">Scribe</span>由Facebook基于<a href="http://thrift.apache.org/" target="_blank">Thrift</a>协议开发，因此适用于任何语言；<span class="highlight">Flume</span>托管于<span class="highlight">Apache</span>，其主要目的是将日志数据输出到<span class="highlight">HDFS</span>，但通过定制<span class="highlight">Sink</span>组件，可以将日志输出到其他存储中；<span class="highlight">Logstash</span>作为<span class="highlight">ElasticSearch</span>社区的产物，通过一些简单的配置就能对日志进行<span class="highlight">收集(Input)</span>，<span class="highlight">过滤/格式化(Filter)</span>，<span class="highlight">输出(Output)</span>等操作，并提供丰富的插件，基本需要的功能都能满足，最终也选定<span class="highlight">Logstash</span>作为日志收集Agent。
+    </p>
+
+    <h3>
+    	如何传输日志
+    </h3>
+    <p class="wrap">
+    	对于日志传输，通常可以由<span class="highlight">日志收集Agent</span>，直接将日志传输到目标存储中，即：
+    </p>
+    <img src="{{site.url}}/images/log/logstash-output-storage.png" width="70%">
+    <p class="wrap">
+    	但随着业务日志膨胀，直接将日志输出的<span class="highlight">目标存储</span>，有可能给存储系统带来比较大的压力，影响到<span class="highlight">日志Agent</span>的输出性能，最终有可能造成日志积压，所以通常会在<span class="highlight">日志Agent</span>和<span class="highlight">目标存储</span>之间加上一层<span class="highlight">Buffer</span>，来平衡之间的性能，通常比较常用的会有<a href="http://redis.io/" target="_blank">Redis</a>，<a href="http://kafka.apache.org/" target="_blank">Kafka</a>等，<span class="highlight">Kafka</span>为日志而生，无疑是最佳之选，有了<span class="highlight">Kafka</span>，不仅起到<span class="highlight">缓冲</span>的作用，也便于当接入其他日志消费系统，能够直接通过<span class="highlight">消息订阅</span>的方式，可以无缝接入：
+    </p>
+    <img src="{{site.url}}/images/log/logstash-kafka-storage.png" width="70%">
+
+    <h3>
+    	如何存储日志
+    </h3>
+    <p class="wrap">
+    	对于<span class="highlight">日志存储</span>，则就没有太统一的答案，这得看需要通过日志作什么，但通常都会涉及<span class="highlight">HDFS</span>(便于后期作一些实时几离线分析)，<span class="highlight">ElasticSearch</span>(可以同<span class="highlight">Kinaba</span>组合，做<span class="highlight">日志检索</span>，<span class="highlight">报表统计</span>等)，当然还有可能会有自己定制的平台，需要保存日志到其他存储系统。
+    </p>
+
+    <h3>
+    	如何分析展示日志
+    </h3>
+    <p class="wrap">
+    	对于<span class="highlight">日志分析展示</span>，<span class="highlight">ElasticSearch</span>社区也为我们提供了强大的工具<a href="" target="_blank">Kibana</a>，其提供了一些<span class="highlight">检索</span>，<span class="highlight">报表统计</span>等功能，但其用户权限等功能不是很完善，现实中，可能更希望作一些<span class="highlight">日志实时，离线分析</span>，业务定制化的东西比较多，更合理的是通过一些专门的数据分析系统来作，如<a href="https://www.google.com.hk/#safe=strict&q=Spark" target="_blank">Spark</a>，<a href="https://github.com/alibaba/jstorm" target="_blank">JStorm</a>，<a href="http://twitter.github.io/heron/" target="_blank">Heron</a>等。
+    </p>
+
+    <li>
+        <h2>日志平台实践</h2>
+    </li>
+
+     <li>
+    	<h3>日志规范</h3>
+    </li>
+    <p class="wrap">
+   		在进行日志收集前，最好是做一些<span class="highlight">日志格式规范</span>的工作，当前也可以不作，但格式化日志的操作无疑抛给了<span class="highlight">日志收集组件</span>或<span class="highlight">日志分析组件</span>，如类似下面的日志格式: 		
+    </p>
+    {% highlight java %}
+2016-06-06 18:06:52.478+0800 ERROR myapp2 lin 10.75.166.137 10236 [login] [haha, you are so cool]
+    {% endhighlight %}
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<span class="highlight">2016-06-06 18:06:52.478+0800</span>: 时间戳；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">ERROR</span>: 日志级别；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">myapp2</span>: 应用名称；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">hao0</span>: 应用负责人，可以作为后期的报警接收人
+    	</div>
+    	<div class="item">
+    		<span class="highlight">10.75.166.137</span>: 应用IP；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">10236</span>: 应用进程号；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">[login]</span>: 日志标签，做一些检索匹配；
+    	</div>
+    	<div class="item">
+    		<span class="highlight">[haha, you are so cool]</span>: 日志明细。
+    	</div>
+    </div>
+
+    <li>
+    	<h3>Logstash</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Logstash</span>作为日志收集<span class="highlight">Agent</span>，需要安装在需要进行日志采集的应用服务器上，通常不同纬度的日志可以安装不同的Agent。
+    </p>
+    
+    <li>
+    	<h4>下载 & 安装</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Logstash</span>安装部署十分简单，即下即用：
+    </p>
+    {% highlight ruby %}
+wget https://download.elastic.co/logstash/logstash/logstash-2.3.4.tar.gz
+tar zxf logstash-2.3.4.tar.gz
+./logstash-2.3.4/bin/logstash -f /path/to/logstash.conf 
+    {% endhighlight %}
+
+    <li>
+    	<h4>配置</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Logstash</span>配置也很简单，如：
+    </p>
+    {% highlight bash %}
+# 日志输入配置
+input {
+    # 输入插件配置
+}
+
+# 日志过滤配置(可选)
+filter {
+    # 过滤插件配置 
+}
+
+# 日志输出配置
+output {
+    # 输出插件配置
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">Logstash</span>配置也十分清晰，具体详细配置可参考<a href="https://www.elastic.co/guide/en/logstash/current/configuration.html" target="_blank">这里</a>。针对上面的日志格式，对应的配置大概如下：
+    </p>
+    {% highlight ruby %}
+input {
+    # file-input插件制定需要收集的日志文件
+    file {
+        path => "/path/to/xxx.log"
+    }
+}
+
+filter {
+	# grok-filter是最常见的过滤插件，用于将日志文本结构化
+    grok {
+        match => { "message" => "(?<log_time>[\s\S]*?) %{WORD:level} (?<app_name>[\s\S]*?[-][\s\S]*?) (?<app_owner>[\s\S,]*?) %{IP:app_ip} %{NUMBER:app_pid} _(?<tag>[\s\S]*?)_ _\[(?<detail>[\s\S\n]*?)\]_" }
+    }
+}
+
+output {
+	# elasticsearch-output插件，将filter后的内容输出到ElasticSearch
+    elasticsearch {
+    	# elasticsearch hosts
+        hosts => ["10.112.88.105:9200"]
+        # index type
+        index => business_logs
+        # document type
+        document_type => business_log
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	其中，一个比较关键的是<span class="highlight">grok</span>的<span class="highlight">match</span>部分，这部分正则表达式应尽量简单，与日志规范密切配置，对于<span class="highlight">调试正则表达式匹配</span>，建议先使用<a href="http://grokdebug.herokuapp.com/" target="_blank">Grok Debugger</a>工具测试好再部署，这样经过filter之后的日志内容将格式化为如下的json，再经过HTTP请求，发送至<span class="highlight">ElasticSearch</span>：
+    </p>
+    {% highlight ruby %}
+{
+    "log_time": "",
+    "level": "",
+    "app_name": "",
+    "app_owner": "",
+    "app_ip": "",
+    "app_pid": "",
+    "tag": "",
+    "detail": ""
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	除了上面的字段，<span class="highlight">Logstash</span>会加上一些自带的字段，只是我们不需要关心，或通过<span class="highlight">mutate-filter</span>移除不需要的字段。
+    </p>
+
+    <li>
+    	<h3>比Logstash更好的选择</h3>
+    </li>
+    <p class="wrap">
+    	对于<span class="highlight">Logstash</span>本身，也是会消耗系统资源(如<span class="highlight">内存</span>，<span class="highlight">CPU</span>等)的，特别当对日志进行<span class="highlight">过滤，格式化</span>(如正则匹配操作等)时，是比较耗CPU的，所以有了下一代<span class="highlight">Logstash</span>的诞生--<a href="https://www.elastic.co/blog/beats-1-2-0-released" target="_blank">Beat</a>，若收集对象为文件，则可以使用<a href="https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-overview.html" target="_blank">Filebeat</a>，其结构大致如下：
+    </p>
+    <img src="{{site.url}}/images/log/filebeat-arch.png">
+    <li>
+    	<h4>下载 & 安装</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Filebeat</span>安装部署同样十分简单，即下即用：
+    </p>
+    {% highlight bash %}
+# redhat or centos    
+curl -L -O https://download.elastic.co/beats/filebeat/filebeat-1.2.3-x86_64.rpm
+sudo rpm -vi filebeat-1.2.3-x86_64.rpm
+filebeat -c /path/to/filebeat_config.yml -cpuprofile /path/to/cpu_prof -memprofile /path/to/mem_prof
+    {% endhighlight %}
+    <li>
+    	<h4>配置</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Filebeat</span>配置文件为<a href="http://yaml.org/" target="_blank">YAML</a>格式，一些基本配置如下，详细配置可见<a href="https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-configuration-details.html" target="_blank">这里</a>：
+    </p>
+    {% highlight bash %}
+filebeat:
+
+  # prospector列表
+  prospectors:
+    -
+      paths: # 可配置多个日志路径
+        - "/path/to/*.log"
+        - "/path/to/*/*/*.log"
+      
+      # 输出到ElasticSearch时，指定的document类型，默认为log
+      document_type: log
+
+      # 使用什么编码格式读取文件
+      encoding: utf-8
+
+      # 输入类型，
+      # log：从日志文件读取(默认)
+      # stdin: 从标准输入读取
+      input_type: log
+
+      # 仅保留匹配以下正则表达式的文本行，
+      include_lines: ["^ERR", "^WARN"]
+
+      # 当文本行匹配到其中的正则表达式时，则被丢弃；
+      # 对于支持multiline时，会先将multiline组合成一行，再进行匹配
+      # Filebeat会先匹配include_lines，再匹配exclude_lines
+      exclude_lines: ["^DBG", "^TEST"]
+
+      # 忽略某些文件
+      exclude_files: [".gz$"]
+      
+      # prospector每隔多久检查一次是否有新文件
+      scan_frequency: 1s
+      
+      # 每个harvester抓取文件时，使用的buffer大小(B)
+      harvester_buffer_size: 16384
+
+      # 单条日志消息的大小限制，超过改值的内容将被舍弃
+      max_bytes: 10485760
+
+      # 处理多行的消息，如Java中的异常堆栈消息，对应之上的
+      multiline:
+      	  # 以_[开头
+          start_pattern: _\[
+          # 以]_结尾
+          end_pattern: \]_
+          # 定义的pattern是否是否定的，即不匹配
+          negate: false
+          match: after
+          # 最多保留200行
+          max_lines: 200
+          # 超过了该时间，即使没有匹配完成，也会发送multiline event
+          timeout: 5s
+
+      # 从文件尾开始读
+      # 当设置为true时，有可能由于滚动产生的新文件日志太快，filebeat还未开始跟踪新文件，将会丢失filebeat跟踪该文件之前的日志
+      tail_files: false
+
+      # 每隔1s检查文件的更新 
+      backoff: 1s
+      
+      # 
+      max_backoff: 10s
+
+      # backoff增加的乘法因子
+      backoff_factor: 2
+
+      # 当文件名更新时，是否强制关闭文件句柄
+      force_close_files: false
+
+  # 若Spooler中的事件数超过了该值，将强制进行网络flush
+  spool_size: 2048
+
+  # 设置为true时，publisher等待ACK的同时，会准备下次要发送的数据，这可以提升吞吐量，但却会消耗更多的内存
+  publish_async: false
+
+  # 
+  idle_timeout: 5s
+
+  # 记录filebeat跟踪的文件信息
+  registry_file: /path/to/registry
+
+# 输出配置
+output:
+  
+  # 输出到logstash
+  logstash:
+    
+    # logstash hosts
+    hosts: ["10.112.88.153:5044","10.112.88.158:5044"]
+    
+    # 输出到每个logstash host的worker数
+    worker: 1
+
+    # 压缩级别
+    compression_level: 3
+
+    # 开启负载均衡
+    loadbalance: true
+
+# 日志配置
+logging:
+  # 不输出到syslog
+  to_syslog: false
+  # 输出到文件
+  to_files: true
+
+  files:
+    # 文件目录
+    path: /path/to/log
+    
+    # 文件名称
+    name: filebeat
+    
+    # 每100M滚动文件
+    rotateeverybytes: 104857600 # = 100MB
+    
+    # 保留7个文件
+    keepfiles: 7
+
+  # 日志级别
+  level: warning
+    {% endhighlight %}
+    <p class="wrap">
+    	若使用了<span class="highlight">Filebeat</span>来收集日志，上面的<span class="highlight">Logstash</span>的输入源将不再是文件，而是<span class="highlight">Filebeat</span>：
+    </p>
+    {% highlight bash %}
+input {
+    beats {
+        port => 5044
+    }
+}
+... 
+    {% endhighlight %}
+    
+    <li>
+    	<h3>ElasticSearch</h3>
+    </li>
+    <p class="wrap">
+    	<a href="https://www.elastic.co/products/elasticsearch" target="_blank">ElasticSearch</a>作为存储，通常应该提供集群部署。但在进行搭建前，最好先确定好<span class="highlight">ElasticSearch</span>的版本信息，<span class="highlight">ElasticSearch</span>版本更新，对API的更新比较频繁，需要关注下所使用的插件是否支持对应的<span class="highlight">ElasticSearch</span>版本，特别是有关中文分词的插件，相关的部署安装可以<a href="/elasticsearch/2015/06/27/es-first.html" target="_blank">这篇</a>文章。
+    </p>
+    <li>
+    	<h4>日志Mapping</h4>
+    </li>
+    <p class="wrap">
+    	在日志收集前，需要提前在ElasticSearch集群中建立<span class="highlight">索引</span>和<span class="highlight">映射</span>，如针对上述的日志需要执行：
+    </p>
+    {% highlight bash %}
+# 创建索引    
+curl -XPUT http://10.112.88.105:9200/business_logs?pretty
+    {% endhighlight %}
+    {% highlight bash %}
+# 创建映射    
+curl -XPUT http://10.112.88.105:9200/business_logs/_mapping/business_log?pretty -d '
+{
+  "business_log": {
+    "_all" : {
+      "enabled" : false
+    },
+    "properties": {
+      "log_time": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss.SSSZ"
+      },
+      "level": {
+        "type": "string",
+        "index" : "not_analyzed"
+      },
+      "app_name": {
+        "type": "string",
+        "index" : "not_analyzed"
+      },
+      "app_owner": {
+        "type": "string",
+        "index" : "not_analyzed"
+      },
+      "app_ip": {
+        "type": "string",
+        "index" : "not_analyzed"
+      },
+      "app_pid": {
+        "type": "integer",
+        "index" : "not_analyzed"
+      },
+      "tag": {
+        "type": "string",
+        "index_analyzer": "ik",
+        "search_analyzer": "ik"
+      },
+      "detail": {
+        "type": "string",
+        "index" : "not_analyzed"
+      }
+    }
+  }
+}'
+    {% endhighlight %}
+
+    <li>
+    	<h3>Kibana</h3>
+    </li>
+    <p class="wrap">
+    	<a href="https://www.elastic.co/guide/en/kibana/current/introduction.html" target="_blank">Kibana</a>作为展示组件，也提供十分丰富的检索分析的功能，官方也提供一个比较靠谱的<a href="https://www.elastic.co/guide/en/kibana/current/getting-started.html" target="_blank">案例</a>。
+    </p>
+    <li>
+    	<h4>下载 & 部署</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Kibana</span>安装部署依然十分简单，即下即用：
+    </p>
+    {% highlight bash %}
+ wget https://download.elastic.co/kibana/kibana/kibana-x.x.x.tar.gz
+ tar zxf kibana-x.x.x-linux-x64.tar.gz
+ ./${KIBANA_HOME}/bin/kibana 
+    {% endhighlight %}
+    <li>
+    	<h4>配置</h4>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">Kibana</span>基本配置如下，详细配置可见<a href="" target="_blank">这里</a>：
+    </p>
+    {% highlight xml %}
+# 绑定端口
+port: 5601
+
+# 绑定IP, 内网即可
+host: "127.0.0.1"
+
+# ElasticSearch地址
+elasticsearch_url: "http://10.112.88.105:9200"
+
+# preserve_elasticsearch_host true will send the hostname specified in `elasticsearch`. If you set it to false,
+# then the host you use to connect to *this* Kibana instance will be sent.
+elasticsearch_preserve_host: true
+
+# 用于存储kibana数据信息的索引
+kibana_index: ".kibana"
+
+# 若ElasticSearch需要用户名/密码认证
+# kibana_elasticsearch_username: user
+# kibana_elasticsearch_password: pass
+
+# 若ElasticSearch开启了客户端证书认证，则需要配置证书信息
+# kibana_elasticsearch_client_crt: /path/to/your/client.crt
+# kibana_elasticsearch_client_key: /path/to/your/client.key
+
+# CA认证支持
+# ca: /path/to/your/CA.pem
+
+# 进入Kibana时，默认加载的应用
+default_app_id: "discover"
+
+# 等待ElasticSearch Ping响应的超时
+# ping_timeout: 1500
+
+# 请求ElasticSearch超时
+request_timeout: 300000
+
+# 启动Kibana时，等待ElasticSerach超时的时间
+# startup_timeout: 5000
+
+# 是否验证SSL
+verify_ssl: true
+
+# SSL验证需要的KEY
+# ssl_key_file: /path/to/your/server.key
+# ssl_cert_file: /path/to/your/server.crt
+
+# pid文件
+# pid_file: /var/run/kibana.pid
+
+# 日志文件
+# log_file: ./kibana.log
+
+# A value to use as a XSRF token. This token is sent back to the server on each request
+# and required if you want to execute requests from other clients (like curl).
+# xsrf_token: ""
+
+# 该kibana包中已经内置的插件，不需要在plugins/目录下配置了
+bundled_plugin_ids:
+ - plugins/dashboard/index
+ - plugins/discover/index
+ - plugins/doc/index
+ - plugins/kibana/index
+ - plugins/markdown_vis/index
+ - plugins/metric_vis/index
+ - plugins/settings/index
+ - plugins/table_vis/index
+ - plugins/vis_types/index
+ - plugins/visualize/index
+    {% endhighlight %}
+    <p class="wrap">
+    	部署完毕后，就可以打开<span class="highlight">Kibana</span>，添加对应需要分析的数据了：
+    </p>
+    <img src="{{site.url}}/images/log/kibana_setting.png" width="70%">
+    <p class="wrap">
+    	配置<span class="highlight">index_pattern</span>时，需要指定时间字段，如<span class="highlight">log_time</span>，这里需要注意，<span class="highlight">Kibana</span>对时间字段，会作<span class="highlight">时区</span>处理，因此日志信息中需要加入时区信息，即日志格式应保证有<span class="highlight">Z</span>，如上述的<span class="highlight">yyyy-MM-dd HH:mm:ss.SSSZ</span>，之后就能在<span class="highlight">Kibana</span>的<span class="highlight">Discover</span>中检索了：
+    </p>
+    <img src="{{site.url}}/images/log/kibana_discover.png" width="70%">
+    <p class="wrap">
+    	这样一个日志平台的基础功能就实现了。
+    </p>
+
+    <li>
+    	<h2>其他相关</h2>
+    </li>
+    <li>
+    	<h3>基于日志的统计分析监控平台设计</h3>
+    </li>
+    <p class="wrap">
+    	一个比较完善的<span class="highlight">日志统计分析监控平台</span>，大致会如下：
+    </p>
+    <img src="{{site.url}}/images/log/log-arch.png" width="70%">
+    <li>
+    	<h3>基于本地日志文件</h3>
+    </li>
+    <p class="wrap">
+    	对于收集操作，通常都是通过<span class="highlight">Agent</span>在应用实例所在服务器中，收集其本地日志，而不是直接通过应用直接输出到远端(比如，对于java应用，通过定制Logger对象)，这其实不是很友好的，一旦远端日志系统不可用，既影响应用系统稳定，又会丢失消息，因此最好先写到磁盘，再收集日志，对应用端无感。
+    </p>
+
+    <li>
+    	<h3>日志收集的高可用性</h3>
+    </li>
+    <p class="wrap">
+    	实际中，难免可能碰到<span class="highlight">日志Agent</span>不可用，即日志不能被同步到日志平台，<span class="highlight">日志收集组件</span>这类组件本身并没有什么状态依赖，因此可以考虑使用进程管理工具<a href="http://supervisord.org/" target="_blank">Supervisor</a>，对这些<span class="highlight">日志Agent</span>统一管理，如<span class="highlight">自动重启</span>等。而对于<a href="http://supervisord.org/" target="_blank">Supervisord</a>进程本身，也是有崩溃几率的，不过可以通过<span class="highlight">系统级的进程监控</span>，<span class="highlight">开机自启动</span>等手段保证一定的高可用性。<a href="https://github.com/gamegos/cesi" target="_blank">cesi</a>通过<span class="highlight">Supervisord</span>提供的<span class="highlight">XML-RPC</span>，实现对<span class="highlight">Supervisord</span>所管理的进程一些简单操作：
+    </p>
+    <img src="{{site.url}}/images/log/cesi-nodes.png" width="100%">
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+    	以上，则是基于<span class="highlight">ELK Stack</span>的日志平台构建，当然不仅限于业务日志，在大数据统计分析中，依然可以通过日志来作，其他如<span class="highlight">监控</span>，<span class="highlight">报警</span>，<span class="highlight">性能分析</span>，<span class="highlight">调用链分析</span>，个人觉得都可以通过日志的方式来处理。
+    </p>
  </ul>   
