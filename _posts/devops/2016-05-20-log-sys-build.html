@@ -536,7 +536,7 @@ bundled_plugin_ids:
     	<h3>日志收集的高可用性</h3>
     </li>
     <p class="wrap">
-    	实际中，难免可能碰到<span class="highlight">日志Agent</span>不可用，即日志不能被同步到日志平台，<span class="highlight">日志收集组件</span>这类组件本身并没有什么状态依赖，因此可以考虑使用进程管理工具<a href="http://supervisord.org/" target="_blank">Supervisor</a>，对这些<span class="highlight">日志Agent</span>统一管理，如<span class="highlight">自动重启</span>等。而对于<a href="http://supervisord.org/" target="_blank">Supervisord</a>进程本身，也是有崩溃几率的，不过可以通过<span class="highlight">系统级的进程监控</span>，<span class="highlight">开机自启动</span>等手段保证一定的高可用性。<a href="https://github.com/gamegos/cesi" target="_blank">cesi</a>通过<span class="highlight">Supervisord</span>提供的<span class="highlight">XML-RPC</span>，实现对<span class="highlight">Supervisord</span>所管理的进程一些简单操作：
+    	实际中，难免可能碰到<span class="highlight">日志Agent</span>不可用，即日志不能被同步到日志平台，而<span class="highlight">日志收集</span>这类组件本身并没有什么状态依赖，因此可以考虑使用进程管理工具<a href="http://supervisord.org/" target="_blank">Supervisor</a>，对这些<span class="highlight">日志Agent</span>统一管理，如<span class="highlight">自动重启</span>等。而对于<a href="http://supervisord.org/" target="_blank">Supervisord</a>进程本身，也是有崩溃几率的，不过可以通过<span class="highlight">系统级的进程监控</span>，<span class="highlight">开机自启动</span>等手段保证一定的高可用性。<a href="https://github.com/gamegos/cesi" target="_blank">cesi</a>通过<span class="highlight">Supervisord</span>提供的<span class="highlight">XML-RPC</span>，实现对<span class="highlight">Supervisord</span>所管理的进程一些简单操作：
     </p>
     <img src="{{site.url}}/images/log/cesi-nodes.png" width="100%">
 
