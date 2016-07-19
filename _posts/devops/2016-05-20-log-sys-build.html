@@ -351,7 +351,7 @@ input {
     	<h3>ElasticSearch</h3>
     </li>
     <p class="wrap">
-    	<a href="https://www.elastic.co/products/elasticsearch" target="_blank">ElasticSearch</a>作为存储，通常应该提供集群部署。但在进行搭建前，最好先确定好<span class="highlight">ElasticSearch</span>的版本信息，<span class="highlight">ElasticSearch</span>版本更新，对API的更新比较频繁，需要关注下所使用的插件是否支持对应的<span class="highlight">ElasticSearch</span>版本，特别是有关中文分词的插件，相关的部署安装可以<a href="/elasticsearch/2015/06/27/es-first.html" target="_blank">这篇</a>文章。
+    	<a href="https://www.elastic.co/products/elasticsearch" target="_blank">ElasticSearch</a>作为存储，通常应该提供集群部署。但在进行搭建前，最好先确定好<span class="highlight">ElasticSearch</span>的版本信息，<span class="highlight">ElasticSearch</span>版本更新，对API的更新比较频繁，需要关注下所使用的插件是否支持对应的<span class="highlight">ElasticSearch</span>版本，特别是有关中文分词的插件，相关的部署安装可以参考下<a href="/elasticsearch/2015/06/27/es-first.html" target="_blank">这篇</a>文章。
     </p>
     <li>
     	<h4>日志Mapping</h4>
@@ -433,7 +433,7 @@ curl -XPUT http://10.112.88.105:9200/business_logs/_mapping/business_log?pretty 
     <p class="wrap">
     	<span class="highlight">Kibana</span>基本配置如下，详细配置可见<a href="" target="_blank">这里</a>：
     </p>
-    {% highlight xml %}
+    {% highlight bash %}
 # 绑定端口
 port: 5601
 
