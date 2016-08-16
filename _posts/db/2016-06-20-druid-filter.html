@@ -1,0 +1,519 @@
+---
+title : Druid的Filter机制
+category : [db]
+tags : [db, datasource, druid]
+layout : post
+show : 1
+keywords: datasource, druid, druid filter
+---
+
+<ul>
+	 <p class="intro">
+        之前的<a href="/db/2016/06/10/datasource-select.html" target="_blank">这篇文章</a>介绍了<a href="https://github.com/alibaba/druid" target="_blank">Druid</a>的连接池管理实现，但除了基本的连接管理，<span class="highlight">Druid</span>还支持<span class="highlight">监控</span>，<span class="highlight">代理</span>等功能，便于开发人员分析数据库操作的一些性能指标等。其主要使用<span class="highlight">Filter</span>机制来实现，本文将介绍下其中的<span class="highlight">Filter实现</span>。
+    </p>
+
+    <li>
+    	<h2>Filter接口定义</h2>
+    </li>
+    <p class="wrap">
+    	从<span class="highlight">Filter</span>接口中，可以看出，<span class="highlight">Filter</span>主要重新定义了来自<span class="highlight">Connection</span>，<span class="highlight">Statement</span>，<span class="highlight">ResultSet</span>等对象的接口，并且均通过对应的<span class="highlight">Proxy</span>对象来替代，每个接口中还带有一个<span class="highlight">FilterChain</span>参数，主要是为了支持<span class="highlight">Filter</span>链，如：
+    </p>
+    {% highlight java %}
+public interface Filter extends Wrapper {
+	
+   /**
+    * 初始化Filter
+    */ 
+    void init(DataSourceProxy dataSource);
+
+    /**
+     * 销毁Filter
+     */ 
+    void destroy();
+
+    // Connection相关方法
+
+    /**
+     * 创建一个连接
+     */
+    ConnectionProxy connection_connect(FilterChain chain, Properties info) throws SQLException;
+
+    /**
+     * 创建一个Statement代理对象
+     */
+    StatementProxy connection_createStatement(FilterChain chain, ConnectionProxy connection) throws SQLException;
+
+    // ...
+
+    // Statement相关方法
+
+    /**
+     * 执行查询操作
+     */
+    ResultSetProxy statement_executeQuery(FilterChain chain, StatementProxy statement, String sql) throws SQLException;
+
+    /**
+     * 执行更新操作
+     */
+    int statement_executeUpdate(FilterChain chain, StatementProxy statement, String sql) throws SQLException;
+    
+    // ...
+
+    // ResultSet相关方法
+
+    /** 
+     * 下一条记录
+     */
+    boolean resultSet_next(FilterChain chain, ResultSetProxy resultSet) throws SQLException;
+
+    /**
+     * 关闭ResultSet
+     */
+    void resultSet_close(FilterChain chain, ResultSetProxy resultSet) throws SQLException;
+
+    // ...
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	同<span class="highlight">Filter</span>类似，<span class="highlight">FilterChain</span>也是定义了<span class="highlight">Connection</span>，<span class="highlight">Statement</span>，<span class="highlight">ResultSet</span>等对象的相关接口，只是在实际调用这些对象前，会先执行一遍配置的<span class="highlight">Filter</span>链。
+    </p>
+    {% highlight java %}
+
+ public interface FilterChain {
+    
+ 	/**
+ 	 * 创建Connection代理
+ 	 */
+    ConnectionProxy connection_connect(Properties info) throws SQLException;
+
+    /**
+     * 创建Statement代理
+     */
+    StatementProxy connection_createStatement(ConnectionProxy connection) throws SQLException;
+
+    /**
+     * 创建PrepareStatement代理
+     */ 
+    PreparedStatementProxy connection_prepareStatement(ConnectionProxy connection, String sql) throws SQLException;
+
+    // ...
+ }
+    {% endhighlight %}
+
+    <li>
+    	<h2>Filter实现</h2>
+    </li>
+    <p class="wrap">
+    	使用<span class="highlight">Druid</span>时，一旦配置<span class="highlight">filters</span>，则在执行数据库操作时，均将使用<span class="highlight">代理对象</span>(如<span class="highlight">ConnectionProxy</span>，<span class="highlight">StatementProxy</span>，<span class="highlight">ResultSetProxy</span>等)，下面将分别描述在使用<span class="highlight">Filter</span>时，<span class="highlight">Druid</span>不同的表现。
+    </p>
+    <li>
+    	<h3>数据库连接获取</h3>
+    </li>
+    {% highlight java %}
+// DruidDataSource.getConnection()
+/**
+ * 获取数据库连接
+ */     
+public DruidPooledConnection getConnection(long maxWaitMillis) throws SQLException {
+    // 尝试初始化数据源
+    init();
+
+    if (filters.size() > 0) {
+        // 经过filter中获取连接
+        // 这里是每次获取连接，都需要构造Filter链，即执行各Filter
+        FilterChainImpl filterChain = new FilterChainImpl(this);
+        return filterChain.dataSource_connect(this, maxWaitMillis);
+    } else {
+        // 直接获取连接
+        return getConnectionDirect(maxWaitMillis);
+    }
+}
+    {% endhighlight %}
+    {% highlight java %}
+// FilterChainImpl
+public DruidPooledConnection dataSource_connect(DruidDataSource dataSource, long maxWaitMillis) throws SQLException {
+    if (this.pos < filterSize) {
+    	// 还有未执行的Filter，则先执行Filter.dataSource_getConnection()
+        DruidPooledConnection conn = nextFilter().dataSource_getConnection(this, dataSource, maxWaitMillis);
+        return conn;
+    }
+
+    return dataSource.getConnectionDirect(maxWaitMillis);
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	<span class="highlight">Druid</span>内部默认提供了一些可选的Filter，可见<span class="highlight">META-INF/druid-filter.properties</span>中：
+    </p>
+    {% highlight shell %}
+druid.filters.default=com.alibaba.druid.filter.stat.StatFilter
+druid.filters.stat=com.alibaba.druid.filter.stat.StatFilter
+druid.filters.mergeStat=com.alibaba.druid.filter.stat.MergeStatFilter
+druid.filters.counter=com.alibaba.druid.filter.stat.StatFilter
+druid.filters.encoding=com.alibaba.druid.filter.encoding.EncodingConvertFilter
+druid.filters.log4j=com.alibaba.druid.filter.logging.Log4jFilter
+druid.filters.log4j2=com.alibaba.druid.filter.logging.Log4j2Filter
+druid.filters.slf4j=com.alibaba.druid.filter.logging.Slf4jLogFilter
+druid.filters.commonlogging=com.alibaba.druid.filter.logging.CommonsLogFilter
+druid.filters.commonLogging=com.alibaba.druid.filter.logging.CommonsLogFilter
+druid.filters.wall=com.alibaba.druid.wall.WallFilter
+druid.filters.config=com.alibaba.druid.filter.config.ConfigFilter
+    {% endhighlight %}
+    <p class="wrap">
+    	假设需要使用<span class="highlight">StatFilter</span>(主要作一些连接池相关的<span class="highlight">监听通知</span>的操作)和<span class="highlight">Slf4jLogFilter</span>(增加一些<span class="highlight">Connection</span>，<span class="highlight">Statement</span>，<span class="highlight">ResultSet</span>等相关的日志)，只需在配置数据源时设置即可：
+    </p>
+    {% highlight java %}
+datasource.setFilters("stat,slf4j");
+    {% endhighlight %}
+    {% highlight java %}
+// StatFilter.dataSource_getConnection()
+public DruidPooledConnection dataSource_getConnection(FilterChain chain, DruidDataSource dataSource,
+                                                      long maxWaitMillis) throws SQLException {
+    // 调用下一个Filter，即LogFilter
+    DruidPooledConnection conn = chain.dataSource_connect(dataSource, maxWaitMillis);
+
+    if (conn != null) {
+        // 设置连接的连接时间
+        conn.setConnectedTimeNano();
+        // 触发一些打开连接的事件
+        StatFilterContext.getInstance().pool_connection_open();
+    }
+
+    return conn;
+}
+
+// StatFilterContext.pool_connection_open()
+// 通知配置的监听器
+public void pool_connection_open() {
+    for (int i = 0; i < listeners.size(); ++i) {
+        StatFilterContextListener listener = listeners.get(i);
+        listener.pool_connect();
+    }
+}
+    {% endhighlight %}
+    {% highlight java %}
+// LogFilter.dataSource_getConnection()  
+public DruidPooledConnection dataSource_getConnection(FilterChain chain, DruidDataSource dataSource,
+                                                      long maxWaitMillis) throws SQLException {
+    // 调用下一个Filter，即LogFilter
+    DruidPooledConnection conn = chain.dataSource_connect(dataSource, maxWaitMillis);
+
+    // 获取物理连接
+    ConnectionProxy connection = (ConnectionProxy) conn.getConnectionHolder().getConnection();
+
+    if (connectionConnectAfterLogEnable && isConnectionLogEnabled()) {
+        // 记录获取到连接的日志
+        connectionLog("{conn-" + connection.getId() + "} pool-connect");
+    }
+
+    return conn;
+}
+    {% endhighlight %}
+    <p class="wrap">
+        由上述可知，这些配置的<span class="highlight">Filter</span>会在获取到连接后再被执行，并且<span class="highlight">Filter</span>的执行顺序与配置的的顺序相反，即<span class="highlight">Slf4jLogFilter</span>更先执行。
+    </p>
+
+    <li>
+        <h2>内置的一些Filter</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Druid</span>内置了一些常用的<span class="highlight">Filter</span>，下面将介绍游戏i饿。
+    </p>
+    <li>
+        <h3>ConfigFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">ConfigFilter</span>主要负责从外部获取数据源配置，如：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            从配置文件中读取配置；
+        </div>
+        <div class="item">
+            从远程http文件中读取配置；
+        </div>
+        <div class="item">
+            为数据库密码提供加密功能。
+        </div>
+    </div>
+    {% highlight java %}
+// ConfigFilter.init()
+public void init(DataSourceProxy dataSourceProxy) {
+    if (!(dataSourceProxy instanceof DruidDataSource)) {
+        LOG.error("ConfigLoader only support DruidDataSource");
+    }
+
+    DruidDataSource dataSource = (DruidDataSource) dataSourceProxy;
+    Properties connectinProperties = dataSource.getConnectProperties();
+
+    Properties configFileProperties = loadPropertyFromConfigFile(connectinProperties);
+
+    // 判断是否需要解密，如果需要就进行解密行动
+    boolean decrypt = isDecrypt(connectinProperties, configFileProperties);
+
+    if (configFileProperties == null) {
+        // 没有配置文件
+        if (decrypt) {
+            // 解密密码(RSA)
+            decrypt(dataSource, null);
+        }
+        return;
+    }
+
+    if (decrypt) {
+        // 解密密码(RSA), 并配置数据源
+        decrypt(dataSource, configFileProperties);
+    }
+
+    try {
+        // 从配置文件中设置数据源配置
+        DruidDataSourceFactory.config(dataSource, configFileProperties);
+    } catch (SQLException e) {
+        throw new IllegalArgumentException("Config DataSource error.", e);
+    }
+} 
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">ConfigFilter</span>常见的配置方式为：
+    </p>
+
+    {% highlight shell %}
+<!-- 从本地文件读取配置 -->
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+     init-method="init" destroy-method="close">
+     <property name="filters" value="config" />
+     <property name="connectionProperties" value="config.file=file:///home/admin/druid-pool.properties" />
+ </bean>
+    {% endhighlight %}
+
+    {% highlight shell %}
+<!-- 从HTTP文件读取配置 -->
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+     init-method="init" destroy-method="close">
+     <property name="filters" value="config" />
+     <property name="connectionProperties" value="config.file=http://127.0.0.1/druid-pool.properties" />
+</bean>
+    {% endhighlight %}
+    <p class="wrap">
+        启用<span class="highlight">ConfigFilter</span>的加解密功能：
+    </p>
+
+    {% highlight shell %}
+# 生成公私钥
+java -cp druid-{version}.jar com.alibaba.druid.filter.config.ConfigTools plain_password
+    {% endhighlight %}
+
+    {% highlight shell %}
+<!-- 配置加密后的密码，及公钥 -->
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+     init-method="init" destroy-method="close">
+     <property name="url" value="jdbc:derby:memory:spring-test;create=true" />
+     <property name="username" value="sa" />
+     <property name="password" value="${encryted_password}" />
+     <property name="filters" value="config" />
+     <property name="connectionProperties" value="config.decrypt=true;config.decrypt.key=${publickey}" />
+</bean>
+    {% endhighlight %}
+
+    <li>
+        <h3>WallFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">WallFilter</span>的功能是防御SQL注入攻击。它是基于SQL语法分析，理解其中的SQL语义，然后做处理的，智能，准确，误报率低。对于<span class="highlight">SQL注入</span>这类问题，通过常见的<span class="highlight">SQL占位符</span>便可防止，但对于一些其他诸如<span class="highlight">SQL变量</span>，<span class="highlight">表</span>的控制，则可以通过<span class="highlight">WallFilter</span>来处理，<span class="highlight">WallFilter</span>初始化时，会预先加载一些被禁止的<span class="highlight">变量</span>，<span class="highlight">表</span>等，如：
+    </p>
+    {% highlight java %}
+// WallFilter.init()
+public synchronized void init(DataSourceProxy dataSource) {
+
+    if (JdbcUtils.MYSQL.equals(dbType) || //
+        JdbcUtils.MARIADB.equals(dbType) || //
+        JdbcUtils.H2.equals(dbType)) {
+        if (config == null) {
+            // 构建WallFilter配置对象, 默认配置在目录META-INF/druid/wall/mysql下
+            config = new WallConfig(MySqlWallProvider.DEFAULT_CONFIG_DIR);
+        }
+
+        // 针对MYSQL, MARIADB, H2的WallFilter内部实现
+        provider = new MySqlWallProvider(config);
+    } 
+
+    // ... 其他数据库类型
+
+}
+    {% endhighlight %}
+    {% highlight java %}
+public WallConfig(String dir){
+    this.dir = dir;
+    this.init();
+}
+
+public final void init() {
+    loadConfig(dir);
+}
+
+/**
+ * 加载配置
+ */
+public void loadConfig(String dir) {
+
+    // 逐行加载配置文件，包括jar包中的对应resource
+    
+    // 禁止访问的变量
+    loadResource(this.denyVariants, dir + "/deny-variant.txt");
+
+    // 禁止访问的Schema，如information_schema，mysql等
+    loadResource(this.denySchemas, dir + "/deny-schema.txt");
+
+    // 禁止使用的函数，如load_file等
+    loadResource(this.denyFunctions, dir + "/deny-function.txt");
+
+    // 禁止访问的表，没有提供默认配置，开发人员可以自己定义
+    loadResource(this.denyTables, dir + "/deny-table.txt");
+
+    // 禁止访问的对象，没有提供默认配置，开发人员可以自己定义
+    loadResource(this.denyObjects, dir + "/deny-object.txt");
+
+    // 只读的表
+    loadResource(this.readOnlyTables, dir + "/readonly-table.txt");
+
+    // 允许使用的函数
+    loadResource(this.permitFunctions, dir + "/permit-function.txt");
+
+    // 允许访问的表，没有提供默认配置，开发人员可以自己定义
+    loadResource(this.permitTables, dir + "/permit-table.txt");
+
+    // 允许访问的Schema
+    loadResource(this.permitSchemas, dir + "/permit-schema.txt");
+
+    // 允许访问的变量
+    loadResource(this.permitVariants, dir + "/permit-variant.txt");
+}
+    {% endhighlight %}
+    <p class="wrap">
+        因此，之后在执行SQL相关的操作时，则会先对<span class="highlight">SQL进行校验</span>，如：
+    </p>
+    {% highlight java %}
+// WallFilter.connection_prepareStatement
+public PreparedStatementProxy connection_prepareStatement(FilterChain chain, ConnectionProxy connection,
+                                                          String sql, int autoGeneratedKeys) throws SQLException {
+    String dbType = connection.getDirectDataSource().getDbType();
+    // WallFilter ThreadLocal上下文
+    WallContext.create(dbType);
+    try {
+        // 检测SQL
+        // 合法放入白名单缓存，非法放入黑名单缓存
+        sql = check(sql);
+        PreparedStatementProxy stmt = chain.connection_prepareStatement(connection, sql, autoGeneratedKeys);
+        setSqlStatAttribute(stmt);
+        return stmt;
+    } finally {
+        WallContext.clearContext();
+    }
+}
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">WallFilter</span>相关的详细配置可见<a href="https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE-wallfilter" target="_blank">这里</a>。
+    </p>
+
+    <li>
+        <h3>EncodingConvertFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">EncodingConvertFilter</span>主要用于当<span class="highlight">客户端编码不一致</span>时，使用较少，除非一些遗留问题，应保证客户端与服务端使用的编码一致。
+    </p>
+    {% highlight shell %}
+<!-- 仅需配置clientEncoding与serverEncoding -->
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">
+    // ...
+    <property name="filters" value="encoding" />
+    <property name="connectionProperties" value="clientEncoding=UTF-8;serverEncoding=ISO-8859-1" />
+</bean>
+    {% endhighlight %}
+
+    <li>
+        <h3>StatFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">StatFilter</span>的功能是主要是用于<span class="highlight">统计监控信息</span>。比如，通常开发人员会比较关注的<span class="highlight">慢查询问题</span>，可以用<span class="highlight">StatFilter</span>来处理，详细配置可见<a href="https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE_StatFilter" target="_blank">这里</a>：
+    </p>
+    {% highlight shell %}
+<bean id="stat-filter" class="com.alibaba.druid.filter.stat.StatFilter">
+    <property name="slowSqlMillis" value="10000" />
+    <property name="logSlowSql" value="true" />
+</bean>
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource"
+    init-method="init" destroy-method="close">
+    <property name="filters" value="slf4j" />
+    <property name="proxyFilters">
+        <list>
+            <ref bean="stat-filter" />
+        </list>
+    </property>
+</bean>
+    {% endhighlight %}
+    
+    <li>
+        <h3>LogFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Druid</span>内置提供了四种LogFilter（<span class="highlight">Log4jFilter</span>、<span class="highlight">Log4j2Filter</span>、<span class="highlight">CommonsLogFilter</span>、<span class="highlight">Slf4jLogFilter</span>），这样开发人员就可以自由配置需要在哪些JDBC操作上进行日志记录，比如<span class="highlight">数据源</span>，<span class="highlight">数据库连接</span>等，详细配置可见<a href="https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE_LogFilter" target="_blank">这里</a>：
+    </p>
+    {% highlight shell %}
+<bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">
+    ...
+    <property name="proxyFilters">
+        <list>
+            <ref bean="logFilter"/>
+        </list>
+    </property>
+</bean>
+
+<bean id="logFilter" class="com.alibaba.druid.filter.logging.Slf4jLogFilter">
+    <property name="dataSourceLogEnabled" value="false" />
+    <property name="connectionLogEnabled" value="false" />
+    <property name="statementLogEnabled" value="false" />
+    <property name="resultSetLogEnabled" value="false" />
+</bean>
+    {% endhighlight %}
+
+    <li>
+        <h3>WebStatFilter</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">WebStatFilter</span>用于采集web-jdbc关联监控的数据，即通过Servlet容器中的<span class="highlight">Filter</span>来作相关的收集及监控，详细配置可见<a href="https://github.com/alibaba/druid/wiki/%E9%85%8D%E7%BD%AE_%E9%85%8D%E7%BD%AEWebStatFilter" target="_blank">这里</a>：
+    </p>
+    {% highlight shell %}
+# web.xml
+<filter>
+    <filter-name>DruidWebStatFilter</filter-name>
+    <filter-class>com.alibaba.druid.support.http.WebStatFilter</filter-class>
+    <init-param>
+        # 经常需要排除一些不必要的url，比如.js,/jslib/等等
+        <param-name>exclusions</param-name>
+        <param-value>*.js,*.gif,*.jpg,*.png,*.css,*.ico,/druid/*</param-value>
+    </init-param>
+</filter>
+<filter-mapping>
+    <filter-name>DruidWebStatFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+</filter-mapping>
+    {% endhighlight %}
+
+    <li>
+        <h3>实现自己的Filter</h3>
+    </li>
+    <p class="wrap">
+        实现自己的<span class="highlight">Filter</span>很简答，只需继承一个<span class="highlight">Filter适配器(FilterAdapter)</span>，重写感兴趣的方法即可：
+    </p>
+    {% highlight java %}
+public class MyFilter extends FilterAdapter{
+    // override some methods
+}
+    {% endhighlight %}
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+        以上，则是有关<span class="highlight">Druid</span>的Filter机制，也可以说是<span class="highlight">拦截器机制</span>。
+    </p>
+</ul>
