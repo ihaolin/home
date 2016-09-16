@@ -1,6 +1,7 @@
 body{
     font-family: "Helvetica Neue", Helvetica, Tahoma, Arial, "Hiragino Sans GB", STXihei, "华文细黑", "WenQuanYi Micro Hei", "文泉驿微米黑", "Microsoft YaHei", "微软雅黑", SimSun, "宋体", Heiti, "黑体", sans-serif;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -16,7 +17,7 @@ h1, h2, h3, h4, h5, h6 {
     z-index: 1;
     position: absolute;
     margin-top: 20px;
-    margin-left: 2px;
+    margin-left: 14px;
 }
 
 #sidebar-toggler:hover{
@@ -263,6 +264,9 @@ div.ui.bulleted.list{
     color: #00b5ad!important;
 }
 
+.ui.grid>.column:not(.row), .ui.grid>.row>.column{
+    padding-right: 0;
+}
 
 
 
