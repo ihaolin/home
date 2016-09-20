@@ -478,7 +478,7 @@ var config = {
 		</div>
 		<img src="{{site.url}}/images/varnish/static-cache-arch2.png" width="70%">
 		<div class="item">
-			在实际测试当中，当内存足够缓存频繁访问的资源时，三者性能上并没有明显的差距，当内存不足时，可想而知在高并发访问不同资源时，<span class="highlight">Nginx</span>和<span class="highlight">ATS</span>将带来频繁的自盘I/O操作，势必影响性能。除了内存限制，比较明显就是带宽限制，应事先评估在静态资源大小与带宽限制下，能处理的最大并发请求数。
+			在实际测试当中，当内存足够缓存频繁访问的资源时，三者性能上并没有明显的差距，当内存不足时，可想而知在高并发访问不同资源时，<span class="highlight">Nginx</span>和<span class="highlight">ATS</span>将带来频繁的磁盘I/O操作，势必影响性能。除了内存限制，比较明显就是带宽限制，应事先评估在静态资源大小与带宽限制下，能处理的最大并发请求数。
 		</div>
 	</div>
 
