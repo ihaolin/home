@@ -1,0 +1,427 @@
+---
+title : 加速你的站点访问
+category : [devops]
+tags : [devops, static resources, cache]
+layout : post
+show : 1
+keywords: devops，静态资源缓存，varnish使用，CDN
+---
+
+<ul>
+    <p class="intro">
+        对于一个站点，大家应该都比较清楚，资源大概就分为<span class="highlight">静态资源(js/css等)</span>，<span class="highlight">图片</span>，<span class="highlight">文件</span>，<span class="highlight">动态数据</span>等。对于加快<span class="highlight">动态数据</span>访问，通常是需要<span class="highlight">后端程序</span>或<span class="highlight">数据结构</span>作优化，才能比较明显地得到提升，并不是一个立竿见影的过程。但对于<span class="highlight">静态资源(js/css等)</span>，<span class="highlight">图片</span>，<span class="highlight">文件</span>等的访问，则可以通过一些<span class="highlight">缓存</span>，<span class="highlight">压缩</span>，<span class="highlight">合并</span>等技术，就能得到比较明显的提升，本文将探讨下使用<span class="highlight">缓存</span>来加快<span class="highlight">静态资源</span>，<span class="highlight">图片</span>等的访问，主要使用<a href="https://varnish-cache.org/" target="_blank">Varnish</a>。
+    </p>
+
+
+    <li>
+    	<h2>动静态资源分离</h2>
+    </li>
+    <p class="wrap">
+    	通常，对于具有一定规模的站点，是需要将<span class="highlight">动态资源</span>(如<span class="highlight">后端服务提供的API数据接口</span>)和<span class="highlight">静态资源</span>(如<span class="highlight">图片</span>，<span class="highlight">文件</span>，<span class="highlight">js/css</span>等)独立部署的，因为这些资源具有不同的访问属性，在运维层面也会有不同的策略，比如<span class="highlight">服务器配置</span>，<span class="highlight">缓存策略</span>等，下面是一个比较简易的部署架构：
+    </p>
+    <img src="{{site.url}}/images/varnish/static-cache-arch.png" width="70%">
+
+    <li>
+    	<h2>对静态资源进行缓存</h2>	
+    </li>
+    <p class="wrap">
+    	将动静态资源分离访问后，由于静态资源通常不会有内容更新，所以对它们进行缓存处理是再好不过，这也减少了不必要的资源解析，加载等，对于静态资源的缓存，也有许多比较成熟的解决方案，如<a href="http://www.squid-cache.org/" target="_blank">Squid</a>，<a href="http://trafficserver.apache.org/" target="_blank">Apache Traffic Server</a>，<a href="https://varnish-cache.org/" target="_blank">Varnish</a>，<a href="https://nginx.org/en/" target="_blank">Nginx</a>等，这里讲主要介绍<span class="highlight">ATS</span>，<span class="highlight">Varnish</span>，<span class="highlight">Nginx</span>作资源缓存处理。<span class="highlight">ATS</span>和<span class="highlight">Nginx</span>基于文件缓存，而<span class="highlight">Varnish</span>则基于内存缓存(收费的<span class="highlight">Varnish Plus</span>应该支持文件)。
+    </p>
+
+    <li>
+    	<h2>使用ATS，Nginx，Varnish作缓存处理</h2>
+    </li>
+
+    <li>
+    	<h3>各缓存方案的特性对比</h3>
+    </li>
+    <p class="wrap">
+    	各缓存方案的一些特性对比：
+    </p>
+    <img src="{{site.url}}/images/varnish/cache-vs.png">
+
+    <li>
+    	<h3>使用ATS作缓存</h3>
+    </li>
+    <li>
+    	<h4>安装</h4>
+    </li>
+    {% highlight bash %}
+# 安装依赖包
+yum -y install pkgconfig libtool gcc make openssl tcl tcl-devel expat pcre libcap flex hwloc lua ncurses ncurses-devel 
+
+# 配置 & 编译 & 安装 
+git clone https://git-wip-us.apache.org/repos/asf/trafficserver.git
+cd trafficserver/
+./configure --prefix=/path/to/${TRAFFIC_SERVER_HOME}
+make && make check && make install
+
+# 启动traffic_server
+/path/to/ats_home/bin/traffic_server start
+
+# 关闭traffic_server
+/path/to/ats_home/bin/traffic_server stop
+    {% endhighlight %}
+    <li>
+    	<h4>配置</h4>
+    </li>
+    {% highlight bash %}
+# 反向代理配置：/path/to/ats_home/etc/trafficserver/records.config
+CONFIG proxy.config.http.cache.http INT 1
+CONFIG proxy.config.reverse_proxy.enabled INT 1
+CONFIG proxy.config.url_remap.remap_required INT 1
+CONFIG proxy.config.url_remap.pristine_host_hdr INT 1
+CONFIG proxy.config.http.server_ports STRING 80
+    {% endhighlight %}
+    {% highlight bash %}
+# 后端服务器配置：/path/to/ats_home/etc/trafficserver/remap.config
+# 若要实现多个后端，需要使用balancer插件
+regex_map http://(.*)/ http://${BACKEND_SERVER_ADDR}/
+    {% endhighlight %}
+    {% highlight bash %}
+# 缓存存储：/path/to/ats_home/etc/trafficserver/storage.config
+# 有条件可以配置多个裸分区，以便高可用
+# 该配置只是缓存使用磁盘大小，而ATS使用的缓存内存大小可以在records.config中通过proxy.config.cache.ram_cache.size指定
+/path/to/cache 500G
+    {% endhighlight %}
+    <p class="wrap">
+    	具体各配置详情可见<a href="https://docs.trafficserver.apache.org/en/6.2.x/admin-guide/files/index.en.html" target="_blank">这里</a>。
+    </p>
+    <li>
+    	<h4>ATS中重要的几个组件</h4>
+    </li>
+    <p class="wrap">
+    	如下图，<span class="highlight">ATS</span>中主要包含了<span class="highlight">traffic_server</span>，<span class="highlight">traffic_manager</span>，<span class="highlight">traffic_cop</span>组件：
+    </p>
+    <img src="{{site.url}}/images/varnish/traffic_server_processes.jpg" width="70%">
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<span class="highlight">traffic_server</span>：Traffic Server的事务处理引擎，负责接收连接，处理协议请求，提供来自缓存或后端服务器的文件内容；
+		</div>
+		<div class="item">
+			<span class="highlight">traffic_manager</span>：Traffic Server的命令行和控制进程，负责运行，监控，重配置traffic_server进程，同时也负责代理自动配置端口，数据统计，集群管理，虚拟IP切换；
+		</div>
+		<div class="item">
+			<span class="highlight">traffic_cop</span>：监控traffic_server和traffic_manager的健康状态。
+		</div>
+	</div>
+
+	<li>
+		<h3>使用Nginx作缓存</h3>
+	</li>
+	<p class="wrap">
+		使用nginx作缓存比较简单，只需使用<a href="http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache" target="_blank">proxy_cache</a>指令，配置如下：
+	</p>
+	{% highlight bash %}
+# 配置缓存区
+http {
+    # ...
+    # /path/to/cache_path ：缓存目录
+    # levels=1:2 ：表示缓存目录的第一级目录是1个字符，第二级目录是2个字符，如/path/to/cache_path/a/a0
+    # keys_zone=cache1:1024m ：缓存区名称及分配的内存大小
+    # inactive=1d ：缓存对象若1天内未被访问会被cache manager删掉
+    # max_size=10g：表示该缓存区磁盘大小为10g
+    proxy_cache_path /path/to/cache_path levels=1:2 keys_zone=cache1:1024m inactive=1d max_size=10g;
+    # ...
+}
+	{% endhighlight %}
+	<p class="wrap">
+		开启需要作缓存的server，如：
+	</p>
+	{% highlight bash %}
+server{
+    # ...
+    location ~ .(jpg|png|gif|jpeg)$ {
+        proxy_pass http://{your_upstream};
+        # 使用的缓存区
+        proxy_cache cache1;
+        # 缓存的键
+        proxy_cache_key $host$uri$is_args$args;
+        # 设置状态码为200和304的响应可以进行缓存，并且缓存时间为10分钟
+        proxy_cache_valid 200 304 10m;
+        # 客户端缓存30天
+        expires 30d;
+    }
+    # ...
+}
+	{% endhighlight %}
+	<p class="wrap">
+		通常，可以在日志中输出缓存命中状态变量<span class="highlight">upstream_cache_status</span>，以作缓存命中率统计：
+	</p>
+	{% highlight bash %}
+# 日志中加入upstream_cache_status
+log_format main '$remote_addr - $remote_user [$time_local] "$http_x_forwarded_for" "$request" '
+                '$status $body_bytes_sent $bytes_sent "$http_referer" "$http_user_agent"'
+                '"$upstream_addr" "$upstream_response_time" $request_time $upstream_cache_status';
+	{% endhighlight %}
+	{% highlight bash %}
+# 统计命中率
+if [ $1x != x ] then
+    if [ -e $1 ] then
+        HIT=`cat $1 | grep HIT | wc -l`
+        ALL=`cat $1 | wc -l`
+        Hit_rate=`echo "scale=2;($HIT/$ALL)*100" | bc`
+        echo "Hit rate=$Hit_rate%"
+    else
+        echo "$1 not exsist!"
+    fi
+else
+    echo "usage: ./ngx_hit_rate.sh file_path"
+fi
+	{% endhighlight %}
+	{% highlight bash %}
+./ngx_hit_rate.sh /path/to/access.log
+	{% endhighlight %}
+    <p class="wrap">
+    	必要的时候，有可能需要手动失效缓存，可通过<a href="https://github.com/FRiCKLE/ngx_cache_purge" target="_blank">proxy_cache_purge</a>模块实现：
+    </p>
+    {% highlight bash %}
+location ~ /purge(/.*) {
+    # 允许的IP
+    allow 127.0.0.1;
+    deny all;
+    proxy_cache_purge cache1 $host$1$is_args$args;
+}
+    {% endhighlight %}
+
+    <li>
+		<h3>使用Varnish作缓存</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">Varnish</span>与前两者不同，使用内存来缓存对象，即不会有磁盘I/O操作，也是最终选择的方案。可以看下其基本架构：
+	</p>
+	<img src="{{site.url}}/images/varnish/varnish-arch.png" width="70%">
+	<li>
+		<h4>安装</h4>
+	</li>
+	{% highlight bash %}
+# 安装varnish rpm
+yum install epel-release
+# for centos 6
+rpm --nosignature -i https://repo.varnish-cache.org/redhat/varnish-4.1.el6.rpm
+# for centos 7
+rpm --nosignature -i https://repo.varnish-cache.org/redhat/varnish-4.1.el7.rpm
+# 安装varnish
+yum install varnish
+# 若安装报错Error: xz compression not available
+yum remove epel-release
+rm -rf /var/cache/yum/x86_64/6/epel/
+	{% endhighlight %}
+	<li>
+		<h4>配置</h4>
+	</li>
+	{% highlight bash %}
+# vim /etc/sysconfig/varnish
+# 最大的打开文件数(ulimit -n)
+NFILES=131072
+# 最大的内存锁大小(ulimit -l)
+MEMLOCK=82000
+# 最大的进程数
+NPROCS="unlimited"
+RELOAD_VCL=1
+# VCL配置文件
+VARNISH_VCL_CONF=/etc/varnish/default.vcl
+# varnish监听端口
+VARNISH_LISTEN_PORT=80
+# varnish_admin监听地址
+VARNISH_ADMIN_LISTEN_ADDRESS=127.0.0.1
+# varnish_admin监听端口
+VARNISH_ADMIN_LISTEN_PORT=81
+# 密钥文件
+VARNISH_SECRET_FILE=/etc/varnish/secret
+# 最小线程数
+VARNISH_MIN_THREADS=50
+# 最大线程数
+VARNISH_MAX_THREADS=1000
+# 缓存内存大小，由于内存引用和内存碎片，能用于缓存对象的大致有75%
+VARNISH_STORAGE_SIZE=256M
+# 缓存配置
+VARNISH_STORAGE="malloc,${VARNISH_STORAGE_SIZE}"
+VARNISH_TTL=120
+DAEMON_OPTS="-a ${VARNISH_LISTEN_ADDRESS}:${VARNISH_LISTEN_PORT} \
+             -f ${VARNISH_VCL_CONF} \
+             -T ${VARNISH_ADMIN_LISTEN_ADDRESS}:${VARNISH_ADMIN_LISTEN_PORT} \
+             -p thread_pool_min=${VARNISH_MIN_THREADS} \
+             -p thread_pool_max=${VARNISH_MAX_THREADS} \
+             -S ${VARNISH_SECRET_FILE} \
+             -s ${VARNISH_STORAGE}"
+	{% endhighlight %}
+	<li>
+		<h4>启动/关闭/重载</h4>
+	</li>
+	{% highlight bash %}
+# 启动
+service varnish start
+# 停止
+service varnish stop
+# 重新加载vcl，通常这个比较常用，重启动varnish将导致内存中的缓存失效
+service varnish reload
+	{% endhighlight %}
+
+	<li>
+		<h4>编写VCL</h4>
+	</li>
+	<p class="wrap">
+		<a href="https://www.varnish-cache.org/docs/4.1/reference/vcl.html" target="_blank">VCL(Varnish Configuration Language)</a>作为<span class="highlight">Varnish</span>核心的配置，作为一门小型的<span class="highlight">领域特性语言</span>，其描述了<span class="highlight">Varnish</span>应该如何处理请求，大致如下面的流程图：
+	</p>
+	<img src="{{site.url}}/images/varnish/vcl-flow.png" width="70%">
+	<p class="wrap">
+		常用的一些内置函数：
+	</p>
+	<div class="ui bulleted list">
+		<div class="item">
+			<span class="highlight">vcl_recv</span>：用于接收和处理请求。当请求到达并成功接收后被调用，通过判断请求的数据来决定如何处理请求。例如如何响应、怎么响应、使用哪个后端服务器等；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_pipe</span>：此函数在进入pipe 模式时被调用，用于将请求直接传递至后端主机，在请求和返回的内容没有改变的情况下，将不变的内容返回给客户端，直到这个连接被关闭；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_pass</span>：此函数在进入pass 模式时被调用，用于将请求直接传递至后端主机。后端主机在应答数据后将应答数据发送给客户端，但不进行任何缓存，在当前连接下每次都返回最新的内容；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_hash</span>：当您想把一个数据添加到 hash 上时，调用此函数；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_hit</span>：在执行lookup指令后，在缓存中找到请求的内容后将自动调用该函数；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_miss</span>：在执行lookup指令后，在缓存中没有找到请求的内容时自动调用该方法。此函数可用于判断是否需要从后端服务器获取内容；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_fetch</span>：在后端主机更新缓存并且获取内容后调用该方法，接着，通过判断获取的内容来决定是将内容放入缓存，还是直接返回给客户端；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_deliver</span>：将在缓存中找到请求的内容发送给客户端前调用此方法；
+		</div>
+		<div class="item">
+			<span class="highlight">vcl_error</span>：出现错误时调用此函数。
+		</div>
+	</div>
+	<p class="wrap">
+		下面是一份正在使用的配置：
+	</p>
+	{% highlight bash %}
+# vcl语言版本
+vcl 4.0;
+
+import directors;
+
+backend fdfs_t_ngx_01 {
+    .host = "xx.yy.120.185";
+    .probe = {
+        .url = "/";
+        .interval = 5s;
+        .timeout = 1s;
+        .window = 5;
+        .threshold = 3;
+    }
+}
+backend fdfs_t_ngx_02 {
+    .host = "aa.bb.120.193";
+    .probe = {
+        .url = "/";
+        .interval = 5s;
+        .timeout = 1s;
+        .window = 5;
+        .threshold = 3;
+    }
+}
+
+sub vcl_init {
+	# 使用轮询负载均衡
+    new fdfs_t_ngx = directors.round_robin();
+    fdfs_t_ngx.add_backend(fdfs_t_ngx_01);
+    fdfs_t_ngx.add_backend(fdfs_t_ngx_02);
+}
+
+# 允许使用失效缓存的IP
+acl purgers {
+    "localhost";
+    "127.0.0.1";
+}
+
+# 接收客户端请求
+sub vcl_recv {
+
+    # 失效缓存请求处理
+    if (req.method == "PURGE") {
+        if (!client.ip ~ purgers) {
+            return (synth(405));
+        }
+        return (purge);
+    }
+
+    # 路由一个后端服务器
+    set req.backend_hint = fdfs_t_ngx.backend();
+    if (req.url ~ "\.(png|gif|jpg)$") {
+        return(hash);
+    }
+}
+
+# 处理后端请求
+sub vcl_backend_response {
+    if (bereq.url ~ "\.(png|gif|jpg)$") {
+    	# 清空后端的cookie，varnish默认若后端返回的cookie则不会进行缓存
+        unset beresp.http.set-cookie;
+        unset beresp.http.cookie;
+    }
+}
+
+# 分发内容到客户端
+sub vcl_deliver {
+
+    # 移除一些header
+    unset resp.http.Server;
+    unset resp.http.ETag;
+    unset resp.http.X-Varnish;
+
+    # 设置一些header
+    set resp.http.Cache-Control = "max-age=31536000";
+    set resp.http.Via = "cache .119.52";
+
+    return(deliver);
+}
+	{% endhighlight %}
+
+	<li>
+		<h2>总结</h2>
+	</li>
+	<div class="ui bulleted list">
+    	<div class="item">
+			从上述可知，<span class="highlight">Nginx</span>和<span class="highlight">ATS</span>都是基于<span class="highlight">磁盘+内存</span>的形式进行缓存，<span class="highlight">Varnish</span>基于<span class="highlight">内存</span>进行缓存。这就使得<span class="highlight">Varnish</span>服务重启或宕机后，会导致所有缓存失效，重启后，则有可能造成短时后端访问高峰，<span class="highlight">Nginx</span>和<span class="highlight">ATS</span>则不会。
+		</div>
+		<div class="item">
+			但不能单纯说是<span class="highlight">内存形式</span>的缓存好，还是<span class="highlight">内存+磁盘形式</span>好，若生产中，内存已经足够缓存频繁的静态资源，则使用<span class="highlight">内存形式</span>即可，毕竟可以减少不必要的磁盘I/O管理。若生产中需要不时重启<span class="highlight">缓存服务</span>，且不能接受短时访问高峰，则可以使用<span class="highlight">内存+磁盘形式</span>。还有比较通用的方式，则是通过<span class="highlight">多级缓存</span>的方式，如一级缓存使用<span class="highlight">Nginx/ATS</span>，二级缓存使用<span class="highlight">Varnish</span>：
+		</div>
+		<img src="{{site.url}}/images/varnish/static-cache-arch2.png" width="70%">
+		<div class="item">
+			在实际测试当中，当内存足够缓存频繁访问的资源时，三者性能上并没有明显的差距，当内存不足时，可想而知在高并发访问不同资源时，<span class="highlight">Nginx</span>和<span class="highlight">ATS</span>将带来频繁的自盘I/O操作，势必影响性能。除了内存限制，比较明显就是带宽限制，应事先评估在静态资源大小与带宽限制下，能处理的最大并发请求数。
+		</div>
+	</div>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="https://www.varnish-cache.org/docs/4.1/" target="_blank">https://www.varnish-cache.org/docs/4.1/</a>
+		</div>
+		<div class="item">
+			<a href="https://info.varnish-software.com/blog/understanding-varnish-cache-memory-usage" target="_blank">https://info.varnish-software.com/blog/understanding-varnish-cache-memory-usage</a>
+		</div>
+		<div class="item">
+			<a href="http://www.ibm.com/developerworks/cn/opensource/os-cn-varnish-intro/" target="_blank">http://www.ibm.com/developerworks/cn/opensource/os-cn-varnish-intro/</a>
+		</div>
+		<div class="item">
+			<a href="https://docs.trafficserver.apache.org/en/6.2.x/" target="_blank">https://docs.trafficserver.apache.org/en/6.2.x/</a>
+		</div>
+		<div class="item">
+			<a href="http://weizhifeng.net/nginx-proxy-cache.html" target="_blank">http://weizhifeng.net/nginx-proxy-cache.html</a>
+		</div>
+		<div class="item">
+			<a href="https://www.bizety.com/2016/01/07/nginx-vs-varnish-vs-apache-traffic-server-high-level-comparison/
+" target="_blank">https://www.bizety.com/2016/01/07/nginx-vs-varnish-vs-apache-traffic-server-high-level-comparison/
+</a>
+		</div>
+	</div>
+</ul>
