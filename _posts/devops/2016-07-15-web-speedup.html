@@ -382,6 +382,89 @@ sub vcl_deliver {
     return(deliver);
 }
 	{% endhighlight %}
+    <li>
+        <h4>Varnish Agent</h4>
+    </li>
+    <p class="wrap">
+        <a href="https://github.com/varnish/vagent2" target="_blank">Varnish Agent</a>是一个微后台服务，用于远程控制和监控<span class="highlight">Varnish服务</span>，使用比较简单：
+    </p>
+    {% highlight bash %}
+# 安装agent，与varnishd同一台机器
+yum install --nogpgcheck varnish-agent
+    {% endhighlight %}
+    {% highlight bash %}
+# 使用
+varnish-agent [-C cafile] [-c port] [-d] [-g group] [-H directory]
+              [-h] [-K agent-secret-file] [-n name] [-P pidfile]
+              [-p directory] [-q] [-r] [-S varnishd-secret-file]
+              [-T host:port] [-t timeout] [-u user] [-V] [-v]
+              [-z vac_register_url]
+-C cafile   CA certificate for use by the cURL module. For use when the VAC register URL is specified as https using a certificate that can not be validated with the certificates in the system's default certificate directory.
+-c port Port number to listen for incoming connections. Defaults to 6085.
+-d  Run in foreground.
+-g group    Group to run as. Defaults to varnish.
+-H directory    Specify where html files are found. This directory will be accessible through /html/. The default provides a proof of concept front end.
+-h  Print help.
+-K agent-secret-file
+    Path to a file containing a single line representing the username and password required to authenticate. It should have a format of username:password.
+-n name Specify the varnish name. Should match the varnishd -n option. Amongst other things, this name is used to construct a path to the SHM-log file.
+-P pidfile  Write pidfile.
+-p directory    Specify persistence directory. This is where VCL is stored.
+-q  Quiet mode. Only log/output warnings/errors.
+-r  Read-only mode. Only accept GET, HEAD and OPTIONS request methods.
+-S varnishd-secret-file
+    Path to the shared secret file, used to authenticate with varnish.
+-T hostport Hostname and port number for the management interface of varnish.
+-t timeout  Timeout in seconds for talking to varnishd.
+-u user User to run as. Defaults to varnish.
+-V  Print version.
+-v  Verbose mode. Be extra chatty, including all CLI chatter.
+-z vac_register_url
+    Specify the callback vac register url.
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">varnish-agent</span>内置的UI并不是很友好，可以使用<a href="https://github.com/brandonwamboldt/varnish-dashboard" target="_blank">Varnish Dashboard</a>：
+    </p>
+    {% highlight bash %}
+# 获取varnish dashboard
+git clone git://github.com/brandonwamboldt/varnish-dashboard.git
+# 设置dashboard用户名密码
+# username:password
+vim /etc/varnish/agent_secret
+# 启动varnish agent
+varnish-agent -H /path/to/varnish-dashboard
+    {% endhighlight %}
+    <p class="wrap">
+        <span class="highlight">Varnish Dashboard</span>配置样例：
+    </p>
+    {% highlight bash %}
+# vim /path/to/varnish-dashboard/config.js
+var config = {
+  servers: [
+    {name: "img01",host: "10.110.176.30",port: 6085,user: "xx",pass: "yy"},
+    {name: "img02",host: "10.110.176.100",port: 6085,user: "xx",pass: "yy"}
+  ],
+  groups: [{
+    name: "img-cache",
+    servers: ["img01", "img02"]
+  }],
+  update_freq: 2000,
+  max_points: 100,
+  default_log_fetch: 10000,
+  default_log_display: 100,
+  show_bans_page: true,
+  show_manage_server_page: true,
+  show_vcl_page: true,
+  show_stats_page: true,
+  show_params_page: true,
+  show_logs_page: true,
+  show_restart_varnish_btn: true
+};
+    {% endhighlight %}
+    <p class="wrap">
+        访问<a>http://<varnish_ip>:6085/html/</a>后，即可在界面进行监控和操作：
+    </p>
+    <img src="{{site.url}}/images/varnish/dashboard.png" width="100%">
 
 	<li>
 		<h2>总结</h2>
