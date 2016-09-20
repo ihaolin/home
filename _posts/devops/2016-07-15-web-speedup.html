@@ -328,7 +328,7 @@ backend fdfs_t_ngx_02 {
 }
 
 sub vcl_init {
-	# 使用轮询负载均衡
+    # 使用轮询负载均衡
     new fdfs_t_ngx = directors.round_robin();
     fdfs_t_ngx.add_backend(fdfs_t_ngx_01);
     fdfs_t_ngx.add_backend(fdfs_t_ngx_02);
@@ -361,7 +361,7 @@ sub vcl_recv {
 # 处理后端请求
 sub vcl_backend_response {
     if (bereq.url ~ "\.(png|gif|jpg)$") {
-    	# 清空后端的cookie，varnish默认若后端返回的cookie则不会进行缓存
+        # 清空后端的cookie，varnish默认若后端返回的cookie则不会进行缓存
         unset beresp.http.set-cookie;
         unset beresp.http.cookie;
     }
@@ -399,26 +399,26 @@ varnish-agent [-C cafile] [-c port] [-d] [-g group] [-H directory]
               [-p directory] [-q] [-r] [-S varnishd-secret-file]
               [-T host:port] [-t timeout] [-u user] [-V] [-v]
               [-z vac_register_url]
--C cafile   CA certificate for use by the cURL module. For use when the VAC register URL is specified as https using a certificate that can not be validated with the certificates in the system's default certificate directory.
+-C cafile CA certificate for use by the cURL module. For use when the VAC register URL is specified as https using a certificate that can not be validated with the certificates in the system's default certificate directory.
 -c port Port number to listen for incoming connections. Defaults to 6085.
--d  Run in foreground.
--g group    Group to run as. Defaults to varnish.
+-d Run in foreground.
+-g group     to run as. Defaults to varnish.
 -H directory    Specify where html files are found. This directory will be accessible through /html/. The default provides a proof of concept front end.
--h  Print help.
+-h Print help.
 -K agent-secret-file
     Path to a file containing a single line representing the username and password required to authenticate. It should have a format of username:password.
 -n name Specify the varnish name. Should match the varnishd -n option. Amongst other things, this name is used to construct a path to the SHM-log file.
 -P pidfile  Write pidfile.
 -p directory    Specify persistence directory. This is where VCL is stored.
--q  Quiet mode. Only log/output warnings/errors.
--r  Read-only mode. Only accept GET, HEAD and OPTIONS request methods.
+-q Quiet mode. Only log/output warnings/errors.
+-r Read-only mode. Only accept GET, HEAD and OPTIONS request methods.
 -S varnishd-secret-file
     Path to the shared secret file, used to authenticate with varnish.
 -T hostport Hostname and port number for the management interface of varnish.
 -t timeout  Timeout in seconds for talking to varnishd.
 -u user User to run as. Defaults to varnish.
--V  Print version.
--v  Verbose mode. Be extra chatty, including all CLI chatter.
+-V Print version.
+-v Verbose mode. Be extra chatty, including all CLI chatter.
 -z vac_register_url
     Specify the callback vac register url.
     {% endhighlight %}
@@ -462,7 +462,7 @@ var config = {
 };
     {% endhighlight %}
     <p class="wrap">
-        访问<a>http://<varnish_ip>:6085/html/</a>后，即可在界面进行监控和操作：
+        访问<a>http://${DASHBOARD_IP}:6085/html/</a>后，即可在界面进行监控和操作：
     </p>
     <img src="{{site.url}}/images/varnish/dashboard.png" width="100%">
 
