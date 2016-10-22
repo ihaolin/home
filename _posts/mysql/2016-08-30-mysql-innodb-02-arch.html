@@ -1,0 +1,281 @@
+---
+title : MySQL InnoDB存储引擎(二)：架构
+category : [mysql]
+tags : [mysql, innodb, 架构, architecture]
+layout : post
+show : 1
+keywords: mysql，innodb，架构，architecture
+---
+
+<ul>
+    
+    <p class="intro">
+    	<a href="/mysql/2016-08-15-mysql-innodb-01-intro.html">前一篇</a>文章主要讲述<span class="highlight">MySQL</span>的<span class="highlight">InnoDB</span>存储引擎的基础，特性，优势等，本文主要聚焦于<span class="highlight">InnoDB</span>的架构设计，对其内部的主要组件作相应介绍。
+    </p>
+
+
+    <li>
+    	<h2>缓冲区(Buffer Pool)</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">缓冲区</span>是<span class="highlight">InnoDB</span>用于缓存表和索引数据的一块主内存区，对于频繁访问的数据，可以直接从该<span class="highlight">缓冲区</span>获取。对于专用的数据库服务器，通常可以分配80%的物理内存用于该<span class="highlight">缓冲区</span>。为了提升大批量读操作的性能，<span class="highlight">缓冲区</span>会被分为多个<a href="https://dev.mysql.com/doc/refman/5.6/en/glossary.html#glos_page" target="_blank">数据页</a>，每页包含了多行记录。为了提升缓存管理的性能，<span class="highlight">缓冲区</span>由<span class="highlight">链表页</span>组成；对于很少访问的数据，将基于<a href="https://dev.mysql.com/doc/refman/5.6/en/glossary.html#glos_lru" target="_blank">LRU</a>算法，从缓冲区中清除。关于<span class="highlight">InnoDB Buffer Pool</span>的细节，可见<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-buffer-pool.html" target="_blank">这里</a>。
+    </p>
+
+    <li>
+    	<h2>更新缓冲区(Change Buffer)</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">更新缓冲区</span>是一种特殊的数据结构。当相关页不在<span class="highlight">缓冲区</span>里时，<span class="highlight">更新缓冲区</span>可用于缓存<span class="highlight">二级索引页</span>的变化。<span class="highlight">缓冲区</span>的变化可由<span class="highlight">INSERT</span>，<span class="highlight">UPDATE</span>，<span class="highlight">DELETE</span>等DML语句引起，随后当页面被加载进<span class="highlight">缓冲区</span>后，这些变化将与其他读操作进行合并。
+    </p>
+    <p class="wrap">
+    	不像<span class="highlight">聚簇索引</span>，<span class="highlight">二级索引</span>通常并不是唯一的，并且插入二级索引时，会以相对随机的顺序。类似地，删除或更新操作可能会影响位于索引树不相邻的二级索引页。当相关页被其他操作读进<span class="highlight">缓冲区</span>后，随后与缓存的变化进行合并，这将避免后续从磁盘读取二级索引页带来的I/O操作。
+    </p>
+    <p class="wrap">
+    	周期性地，当系统大部分空闲或缓慢关闭时，运行的<span class="highlight">清除操作(purge)</span>，会将更新的索引页写入磁盘。 与立即写入每个更新到磁盘相比，<span class="highlight">清除操作(purge)</span>可以更高效地将一系列索引值写入磁盘块。
+    </p>
+    <p class="wrap">
+    	当有大量<span class="highlight">二级索引</span>要更新，并且有许多行受影响时，<span class="highlight">更新缓冲区</span>合并可能需要几个小时。在此期间，磁盘I/O增加，这可能导致磁盘相关查询明显变慢。<span class="highlight">更新缓冲区</span>合并也可以在事务提交后发生。事实上，<span class="highlight">更新缓冲区</span>合并也可能在服务器关闭和重新启动后发生。
+    </p>
+    <p class="wrap">
+    	在内存中，<span class="highlight">更新缓冲区</span>占用了<span class="highlight">InnoDB缓冲区</span>的一部分。在磁盘上，<span class="highlight">更新缓冲区</span>是<span class="highlight">系统表空间</span>的一部分，以便在数据库重启后能够<span class="highlight">保留索引变化</span>。
+    </p>
+    <li>
+    	<h3>监控更新缓冲区</h2>
+    </li>
+    <p>
+    	下面一些操作可用于监控<span class="highlight">监控更新缓冲区</span>：
+    </p>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			在<span class="highlight">InnoDB</span>的标准监控输出中(具体监控细节可见<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-standard-monitor.html" target="_blank">这里</a>)，则包含了<span class="highlight">更新缓冲区</span>相关的信息：
+		</div>
+		{% highlight python %}
+mysql> SHOW ENGINE INNODB STATUS;
+...
+-------------------------------------
+INSERT BUFFER AND ADAPTIVE HASH INDEX
+-------------------------------------
+Ibuf: size 1, free list len 0, seg size 2, 0 merges
+merged operations:
+ insert 0, delete mark 0, delete 0
+discarded operations:
+ insert 0, delete mark 0, delete 0
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 2 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+Hash table size 34679, node heap has 0 buffer(s)
+0.00 hash searches/s, 0.00 non-hash searches/s
+...
+		{% endhighlight %}
+		<div class="item">
+			另外，也可从<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-metrics-table.html" target="_blank">INFORMATION_SCHEMA.INNODB_METRICS</a>表中查询<span class="highlight">更新缓冲区</span>相关的信息(具体细节可见<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-information-schema-metrics-table.html" target="_blank">这里</a>)：
+		</div>
+		{% highlight python %}
+mysql> SELECT NAME, COUNT, COMMENT FROM INFORMATION_SCHEMA.INNODB_METRICS WHERE NAME LIKE '%ibuf%';
++-----------------------------------------+-------+-------------------------------------------------------------+
+| NAME                                    | COUNT | COMMENT                                                     |
++-----------------------------------------+-------+-------------------------------------------------------------+
+| buffer_page_read_index_ibuf_leaf        |     0 | Number of Insert Buffer Index Leaf Pages read               |
+| buffer_page_read_index_ibuf_non_leaf    |     0 | Number of Insert Buffer Index Non-Leaf Pages read           |
+| buffer_page_read_ibuf_free_list         |     0 | Number of Insert Buffer Free List Pages read                |
+| buffer_page_read_ibuf_bitmap            |     0 | Number of Insert Buffer Bitmap Pages read                   |
+| buffer_page_written_index_ibuf_leaf     |     0 | Number of Insert Buffer Index Leaf Pages written            |
+| buffer_page_written_index_ibuf_non_leaf |     0 | Number of Insert Buffer Index Non-Leaf Pages written        |
+| buffer_page_written_ibuf_free_list      |     0 | Number of Insert Buffer Free List Pages written             |
+| buffer_page_written_ibuf_bitmap         |     0 | Number of Insert Buffer Bitmap Pages written                |
+| ibuf_merges_insert                      |     0 | Number of inserted records merged by change buffering       |
+| ibuf_merges_delete_mark                 |     0 | Number of deleted records merged by change buffering        |
+| ibuf_merges_delete                      |     0 | Number of purge records merged by change buffering          |
+| ibuf_merges_discard_insert              |     0 | Number of insert merged operations discarded                |
+| ibuf_merges_discard_delete_mark         |     0 | Number of deleted merged operations discarded               |
+| ibuf_merges_discard_delete              |     0 | Number of purge merged  operations discarded                |
+| ibuf_merges                             |     0 | Number of change buffer merges                              |
+| ibuf_size                               |     1 | Change buffer size in pages                                 |
+| innodb_ibuf_merge_usec                  |     0 | Time (in microseconds) spent to process change buffer merge |
++-----------------------------------------+-------+-------------------------------------------------------------+
+		{% endhighlight %}
+		<div class="item">
+			<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-buffer-page-table.html" target="_blank">INFORMATION_SCHEMA.INNODB_BUFFER_PAGE</a>表提供了<span class="highlight">缓冲区</span>中每页相关的元数据信息，包括<span class="highlight">更新缓冲索引页</span>和<span class="highlight">更新缓冲位图页</span>，<span class="highlight">更新缓冲索引页</span>由表示页面类型<span class="highlight">PAGE_TYPE.IBUF_INDEX</span>标识，<span class="highlight">更新缓冲位图页</span>由页面类型<span class="highlight">IBUF_BITMAP</span>标识。(<span class="highlight">查询INNODB_BUFFER_PAGE有可能会引起明显的性能靠小</span>，因此为了避免影响性能，最好在测试服务器上执行相关查询)。比如，可以通过查询<span class="highlight">INNODB_BUFFER_PAGE</span>，确定<span class="highlight">更新缓冲索引页</span>和<span class="highlight">更新缓冲位图页</span>在<span class="highlight">缓冲区页面</span>的占比：
+		</div>
+		{% highlight ruby %}
+mysql> SELECT
+    -> (SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_BUFFER_PAGE
+    -> WHERE PAGE_TYPE LIKE 'IBUF%'
+    -> ) AS change_buffer_pages,
+    -> (
+    -> SELECT COUNT(*)
+    -> FROM INFORMATION_SCHEMA.INNODB_BUFFER_PAGE
+    -> ) AS total_pages,
+    -> (
+    -> SELECT ((change_buffer_pages/total_pages)*100)
+    -> ) AS change_buffer_page_percentage;
++---------------------+-------------+-------------------------------+
+| change_buffer_pages | total_pages | change_buffer_page_percentage |
++---------------------+-------------+-------------------------------+
+|                  31 |        8192 |                        0.3784 |
++---------------------+-------------+-------------------------------+
+		{% endhighlight %}
+		<p>
+			具体其他细节可见<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-buffer-page-table.html" target="_blank">这里</a>。
+		</p>
+		<div class="item">
+			<a href="https://dev.mysql.com/doc/refman/5.6/en/performance-schema.html" target="_blank">Performance Schema</a>提供了<span class="highlight">更新缓冲区</span>互斥锁等高级监控信息，可使用下面的查询语句：
+		</div>
+		{% highlight ruby %}
+mysql> SELECT * FROM performance_schema.setup_instruments WHERE NAME LIKE '%wait/synch/mutex/innodb/ibuf%';
++-------------------------------------------------------+---------+------
+| NAME                                                  | ENABLED | TIMED |
++-------------------------------------------------------+---------+-------+
+| wait/synch/mutex/innodb/ibuf_bitmap_mutex             | NO      | NO    |
+| wait/synch/mutex/innodb/ibuf_mutex                    | NO      | NO    |
+| wait/synch/mutex/innodb/ibuf_pessimistic_insert_mutex | NO      | NO    |
++-------------------------------------------------------+---------+-------+
+		{% endhighlight %}
+		<p>
+			有关<span class="highlight">InnoDB</span>互斥锁等监控，可见<a href="https://dev.mysql.com/doc/refman/5.6/en/monitor-innodb-mutex-waits-performance-schema.html" target="_blank">这里</a>。
+		</p>
+	</div>
+
+	<li>
+		<h2>自适应哈希索引(Adaptive Hash Index)</h2>
+	</li>
+	<p class="wrap">
+		在具有适当工作负载和足够内存的<span class="highlight">缓冲区</span>的系统中，在不牺牲任何<span class="highlight">事务特性</span>或<span class="highlight">可靠性</span>的情况下，<a href="https://dev.mysql.com/doc/refman/5.6/en/glossary.html#glos_adaptive_hash_index" target="_blank">自适应哈希(AHI)</a>使得<span class="highlight">InnoDB</span>更像一个内存数据库，可通过<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-parameters.html#sysvar_innodb_adaptive_hash_index" target="_blank">innodb_adaptive_hash_index</a>(默认)选项开启<span class="highlight">自适应哈希</span>，或者<span class="highlight">--skip-innodb_adaptive_hash_index</span>禁用<span class="highlight">自适应哈希</span>。
+	</p>
+	<p class="wrap">
+		基于观察到的搜索模式，MySQL使用<span class="highlight">索引键</span>的前缀构建一个散列索引。<span class="highlight">索引键</span>的前缀可以是任意长度，并且可能只有B树中的部分值在哈希索引中。<span class="highlight">哈希索引</span>是根据那些经常访问的页面的索引而构建的。
+	</p>
+	<p class="wrap">
+		如果某个表适合完全放入祝内存，<span class="highlight">哈希索引</span>可以通过启用对任意记录的直接查找，并将<span class="highlight">索引值</span>转换为一种指针，从而加快查询效率。InnoDB具有监控索引搜索的机制，如果InnoDB注意到查询可以从散列索引中受益，则会<span class="highlight">自动构建</span>哈希索引。
+	</p>
+	<p class="wrap">
+		对于一些工作负载，<span class="highlight">散列索引</span>带来的查找加速，大大超过监视索引查找和维护散列索引结构的额外工作。有时，为了保护<span class="highlight">自适应哈希索引</span>的访问，读/写锁可能在繁重的工作负载下（例如多个并发join）成为争用条件。通常，具有<span class="highlight">LIKE运算符</span>和<span class="highlight">％通配符</span>的查询也往往不会从<span class="highlight">AHI</span>中受益。对于不需要<span class="highlight">自适应哈希索引</span>的工作负载，关闭它可以减少不必要的性能开销。因为很难预测此功能是否适用于特定系统，应该考虑针对实际工作负载作<span class="highlight">启用和禁用的基准测试</span>。 在MySQL5.6及更高版本中的架构中，使得更多的工作负载适合禁用<span class="highlight">自适应哈希索引</span>。
+	</p>
+	<p class="wrap">
+		<span class="highlight">哈希索引</span>总是基于表上的现有B树索引构建的。<span class="highlight">InnoDB</span>可以以任意长度的前缀作为索引键来构建<span class="highlight">哈希索引</span>，这取决于InnoDB观察到的B树索引的搜索模式。<span class="highlight">哈希索引</span>可以是部分的，即仅构建那些经常被访问索引页。
+	</p>
+	<p class="wrap">
+		您可以在<span class="highlight">SHOW ENGINE INNODB STATUS</span>命令的输出的SEMAPHORES部分中，监控的<span class="highlight">自适应散列索引</span>的使用情况。若看到许多线程等待在btr0sea.c中创建的读写锁，那么可以尝试禁用<span class="highlight">自适应哈希索引</span>。更多有关<span class="highlight">自适应哈希索引</span>可见<a href="https://dev.mysql.com/doc/refman/5.6/en/index-btree-hash.html" target="_blank">这里</a>。
+	</p>
+
+	
+	<li>
+		<h2>系统表空间(System Tablespace)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">InnoDB系统表空间</span>包含InnoDB数据字典（与InnoDB对象相关的元数据），并且作为<span class="highlight">双写缓冲区</span>，<span class="highlight">更新缓冲区</span>和<span class="highlight">撤销日志</span>的存储区域。<span class="highlight">系统表空间</span>还包含在系统表空间中创建的用户所创建的表和索引数据。<span class="highlight">系统表空间</span>被认为是<span class="highlight">共享表空间</span>，因为它由多个表共享。
+	</p>
+	<p class="wrap">
+		<span class="highlight">系统表空间</span>由一个或多个数据文件表示。默认情况下，在MySQL数据目录中会创建一个名为<span class="highlight">ibdata1</span>的系统数据文件。该系统数据文件的大小和数量由启动选项<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-parameters.html#sysvar_innodb_data_file_path" target="_blank">innodb_data_file_path</a>控制。进一步配置管理系统表空间，可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-resize-system-tablespace.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>每个表的表空间(File-Per-Table Tablespaces)</h2>
+	</li>
+	<p class="wrap">
+		每个表的<span class="highlight">文件表空间</span>是在其自己的数据文件而不是在系统表空间中创建的<span class="highlight">单表表空间</span>。 在启用<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>选项时，表将在其对应的表空间中被创建，若未启用该选项，将在系统表空间中创建InnoDB表。每个表的表空间由单个<span class="highlight">.ibd</span>数据文件表示，默认情况下在数据库数据目录中创建。
+	</p>
+	<p class="wrap">
+		<span class="highlight">单表表空间</span>文件支持<span class="highlight">DYNAMIC</span>和<span class="highlight">COMPRESSED</span>行格式，这些格式支持诸如<span class="highlight">页外存储可变长度数据</span>和<span class="highlight">表压缩</span>等功能，有关这些功能以及<span class="highlight">单表表空间</span>的其他优点的信息可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-multiple-tablespaces.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>撤销表空间</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">撤销表空间</span>由一个或多个包含<span class="highlight">撤销日志文件</span>组成， 但需要使用<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_tablespaces" target="_blank">innodb_undo_tablespaces</a>和<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_directory" target="_blank">innodb_undo_directory</a>配置选项将<span class="highlight">撤销日志</span>与<span class="highlight">系统表空间</span>分开，该特性在<span class="highlight">MySQL 5.6</span>中引入。具体细节可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-undo-tablespace.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>撤销日志(Undo Log)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">撤销日志</span>被用于存储由执行事务产生的数据修改的副本，如果另一个事务需要查看原始数据（作为<span class="highlight">一致性读操作</span>的一部分），并从该存储区获取未被修改的数据。默认情况下，此区域实际上是系统表空间的一部分。但是，从<span class="highlight">MySQL 5.6.3</span>开始，<span class="highlight">撤销日志</span>可以存储在单独的<span class="highlight">撤销表空间</span>中。细节信息可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-undo-tablespace.html" target="_blank">这里</a>。
+	</p>
+	<p class="wrap">
+		<span class="highlight">InnoDB</span>支持128个<span class="highlight">撤销日志</span>。从<span class="highlight">MySQL 5.7.2</span>开始，128个<span class="highlight">撤销日志</span>中的32个被保留为<span class="highlight">临时表事务</span>的非重做撤销日志。 每个更新临时表的事务（不包括只读事务）都会分配有两个<span class="highlight">撤销日志</span>，一个<span class="highlight">启用重建的撤消日志</span>和一个<span class="highlight">非重建的撤消日志</span>。 只读事务仅分配<span class="highlight">非重建的撤消日志</span>，因为只读事务只允许修改临时表。
+	</p>
+	<p class="wrap">
+		剩下可用的96个<span class="highlight">撤销日志</span>，每个支持多达1023个并发数据修改事务，总共限制大约96K个并发事务修改数据（96K限制假定事务不修改临时表）。 如果所有修改数据的事务同时也修改临时表，则总限制为大约32K个。有关为临时表事务保留的撤销日志的详细信息，可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-temporary-table-undo-logs.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>InnoDB数据字典(Data Dictionary)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">InnoDB数据字典</span>由<span class="highlight">内部系统表</span>组成，其中包含用于跟踪对象（如表，索引和表列）的元数据。 元数据物理上位于<span class="highlight">InnoDB系统表空间</span>中。由于历史原因，数据字典元数据在一定程度上与存储在InnoDB表元数据文件（<span class="highlight">.frm文件</span>）中的信息重叠。
+	</p>
+
+	<li>
+		<h2>双写缓冲区(Doublewrite Buffer)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">双写缓冲区</span>是位于<span class="highlight">系统表空间</span>中的一个存储区域，<span class="highlight">InnoDB</span>首先将<span class="highlight">缓冲区</span>中的数据页刷新到该区域，最终会讲数据页被写入合适的数据文件，即只有在刷新页面并将页面写入到<span class="highlight">双重缓冲区</span>之后，InnoDB才会将页面写入合适的位置。 如果在页面写入过程中，有操作系统，存储子系统或mysqld进程崩溃，InnoDB稍后可以在崩溃恢复期间从<span class="highlight">双写缓冲区</span>中找到该页面的完好副本。
+	</p>
+	<p class="wrap">
+		尽管数据总是被写入两次，但是<span class="highlight">双写缓冲区</span>并不需要两倍I/O开销或两倍I/O操作，数据将作为<span class="highlight">大顺序块</span>，并调用一次系统函数<span class="highlight">fsync()</span>，被写入<span class="highlight">双写缓冲区</span>。大多数情况下，<span class="highlight">双写缓冲区</span>默认是开启的，可以通过配置<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_doublewrite" target="_blank">innodb_doublewrite=0</a>来禁用<span class="highlight">双写缓冲区</span>。
+	</p>
+	<p class="wrap">
+		从<span class="highlight">MySQL 5.7.4</span>开始，如果系统表空间文件（<span class="highlight">ibdata文件</span>）位于支持<span class="highlight">原子写入</span>的Fusion-io设备上，则会自动禁用<span class="highlight">双写缓冲区</span>，并对所有数据文件使用Fusion-io原子写入。 因为双重缓冲区设置是全局的，所以对于驻留在非Fusion-io硬件上的数据文件也禁用<span class="highlight">双写缓冲区</span>。 此功能仅在Fusion-io硬件上支持，并且仅对Linux上的Fusion-io NVMFS启用。要充分利用此功能，建议将<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_flush_method" target="_blank">innodb_flush_method</a>设置<span class="highlight">O_DIRECT</span>。
+	</p>
+
+	<li>
+		<h2>重建日志(Redo Log)</h2>
+	</li>
+	<li>
+		<h3>针对重建日志刷新的组提交(Group Commit for Redo Log Flushing)</h3>
+	</li>
+	<p class="wrap">
+		<span class="highlight">重建日志</span>是一种基于磁盘的数据结构，用于在崩溃恢复期间，纠正由<span class="highlight">不完整事务</span>写入的数据。在正常操作期间，<span class="highlight">重建日志</span>会编码由<span class="highlight">SQL语句</span>或<span class="highlight">低级API调用</span>对InnoDB表数据进行修改的请求。在数据库<span class="highlight">初始化期间</span>以及在<span class="highlight">接受连接之前</span>，将自动重新执行那些在<span class="highlight">异常关闭之前</span>未完成数据文件更新的修改请求。有关span class="highlight">重建日志</span>在崩溃恢复中的作用的详细信息，可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-recovery.html" target="_blank">InnoDB恢复过程</a> 。
+	</p>
+	<p class="wrap">
+		默认情况下，<span class="highlight">重建日志</span>会物理表示为磁盘上的一组文件，名为<span class="highlight">ib_logfile0</span>和<span class="highlight">ib_logfile1</span>。MySQL以<span class="highlight">循环方式</span>写入<span class="highlight">重建日志</span>文件。 <span class="highlight">重建日志</span>中的数据按照受影响的记录进行编码，该数据被统称为<span class="highlight">重建</span>。
+	</p>
+
+	<li>
+		<h2>重建日志缓冲(Redo Log Buffer)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">重建日志缓冲区</span>是用于保存要写入<span class="highlight">重建日志</span>数据的一块内存区域。 <span class="highlight">重建日志缓冲区</span>大小由M<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_log_buffer_size" target="_blank">innodb_log_buffer_size</a>配置选项定义。<span class="highlight">重建日志缓冲区</span>会定期刷新到日志文件。 容量大的<span class="highlight">重建日志缓冲区</span>可以使大型事务运行，而不需要在事务提交之前将<span class="highlight">重建日志</span>写入磁盘。 因此，对于更新，插入或删除多行的事务，使用更大的日志缓冲区可以<span class="highlight">节省磁盘I/O</span>。
+	</p>
+	<p class="wrap">
+		<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_flush_log_at_trx_commit" target="_blank">innodb_flush_log_at_trx_commit</a>选项可以控制<span class="highlight">重建日志缓冲区</span>中的数据如何写到日志文件。<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_flush_log_at_timeout" target="_blank">innodb_flush_log_at_timeout</a>选项可以控制<span class="highlight">重建日志</span>刷新频率。
+	</p>
+
+	<li>
+		<h2>临时表空间(Temporary Tablespace)</h2>
+	</li>
+	<li>
+		<h3>InnoDB临时表撤销日志</h3>
+	</li>
+	<p class="wrap">
+		在<span class="highlight">MySQL 5.7.1</span>中，引入了用于非压缩的InnoDB临时表及相关对象的<span class="highlight">临时表空间</span>。 配置选项<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_temp_data_file_path" target="_blank">innodb_temp_data_file_path</a>定义临时表空间数据文件的相对路径。如果未定义<span class="highlight">innodb_temp_data_file_path</span>，则在数据目录中创建一个名为<span class="highlight">ibtmp1</span>的可自动扩展的12MB大小的数据文件。<span class="highlight">临时表空间</span>在每个服务器启动时会重新创建，并得到一个动态生成的空间ID，这有助于避免与现有空间ID的冲突。<span class="highlight">临时表空间</span>不能驻留在裸设备上。 如果无法创建<span class="highlight">临时表空间</span>，将禁止启动。
+	</p>
+	<p class="wrap">
+		<span class="highlight">临时表空间</span>在正常关闭或异常初始化时会被删除。但数据库发生崩溃时，并不会被删除<span class="highlight">临时表空间</span>,在这种情况下，数据库管理员可以手动删除<span class="highlight">临时表空间</span>或使用相同的配置重新启动服务器，这会删除和重新创建<span class="highlight">临时表空间</span>。
+	</p>
+
+	<li>
+		<h2>总结</h2>
+	</li>
+	<p class="wrap">
+		以上，则是有关<span class="highlight">InnoDB</span>架构中的核心组件，如<span class="highlight">缓冲区</span>，<span class="highlight">撤销日志</span>等， 对于各组件如何工作及协同，可以参见具体的文章，后续将针对每个组件进行探究。
+	</p>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="https://dev.mysql.com/doc/refman/5.6/en/innodb-buffer-pool-intro.html" target="_blank">https://dev.mysql.com/doc/refman/5.6/en/innodb-buffer-pool-intro.html</a>
+		</div>
+		<div class="item">
+			<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-concepts.html" target="_blank">https://dev.mysql.com/doc/refman/5.7/en/innodb-concepts.html</a>
+		</div>
+		
+	</div>
+</ul>
