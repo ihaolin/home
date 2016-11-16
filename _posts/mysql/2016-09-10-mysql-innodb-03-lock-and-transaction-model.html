@@ -1,0 +1,481 @@
+---
+title : MySQL InnoDB存储引擎(三)：锁及事务模型
+category : [mysql]
+tags : [mysql, innodb, 锁, 事务模型]
+layout : post
+show : 1
+keywords: mysql，innodb，锁，事务模型
+---
+
+<ul>
+    
+    <p class="intro">
+    	对于开发人员而言，对于<span class="highlight">锁</span>和<span class="highlight">事务</span>不会陌生。为了避免多线程同时读写共享数据发生竞争的问题，因此，<span class="highlight">锁</span>是一种比较常用的方式。而<span class="highlight">事务</span>的定义，主要体现在其基本特性：<span class="highlight">原子性</span>，<span class="highlight">一致性</span>，<span class="highlight">隔离性</span>，<span class="highlight">持久性</span>。<a href="/java/2015/09/02/trans-consistent.html" target="_blank">之前的一篇文章</a>有所提到过。但我相信很多开发人员对<span class="highlight">事务</span>和<span class="highlight">锁</span>的理解是不够深入的，包括我自己，始终觉得好像很容易回答，又答不出所以然，平常也应该有人问某条<span class="highlight">SQL</span>会加什么锁呢，为什么我在方法上加了<span class="highlight">@Transactional</span>就发生死锁了呢？本文将阐述<span class="highlight">InnoDB</span>存储引擎中的<span class="highlight">锁</span>及<span class="highlight">事务模型</span>相关的细节，希望能帮助开发人员了解<span class="highlight">InnoDB</span>如何有效处理并发事务等机制。
+    </p>
+
+    <li>
+    	<h2>InnoDB锁(InnoDB Locking)</h2>
+    </li>
+    <p class="wrap">
+    	在<span class="highlight">InnoDB</span>中有多种类型的锁，分别适用于不同的场景，如<span class="highlight">共享/排它锁</span>，<span class="highlight">意向锁</span>，<span class="highlight">记录锁</span>等，下面将逐一对其进行阐述。
+    </p>
+
+    <li>
+    	<h3>共享/排它锁(Shared and Exclusive Locks)</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB</span>实现了两种类型的标准行级锁：<a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_shared_lock" target="_blank">共享锁(S)</a>和<a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_exclusive_lock" target="_blank">排它锁(X)</a>。下面分别阐述其作用及区别：
+    </p>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<span class="highlight">共享锁(S)</span>：允许持有该锁的事务读取某一行记录。<span class="highlight">持有共享锁的事务</span>允许其他事务<span class="highlight">读取</span>该行记录，并且获取到该记录的共享锁，但不允许其他事务对该记录进行<span class="highlight">更新</span>或<span class="highlight">删除</span>。如下图所示：
+		</div>
+		<img src="/images/mysql/innodb-shared-lock-example.png" width="100%">
+		<p>
+			如图中所示，<span class="highlight">事务1</span>和<span class="highlight">事务2</span>并发开启事务(操作1，2)，并通过语句<span class="highlight">LOCK IN SHARE MODE</span>对同一行记录请求了<span class="highlight">共享锁</span>(操作3，4)，此时，<span class="highlight">事务3</span>开启(操作5)，并尝试更新同一行记录(操作6)，但此时会被<span class="highlight">事务1</span>和<span class="highlight">事务2</span>持有的<span class="highlight">共享锁</span>阻塞，直到<span class="highlight">事务1</span>和<span class="highlight">事务2</span>均提交了事务(操作7，8)，<span class="highlight">事务3</span>的更新操作得以执行，并提交事务(操作9)。
+		</p>
+		<div class="item">
+			<span class="highlight">排它锁(X)</span>：允许持有该锁的事务更新或删除某一行。<span class="highlight">持有排它锁的事务</span>不允许其他事务对同一行记录加锁。根据<span class="highlight">事务隔离级别</span>，<span class="highlight">排它锁</span>将可能阻塞其他对同一行记录进行更新的事务，也可能阻塞其他对同一行记录进行读取的事务。不过<span class="highlight">InnoDB</span>默认的<span class="highlight">事务隔离级别</span>为<span class="highlight">REPEATABLE READ</span>，该隔离级别允许较高的并发度，允许其他事务读取已经被持有了<span class="highlight">排它锁</span>的记录，这就是<span class="highlight">一致性读</span>。如下图所示：
+		</div>
+		<img src="/images/mysql/innodb-exclusive-lock-example.png" width="100%">
+		<p>
+			如图中所示，<span class="highlight">事务1</span>并发开启事务(操作1)，并通过<span class="highlight">UPDATE</span>语句请求到了行记录的<span class="highlight">排它锁</span>(操作2)；此时，<span class="highlight">事务2</span>对同一行记录进行读操作(操作3)，由于<span class="highlight">InnoDB</span>的默认事务隔离级别为<span class="highlight">REPEATABLE READ</span>，因此该操作得以执行；<span class="highlight">事务3</span>开启事务(操作4)，并尝试修改同一行记录(操作5)，但该行记录的排它锁已被<span class="highlight">事务1</span>获取，因此被阻塞，直到超时重新开启事务，此时，提交<span class="highlight">事务1</span>，事务3的更新操作(操作6)方可执行。
+		</p>
+	</div>
+
+	<li>
+    	<h3>意向锁(Intention Locks)</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB</span>支持<span class="highlight">多粒度锁</span>，允许<span class="highlight">行锁</span>和<span class="highlight">表锁</span>共存，为了支持这种<span class="highlight">多粒度锁</span>的场景，<span class="highlight">InnoDB</span>提出了另一种锁--<a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_intention_lock" target="_blank">意向锁</a>。<span class="highlight">意向锁</span>属于表级锁，用来表明事务想要在表中的行上获取什么类型的锁（<span class="highlight">共享</span>或<span class="highlight">独占</span>），不同的事务可以在同一个表上获取不同类型的<span class="highlight">意向锁</span>，但是第一个事务获取表上的<span class="highlight">意向排它锁(IX)</span>可以阻塞其他事务获取该表上的任何<span class="highlight">S</span>或<span class="highlight">X</span>锁。相反，获取表上的<span class="highlight">意向共享锁(IS)</span>的第一个事务将阻塞其他事务获取表上的任何X锁。两阶段过程允许按顺序解决锁定请求，而不阻塞锁定和对应的兼容操作。<span class="highlight">InnoDB</span>这样定义了上述两种意向锁：
+    </p>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<span class="highlight">意向共享锁(IS)</span>：事务T尝试在表中某些行上设置<span class="highlight">共享锁(S)</span>，如使用<span class="highlight"> SELECT ... LOCK IN SHARE MODE</span>；
+		</div>
+		<div class="item">
+			<span class="highlight">意向排它锁(IX)</span>：事务T尝试在表中某些行上设置<span class="highlight">排它锁(X)</span>，如使用<span class="highlight">SELECT ... FOR UPDATE</span>。
+		</div>
+	</div>
+	<p>
+		<span class="highlight">意向锁</span>同时需要遵循以下协议：
+	</p>
+	<div class="ui teal bulleted list">
+    	<div class="item">
+			在事务可以获取表t中的行的S锁之前，它必须首先在t上获取<span class="highlight">IS或更强的锁</span>；
+		</div>
+		<div class="item">
+			在事务可以获取行上的X锁之前，它必须首先在t上获取<span class="highlight">IX锁</span>。
+		</div>
+	</div>
+
+    <li>
+        <h3>锁的兼容性</h3>
+    </li>
+    <div class="ui teal bulleted list">
+        <div class="item">
+            <span class="highlight">锁兼容</span>：当一个事务已经获取R行共享锁，另外一个事务也可以获取该行的共享锁；
+        </div>
+        <div class="item">
+            <span class="highlight">锁冲突</span>：当一个事务已经获取R行排它锁，只有当该事务释放R行排它锁，另外一个事务才能获取该行的共享锁、排它锁。
+        </div>
+    </div>
+	<p>
+		这些规则可以方便地通过下面的<span class="highlight">锁定类型兼容性</span>表格来概括：
+	</p>
+    <table class="ui celled teal small table">
+        <tbody>
+            <tr>
+            	<td></td>
+                <td class="center aligned">
+                    <strong>X</strong>
+                </td>   
+                <td class="center aligned">
+                    <strong>IX</strong>
+                </td>
+                <td class="center aligned">
+                    <strong>S</strong>
+                </td>
+                <td class="center aligned">
+                    <strong>IS</strong>
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <strong>X</strong>
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>   
+                <td class="center aligned">
+                    冲突
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <strong>IX</strong>
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>   
+                <td class="center aligned">
+                    兼容
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>
+                <td class="center aligned">
+                    兼容
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <strong>S</strong>
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>   
+                <td class="center aligned">
+                    冲突
+                </td>
+                <td class="center aligned">
+                    兼容
+                </td>
+                <td class="center aligned">
+                    兼容
+                </td>
+            </tr>
+            <tr>
+                <td class="center aligned">
+                    <strong>IS</strong>
+                </td>
+                <td class="center aligned">
+                    冲突
+                </td>   
+                <td class="center aligned">
+                    兼容
+                </td>
+                <td class="center aligned">
+                    兼容
+                </td>
+                <td class="center aligned">
+                    兼容
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <p class="wrap">
+        如果一个事务请求的锁模式与当前的锁兼容，InnoDB就将请求的锁授予该事务；反之，如果两者不兼容，该事务就要等待锁释放。<span class="highlight">意向锁</span>只会阻塞其它事务对<span class="highlight">全表</span>的请求，例如<span class="highlight">LOCK TABLES …WRITE</span>，<span class="highlight">意向锁</span>的主要目的是表明该事务<span class="highlight">将要</span>或者<span class="highlight">正在</span>对表中的记录加锁。
+    </p>
+
+    <li>
+        <h3>记录锁(Record Locks)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">记录锁</span>针对的是<span class="highlight">索引记录</span>。比如，<span class="highlight">SELECT c1 FROM t WHERE c1 = 10 FOR UPDATE;</span>将阻塞其他事务对<span class="highlight">t.c1 = 10</span>记录进行更新，插入，或删除。
+    </p>
+    <p class="wrap">
+        <span class="highlight">记录锁</span>总是锁定<span class="highlight">索引记录</span>，即使表里并没有定义索引，对于这种情况，<span class="highlight">InnoDB</span>将为该表创建隐藏的<span class="highlight">聚簇索引</span>，用该索引来锁定记录。
+    </p>
+
+    <li>
+        <h3>间隙锁(Gap Locks)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">间隙锁</span>是一种位于索引记录<span class="highlight">间锁间的锁</span>(包括位于第一条索引记录之前，或最后一条索引记录之后的间隙)，而<span class="highlight">不锁住记录本身</span>。比如，语句<span class="highlight">SELECT c1 FROM t WHERE c1 BETWEEN 10 and 20 FOR UPDATE;</span>将阻塞其他事务插入<span class="highlight">t.c1=15</span>，而不管<span class="highlight">t.c1</span>列中是否已经有15这个值，因为处于范围值的间隙均已被加锁。但对于查询间隙锁锁定范围内的索引值，若该值不存在，则不会阻塞事务，如<span class="highlight">SELECT c1 FROM t WHERE c1 = 15 FOR UPDATE</span>，若c1=15不存在，则不会阻塞该事务。
+    </p>
+    <p class="wrap">
+         <span class="highlight">间隙锁</span>可以锁住单个索引值，或多个索引值，甚至是空值。<span class="highlight">间隙锁</span>通常是性能和并发性的折衷部分，往往用在<span class="highlight">事务隔离级别</span>中，比如<span class="highlight">InnoDB</span>的默认隔离级别<span class="highlight">REAPTABLE READ</span>，在范围查询时会加上<span class="highlight">间隙锁</span>，这样不会造成幻读(Phantom Read)现象(即统一事务多次读取，结果不一样)，但当<span class="highlight">间隙锁</span>已经成为性能瓶颈，则可以尝试降低事务隔离级别为<span class="highlight">读已提交(Read Committed)</span>，则可以不使用<span class="highlight">间隙锁</span>。因此，<span class="highlight">间隙锁</span>的作用就是<span class="highlight">防止事务幻读</span>。
+    </p>
+    <p class="wrap">
+        对于使用<span class="highlight">唯一索引</span>锁定单行，以查询唯一记录的语句，不需要<span class="highlight">间隙锁</span>。(但这不包括查询条件仅包含<span class="highlight">多列唯一索引</span>的某些情况，在这种情况下，会使用<span class="highlight">间隙锁</span>)例如，如果id列具有唯一索引，则以下语句仅使用 对于id值为100的行的索引记录锁定，并且对于其他会话是否在前一个间隙中插入记录，并不会加<span class="highlight">间隙锁</span>：
+    </p>
+    {% highlight sql %}
+SELECT * FROM t WHERE id = 100;
+    {% endhighlight %}
+    <p class="wrap">
+        若id并没有索引，或不是唯一索引，则上面的语句将锁定之前的间隙。还值得注意的是，同一间隙上的冲突的锁可以被不同的事务持有， 比如，事务A可以在间隙上保持<span class="highlight">共享间隙锁(间隙S锁)</span>，而事务B在同一间隙上保持<span class="highlight">排它间隙锁(间隙X锁)</span>。 允许冲突间隙锁的原因是，如果从索引中清除记录，不同事务在该记录上持有的间隙锁必须被合并。
+    </p>
+    <p class="wrap">  
+        <span class="highlight">InnoDB</span>中的<span class="highlight">间隙锁</span>是“纯粹禁止的”，这意味着它们只阻止其他事务插入间隙，但不阻止其他事务在相同的间隙上获取<span class="highlight">间隙锁</span>，因此，<span class="highlight">间隙X锁</span>与<span class="highlight">间隙S锁</span>具有相同的效果。
+    </p>
+    
+    <li>
+        <h3>Next-Key Lock</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Next-Key Lock</span>是<span class="highlight">记录锁</span>和<span class="highlight">间隙锁</span>的组合，锁定记录本身且锁定范围。主要目的是解决<span class="highlight">幻读</span>的问题。
+    </p>
+
+    <li>
+        <h3>插入意向锁(Insert Intention Locks)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">插入意向锁</span>是在行插入之前通过<span class="highlight">INSERT操作</span>设置的一种<span class="highlight">间隙锁</span>。<span class="highlight">插入意向锁</span>表示的是多个事务并发插入数据到<span class="highlight">相同的索引间隙</span>中，但插入的位置并不同，这时彼此并不需要彼此等待。比如，假设有索引值为4和7，两个事务分别插入索引值5和6，尽管5和6均在[4, 7]间隙中，但这个两个事务并不会相互阻塞。
+    </p>
+
+    <li>
+        <h3>自增锁(AUTO-INC Locks)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">自增锁</span>是针对执行插入操作中含有自增列(AUTO_INCREMENT)时的一种表级锁。在最简单的情况下，如果一个事务正在向表中插入值，则任何其他事务必须等待对该表执行自己的插入操作，以便第一个事务插入的行获取到连续的主键值。用户可以通过<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_autoinc_lock_mode" target="_blank">innodb_autoinc_lock_mode</a>配置选项指定<span class="highlight">自增锁</span>使用的算法，它允许您选择如何在<span class="highlight">可预测的自动递增值序列</span>和<span class="highlight">插入操作的最大并发性</span>之间进行权衡，具体细节可见<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-auto-increment-handling.html" target="_blank">这里</a>。
+    </p>
+
+    <li>
+        <h2>InnoDB如何执行加锁逻辑</h2>
+    </li>
+    <p class="wrap">
+        单纯谈论某条<span class="highlight">SQL</span>是否加锁，或加什么样的锁是没有意义的，我们还需要一些上下文，如当前的<span class="highlight">事务隔离级别</span>，列<span class="highlight">是否为主键</span>，<span class="highlight">是否有索引</span>，<span class="highlight">是否是唯一索引</span>等等。下面将通过一些例子来验证部分加锁逻辑，有可能由于不同的MySQL版本产生差异。
+    </p>
+
+    <li>
+        <h3>快照读 vs 当前读</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">MySQL InnoDB</span>存储引擎，实现的是基于多版本的并发控制协议——<a href="https://en.wikipedia.org/wiki/Multiversion_concurrency_control" target="_blank">MVCC (Multi-Version Concurrency Control) </a>(注：与MVCC相对的，是<span class="highlight">基于锁的并发控制，Lock-Based Concurrency Control</span>)。<span class="highlight">MVCC</span>最大的好处是：<span class="highlight">读不加锁，读写不冲突</span>。在读多写少的OLTP应用中，读写不冲突是非常重要的，极大的增加了系统的并发性能，这也是为什么现阶段，几乎所有的RDBMS，都支持了MVCC。
+    </p>
+    <p class="wrap">
+        在MVCC并发控制中，读操作可以分成两类：<span class="highlight">快照读(Snapshot Read)</span>与<span class="highlight">当前读(Current Read)</span>。<span class="highlight">快照读</span>(官方解释为<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-consistent-read.html" target="_blank">非阻塞的一致性读</a>)，读取的是记录的可见版本(有可能是历史版本)，不用加锁。<span class="highlight">当前读</span>（官方解释为<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-locking-reads.html" target="_blank">锁读</a>），读取的是记录的最新版本，并且，当前读返回的记录，都会加上锁，保证其他事务不会再并发修改这条记录。
+    </p>
+    <p>
+        在一个支持MVCC并发控制的系统中，哪些读操作是快照读？哪些操作又是当前读呢？以<span class="highlight">MySQL InnoDB</span>为例：
+    </p>
+    <div class="ui teal bulleted list">
+        <div class="item">
+            <span class="highlight">快照读</span>：简单的select操作，属于快照读，不加锁，如：
+        </div>
+        {% highlight sql %}
+SELECT * FROM table WHERE ?;
+        {% endhighlight %}
+        <div class="item">
+            <span class="highlight">当前读</span>：特殊的读操作，插入/更新/删除操作，属于当前读，需要加锁，如：
+        </div>
+        {% highlight sql %}
+SELECT * FROM table WHERE ? LOCK IN SHARE MODE;
+SELECT * FROM table WHERE ? FOR UPDATE;
+INSERT INTO table VALUES (...);
+UPDATE table SET ? WHERE ?;
+DELETE FROM table WHERE ?;
+        {% endhighlight %}
+    </div>
+
+    <li>
+        <h3>InnoDB常用场景的加锁逻辑</h3>
+    </li>
+    <p class="wrap">
+        接下来我们将分别实践(MySQL 版本为5.7.11)，在不同隔离级别，包括<span class="highlight">读已提交(Read Committed，RC)</span>和<span class="highlight">可重复读(Reaptable Read，RR)</span>下，<span class="highlight">InnoDB</span>如何执行<span class="highlight">更新</span>(如<span class="highlight">DELETE</span>)的加锁逻辑。
+    </p>
+
+    <li>
+        <h4>事务隔离级别为读已提交(RC)时</h4>
+    </li>
+    <div class="ui bulleted list">
+        <div id="rc-pri-key" class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">主键</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rc-lΩock-pri-key.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对id=8的记录加上X锁(操作1)，然后，事务2可以获取到其他行记录的X锁，然而在请求id=8这条记录的X锁时被阻塞，因此，当WHERE条件中的列为<span class="highlight">主键</span>时，将对对应的聚簇索引记录加X锁。
+        </p>
+        <div id="rc-unqiue-key" class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">唯一索引</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rc-lock-unique-key.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对<span class="highlight">id=2</span>的记录加上X锁(操作1)，事务2可以获取到其他id记录的X锁，但不能获取到<span class="highlight">id=2</span>或<span class="highlight">name='lin'</span>的X锁，因此，当WHERE条件中的列为<span class="highlight">唯一索引</span>时，将对对应索引值的记录和关联的聚簇索引记录加X锁。
+        </p>
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">非唯一索引</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rc-lock-nounique-key.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对<span class="highlight">id=2</span>的记录加上X锁(操作1)，事务2就不能再获取到<span class="highlight">name='haox1'</span>或<span class="highlight">name='haox11'</span>的X锁了，因此，当WHERE条件中的列为<span class="highlight">非唯一索引</span>时，将对对应索引值的多条记录和关联的多条聚簇索引记录加X锁。
+        </p>
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">没有索引</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rc-lock-no-index.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对<span class="highlight">id=2</span>的记录加上X锁(操作1)，事务2以id列查询时均被阻塞(操作2，3)，以id=2对应记录的name列值查询均被阻塞(操作6，7)，以<span class="highlight">id=2</span>对应记录的name列值以外的值查询均可以获得X锁(操作4，5)，插入新记录时被允许的(操作8)，因此，当WHERE条件中的列<span class="highlight">没有索引</span>时，由于查询列上没有索引，因此只能走聚簇索引，进行全表扫描，这使得聚簇索引上所有的记录都被加上了<span class="highlight">X锁</span>(锁住的是<span class="highlight">聚簇索引记录</span>)，在通过主键列<span class="highlight">name</span>查询时，若以<span class="highlight">id=2</span>对应记录的name列值以外的值作查询，则可以请求到X锁(MySQL有一些改进，在MySQL Server过滤条件，发现不满足后，会调用<span class="highlight">unlock_row</span>方法，把不满足条件的记录放锁)。
+        </p>
+    </div>
+    
+
+    <li>
+        <h4>事务隔离级别为可重复读(RR)时</h4>
+    </li>
+    <div class="ui bulleted list">
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">主键</span>时，与隔离级别为<a href="#rc-pri-key">RC</a>时一致；
+        </div>
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">唯一索引</span>时，与隔离级别为<a href="#rc-unqiue-key">RC</a>时一致；
+        </div>
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">非唯一索引</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rr-lock-nounique-key.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对id=11的记录加上<span class="highlight">X锁</span>(操作1)，当事务2尝试获取id=11对应记录的X锁(操作3)时被阻塞，除此之外，当事务尝试插入(id=11, name='haoc')记录时也被阻塞，从锁信息中可以看出，是被<span class="highlight">间隙锁(GAP)</span>所阻塞，这正是隔离级别<span class="highlight">可重复读(RR)</span>可以防止<span class="highlight">幻读</span>的原因，即通过<span class="highlight">间隙锁(GAP)</span>防止同一事务中多次当前读产生不同结果。当WHERE条件对应的记录不存在时(如<span class="highlight">SELECT * FROM users2 WHERE id = 404 FOR UPDATE</span>)，此时依然会有<span class="highlight">GAP</span>被加上锁，若以上图为例，id为(13, 404)和(404, ∞)的区间都将会加上<span class="highlight">间隙锁</span>。
+        </p>
+        <p>
+            下图比较清晰地展示了<span class="highlight">记录X锁</span>和<span class="highlight">GAP锁</span>：
+        </p>
+        <img src="http://pic.yupoo.com/hedengcheng/DnJ6R7wu/medish.jpg" width="60%">
+        <div class="item">
+            当<span class="highlight">WHERE</span>条件列为<span class="highlight">没有索引</span>时：
+        </div>
+        <img src="/images/mysql/innodb-rr-lock-no-index.png" width="100%">
+        <p class="wrap">
+            如图所示，事务1先对id=11的记录加上<span class="highlight">X锁</span>(操作1)，此时由于id列没有建立索引，因此只能触发全表扫描，这将导致<span class="highlight">聚簇索引</span>上的所有记录被加上<span class="highlight">X锁</span>，同时，还会对记录间的间隙加上<span class="highlight">间隙锁</span>，因此导致事务2的所有写锁请求被阻塞(如操作2，3)，这种情况将导致严重的性能和死锁问题，应尽量避免，加锁示意图可见下图：
+        </p>
+        <img src="http://pic.yupoo.com/hedengcheng/DnJ6Rf3q/medish.jpg" width="60%">
+    </div>
+
+    <li>
+        <h4>事务隔离级别为可序列化(Serializable)时</h4>
+    </li>
+    <p class="wrap">
+        <span class="highlight">可序列化(Serializable)</span>作为最高隔离级别，在执行类似<span class="highlight">DELETE FROM t WHERE id = 10;</span>这样的当前读操作时，与<span class="highlight">Repeatable Read(RR)</span>隔离级别一致。只是在执行类似<span class="highlight">SELECT * FROM t WHERE id = 10;</span>这样的快找读操作时，<span class="highlight">Serializable</span>隔离级别将对记录加上<span class="highlight">共享锁</span>，<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-transaction-isolation-levels.html" target="_blank">这里</a>有所提到，因此，<span class="highlight">Serializable</span>隔离级别下，不存在<span class="highlight">MVCC</span>式的快照读。
+    </p>
+    <p>
+        对于具体的加锁情况，官方也有比较清晰的<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-locks-set.html" target="_blank">解释</a>。
+    </p>
+        
+
+    <li>
+        <h2>InnoDB事务模型(InnoDB Transaction Model)</h2>
+    </li>
+    <p class="wrap">
+        在<span class="highlight">InnoDB</span>的事务模型中，目标是将<a href="" target="_blank">多版本</a>数据库的最佳性能与传统的<span class="highlight">两阶段锁</span>相结合。InnoDB在行级别执行锁定，默认情况下以Oracle风格将查询作为<span class="highlight">非锁定一致性读取</span>(快照读)运行。通常，允许多个用户锁定InnoDB表或行的任何随机子集中的每一行，从而不会导致InnoDB内存耗尽。
+    </p>
+    <li>
+        <h3>事务隔离级别(Transaction Isolation Levels)</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">事务隔离</span>是数据库操作的基础之一。<span class="highlight">隔离性(Isolation)</span>是<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_acid" target="_blank">ACID</a>。<span class="highlight">隔离级别</span>是在多个事务正在进行更新和查询操作时，对性能和可靠性，一致性和可重复性之间的权衡设置。<span class="highlight">InnoDB</span>支持SQL1992标准中的四种隔离级别(隔离级别从高到低)：<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-transaction-isolation-levels.html#isolevel_read-uncommitted" target="_blank">READ UNCOMMITTED(读未提交)</a>，<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-transaction-isolation-levels.html#isolevel_read-committed" target="_blank">READ COMMITTED(读已提交)</a>，<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-transaction-isolation-levels.html#isolevel_repeatable-read" target="_blank">REPEATABLE READ(可重复读)</a>，<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-transaction-isolation-levels.html#isolevel_serializable" target="_blank">SERIALIZABLE(序列化)</a>。<span class="highlight">InnoDB</span>默认隔离级别<span class="highlight">可重复读</span>，<a href="/java/2015/09/02/trans-consistent.html" target="_blank">这篇文章</a>也有所提到。开发人员可通过命令行启动参数<a href="" target="_blank">--transaction-isolation</a>或配置文件中<span class="highlight">transaction-isolation</span>来指定数据库默认隔离级别。<span class="highlight">InnoDB</span>主要通过<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_locking" target="_blank">锁策略</a>来实现不同的隔离级别。
+    </p>
+    <p>
+        以下描述了MySQL如何支持上述几种隔离级别：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <strong>可重复读(REPEATABLE READ)</strong>
+        </div>
+        <p class="wrap">
+            这是<span class="highlight">InnoDB</span>默认的隔离级别。对于<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_consistent_read" target="_blank">一致性读</a>(上面提到过的<span class="highlight">快照读</span>)，其与<span class="highlight">读已提交</span>有一个重要的区别：<span class="highlight">同一事务中的所有一致性读均读取首次读的快照数据版本</span>，即同一事务中，相同的<span class="highlight">SELECT</span>语句的<span class="highlight">EXPLAIN执行计划</span>一致。对于<span class="highlight">锁读</span>(上文提到过的<span class="highlight">当前读</span>)，如<span class="highlight">SELECT ... FOR UPDATE</span>，<span class="highlight">SELECT ... LOCK IN SHARE MODE</span>，<span class="highlight">DELETE</span>，<span class="highlight">UPDATE</span>等语句，加锁情况取决于WHERE条件列是否有唯一索引查询或范围查询，正如上文中的实践。
+        </p>
+        <div class="item">
+            <strong>读已提交(READ COMMITTED)</strong>
+        </div>
+        <p class="wrap">
+            对于<span class="highlight">一致性读</span>，这是一种类Oracle的隔离级别：在同一事务中，都将读取和更新最新的数据快照，即即同一事务中，相同的<span class="highlight">SELECT</span>语句将以最新快照为准。对于<span class="highlight">锁读</span>，<span class="highlight">InnoDB</span>只会对索引记录加锁，而不会加额外的<span class="highlight">间隙锁</span>。该隔离级别有可能出现<span class="highlight">幻读</span>现象。
+        </p>
+        <div class="item">
+            <strong>读未提交(READ UNCOMMITTED)</strong>
+        </div>
+        <p class="wrap">
+            该隔离级别最低。允许事务读取到其他事先还未提交的数据版本，因此可能出现<span class="highlight">脏读</span>。
+        </p>
+        <div class="item">
+            <strong>序列化(SERIALIZABLE)</strong>
+        </div>
+        <p class="wrap">
+            该隔离级别最高。对于<span class="highlight">一致性读</span>，当<span class="highlight">autocommit</span>为false时，会在<span class="highlight">SELECT</span>语句后加上共享锁<span class="highlight">LOCK IN SHARE MODE</span>，当<span class="highlight">autocommit</span>为true时，则不会加共享锁。对于<span class="highlight">锁读</span>，则与<span class="highlight">可重复读</span>一致。
+        </p>
+    </div>
+
+    <li>
+        <h3>自动提交，提交及回滚(autocommit, Commit, and Rollback)</h3>
+    </li>
+    <p class="wrap">
+        在<span class="highlight">InnoDB</span>中，所有的用户动作均发生在事务内。如果启用了自动提交(autocommmit)，那么每条SQL语句将在单独的事务中执行。默认情况下，MySQL均自动提交事务。开发人员可通过<span class="highlight">BEGIN</span>，<span class="highlight">COMMIT</span>或<span class="highlight">ROLLBACK</span>语句在同一事务中执行多条SQL语句。如果在连接会话中，将autocommit设置为false(<span class="highlight">SET autocommit = 0</span>)，会话中将总会开启一个事务，<span class="highlight">COMMIT</span>和<span class="highlight">ROLLBACK</span>将终止当前事务并开启一个新的事务。<span class="highlight">COMMIT</span>操作意味着该事务执行的所有更新操作将被持久化，即对其他会话可见。
+    </p>
+
+     <li>
+        <h3>InnoDB中的死锁</h3>
+    </li>
+    <p class="wrap">
+        InnoDB中的死锁，指的是不同事务由于相互持有各自请求的锁，导致均不能继续处理后续操作的情况。比如，多个事务以<span class="highlight">不同的顺序</span>并发请求多行记录的X锁，则有可能发生死锁；又或多个事务在获取相同的范围记录锁和间隙锁，由于时序问题，各自获取到部分锁，也可能造成死锁。
+    </p>
+    <li>
+        <h4>一个简单的死锁案例</h4>    
+    </li>
+    <img src="/images/mysql/innodb-deadlock-example.png" width="100%">
+    <p class="wrap">
+        如图所示，事务1先对i=1的记录加上S锁(操作1)，事务2尝试删除id=1的记录请求X锁(操作2)，由于S锁不兼容X锁，导致事务2被阻塞，此时事务1也尝试删除id=1的记录请求X锁(操作3)，但由于事务2先于请求X锁，这时就发生事务2将等待事务1释放S锁，事务1将等待事务2释放X锁，导致死锁，InnoDB检测到死锁情况，主动放弃事务2(这里显然放弃事务2的成本小于事务1)。
+    </p>
+    <li>
+        <h4>死锁检测与回滚</h4>    
+    </li>
+    <p class="wrap">
+        <span class="highlight">InnoDB</span>默认开启了<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_deadlock_detection" target="_blank">死锁检测</a>(<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_deadlock_detect" target="_blank"></a>配置参数)，使得<span class="highlight">InnoDB</span>可以自动发现发生死锁的事务，并会滚最小的事务(插入，更新及删除的记录行数最少)。若希望<span class="highlight">InnoDB</span>能检测到表锁，需要设置<span class="highlight">innodb_table_locks = 1</span>(默认)和<span class="highlight">autocommit = 0</span>，否则，<span class="highlight">InnoDB</span>将不能发现由<a href="http://dev.mysql.com/doc/refman/5.7/en/lock-tables.html" target="_blank">LOCK TABLES</a>语句造成的死锁，但这时可通过系统变量<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_lock_wait_timeout" target="_blank">innodb_lock_wait_timeout</a>来解决。<span class="highlight">死锁检测</span>本身也会消耗系统资源，特别在高并发情况下，若同一锁上等待的线程过多，将降低数据库性能，这时可以通过禁用配置选项<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_deadlock_detect" target="_blank">innodb_deadlock_detect</a>来关闭<span class="highlight">死锁检测</span>，此后则通过<span class="highlight">innodb_lock_wait_timeout</span>来回滚死锁的事务。
+    </p>
+    <li>
+        <h4>如何减少死锁</h4>    
+    </li>
+    <p class="wrap">
+        <span class="highlight">死锁</span>本身是一个并发程序都会面临的问题，<span class="highlight">避免死锁</span>也同样有一些比较通用的方法，针对数据库而言，通常有以下一些避免和解决死锁的方法：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            使用<a href="http://dev.mysql.com/doc/refman/5.7/en/show-engine.html" target="_blank">SHOW ENGINE INNODB STATUS</a>查询最近的锁争用情况；
+        </div>
+        <div class="item">
+            如果确实出现频繁的死锁提醒，可以启用配置选项<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_print_all_deadlocks" target="_blank">innodb_print_all_deadlocks</a>打印死锁详细错误信息；
+        </div>
+        <div class="item">
+            如果由于死锁而出错，则始终准备重新开启事务，死锁并不危险；
+        </div>
+        <div class="item">
+            保持事务小并且持续时间短，降低死锁冲突的发生；
+        </div>
+        <div class="item">
+            一旦更新完数据，则立即提交事务，而不是长时间开启会话而不提交事务；
+        </div>
+        <div class="item">
+            如果正在使用<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_locking_read" target="_blank">锁度</a>(如<span class="highlight">SELECT ... FOR UPDATE</span>，<span class="highlight">SELECT ... LOCK IN SHARE MODE</span>)，可以降低隔离级别为<span class="highlight">读已提交</span>；
+        </div>
+        <div class="item">
+            如果在一个事务中，需要对多张表操作或同一张表需要操作不同的数据集，则应尽量保证这些操作的顺序每次都一致，类似于并发应用中的不同操作保证加锁顺序一致；
+        </div>
+        <div class="item">
+            尽量建立良好的索引，这样可以避免过多的扫表操作，减少记录锁或间隙锁；
+        </div>
+        <div class="item">
+            尽量少用<span class="highlight">锁读</span>(<span class="highlight">SELECT ... FOR UPDATE</span>或<span class="highlight">SELECT ... LOCK IN SHARE MODE</span>)，而是用<span class="highlight">快照读</span>，大部分情况是没有必要使用<span class="highlight">锁读</span>的，若确实需要使用，可以将隔离级别降低为<span class="highlight">读已提交</span>；
+        </div>
+    </div>
+
+    <li>
+    	<h2>总结</h2>
+    </li>    
+    <p class="wrap">
+    	以上，则是有关InnoDB的锁及事务模型的基础，希望在遇到相关问题时，能迎刃而解。
+    </p>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="https://dev.mysql.com/doc/refman/5.7/en/innodb-locking-transaction-model.html" target="_blank">https://dev.mysql.com/doc/refman/5.7/en/innodb-locking-transaction-model.html</a>
+		</div>
+        <div class="item">
+            <a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-locks-set.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-locks-set.html</a>
+        </div>
+        <div class="item">
+            <a href="http://hedengcheng.com/?p=771#_Toc374698308" target="_blank">http://hedengcheng.com/?p=771#_Toc374698308</a>
+        </div>
+		<div class="item">
+			<a href="http://www.cnblogs.com/zhoujinyi/p/3435982.html" target="_blank">http://www.cnblogs.com/zhoujinyi/p/3435982.html</a>
+		</div>
+	</div>
+
+</ul>
