@@ -279,7 +279,7 @@ DELETE FROM table WHERE ?;
         <div id="rc-pri-key" class="item">
             当<span class="highlight">WHERE</span>条件列为<span class="highlight">主键</span>时：
         </div>
-        <img src="/images/mysql/innodb-rc-lΩock-pri-key.png" width="100%">
+        <img src="/images/mysql/innodb-rc-lock-pri-key.png" width="100%">
         <p class="wrap">
             如图所示，事务1先对id=8的记录加上X锁(操作1)，然后，事务2可以获取到其他行记录的X锁，然而在请求id=8这条记录的X锁时被阻塞，因此，当WHERE条件中的列为<span class="highlight">主键</span>时，将对对应的聚簇索引记录加X锁。
         </p>
