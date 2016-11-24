@@ -121,7 +121,7 @@ keywords: 分布式系统调用, 跟踪, 分布式系统调用跟踪
     	<h2>基于Dubbo的分布式系统调用跟踪实践</h2>
     </li>
     <p class="wrap">
-    	由于业务系统中，应用均以<a href="http://dubbo.io/" target="_blank">dubbo</a>RPC框架，下面将以<a href="http://zipkin.io/" target="_blank">Zipkin</a>作为<span class="highlight">跟踪服务器</span>，做一些简单的实践。
+    	由于业务系统中，应用均以<a href="http://dubbo.io/" target="_blank">dubbo</a>作为RPC框架，下面将以<a href="http://zipkin.io/" target="_blank">Zipkin</a>作为<span class="highlight">跟踪服务器</span>，做一些简单的实践。
     </p>
     <li>
     	<h3>一个简单的Demo</h3>
@@ -266,7 +266,7 @@ private void endTrace() {
             这里对跟踪的事件粒度还比较粗，若想更细粒度跟踪，如想对服务中发起的<span class="highlight">SQL请求</span>进行跟踪，同理可以对<span class="highlight">SQL请求</span>进行拦截跟踪；
         </div>
         <div class="highlight">
-        	对于想跟踪<span class="highlight">线程池</span>中的调用时，单纯的<span class="highlight">ThreadLocal</span>时不能的达到传递数据的能力的，可以参考<a href="https://github.com/alibaba/transmittable-thread-local" target="_blank">这个项目</span>来传递共享数据；
+        	对于想跟踪<span class="highlight">线程池</span>中的调用时，单纯的<span class="highlight">ThreadLocal</span>时不能的达到传递数据的能力的，可以参考<a href="https://github.com/alibaba/transmittable-thread-local" target="_blank">这个项目</a>来传递共享数据；
         </div>
         <div class="item">
         	这里使用的Http来发送跟踪记录，更合理应该通过日志文件的形式；
