@@ -265,7 +265,7 @@ private void endTrace() {
         <div class="item">
             这里对跟踪的事件粒度还比较粗，若想更细粒度跟踪，如想对服务中发起的<span class="highlight">SQL请求</span>进行跟踪，同理可以对<span class="highlight">SQL请求</span>进行拦截跟踪；
         </div>
-        <div class="highlight">
+        <div class="item">
         	对于想跟踪<span class="highlight">线程池</span>中的调用时，单纯的<span class="highlight">ThreadLocal</span>时不能的达到传递数据的能力的，可以参考<a href="https://github.com/alibaba/transmittable-thread-local" target="_blank">这个项目</a>来传递共享数据；
         </div>
         <div class="item">
