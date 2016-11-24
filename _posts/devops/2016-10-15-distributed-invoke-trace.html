@@ -1,0 +1,305 @@
+---
+title : 分布式系统调用跟踪实践
+category : [devops]
+tags : [分布式系统调用, 跟踪, 分布式系统调用跟踪]
+layout : post
+show : 1
+keywords: 分布式系统调用, 跟踪, 分布式系统调用跟踪
+---
+
+<ul>
+    
+    <p class="intro">
+    	对于业务发展前期，可能我们会比较关注单个请求的耗时，频次等基本指标，以针对作出相应调整或优化。但随着系统业务发展，整个系统的<span class="highlight">调用链</span>将变得愈发复杂，一个前端请求可能最终需要调用很多次后端服务才能完成，当整个请求变慢或不可用时，我们是无法得知该请求是由某个或某些后端服务引起的，这时就需要解决如何快读定位服务故障点，以对症下药。于是就有了<span class="highlight">分布式系统调用跟踪</span>的诞生。本文将阐述与<span class="highlight">分布式系统调用跟踪</span>相关的一些实践经验。
+    </p>
+
+    <li>
+    	<h2>什么是分布式系统调用跟踪</h2>
+    </li>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		对多个相互协作的子系统之间的<span class="highlight">调用链</span>及<span class="highlight">依赖关系</span>进行跟踪；
+    	</div>
+    	<div class="item">
+    		<span class="item">系统间调用</span>包括但不仅限于<span class="highlight">HTTP</span>，<span class="highlight">RPC</span>，<span class="highlight">RMI</span>等；
+    	</div>
+    </div>
+
+    <li>
+    	<h2>为什么需要跟踪分布式系统调用</h2>
+    </li>
+    
+    <div class="ui bulleted list">
+    	<div class="item">
+    		系统日趋复杂庞大，需要确定各服务之间的依赖关系，便于后期作<span class="highlight">依赖优化</span>；
+    	</div>
+    	<div class="item">
+    		当系统某个请求响应变慢或出现异常时，需要尽快确定是哪些服务出现问题，达到<span class="highlight">快速排查</span>，<span class="highlight">解决瓶颈</span>；
+    	</div>
+    </div>
+
+    <li>
+    	<h2>分布式系统调用跟踪需要作些什么</h2>
+    </li>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		用户请求<span class="highlight">调用链追踪</span>；
+    	</div>
+    	<div class="item">
+    		请求总耗时，及各个服务<span class="highlight">调用耗时</span>；
+    	</div>
+    	<div class="item">
+    		针对异常错误请求作<span class="highlight">报警监控</span>；
+    	</div>
+    	<div class="item">
+    		作一些业务上的<span class="highlight">统计分析</span>，<span class="highlight">Metrics</span>等；
+    	</div>
+    	<div class="item">
+    		<strong>...</strong>。
+    	</div>
+    </div>
+
+    <li>
+    	<h2>分布式系统调用跟踪的基本模型</h2>
+    </li>
+    <img src="/images/trace/trace-model.png" width="100%">
+    <p>
+    	如图，在跟踪链中有以下几个比较重要的数据结构和概念：	
+    </p>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<strong>span</strong>：标识一次分布式调用，其自身包含了<span class="highlight">id</span>，<span class="highlight">parentId</span>(指向上级Span的id)，
+    		<span class="highlight">traceIds</span>，<span class="highlight">服务名称</span>等重要属性，其应尽量保持精简；
+    	</div>
+    	<div class="item">
+    		<strong>trace</strong>：标识整个请求链，即一些列Span的组合。其自身的ID将贯穿整个调用链，其中的每个Span都必须携带这个<span class="highlight">traceId</span>，因此<span class="highlight">traceId</span>将在整个调用链中传递；
+    	</div>
+    	<div class="item">
+    		<strong>cs</strong>：客户端发起请求，标志<span class="highlight">Span</span>的开始；
+    	</div>
+    	<div class="item">
+    		<strong>sr</strong>：服务端接收到请求，并开始处理内部事务，其中<span class="highlight">sr - cs</span>则为<span class="highlight">网络延迟</span>和<span class="highlight">时钟抖动</span>；
+    	</div>
+    	<div class="item">
+    		<strong>ss</strong>：服务端处理完请求，返回响应内容，其中<span class="highlight">ss - sr</span>则为<span class="highlight">服务端处理请求耗时</span>；
+    	</div>
+    	<div class="item">
+    		<strong>cr</strong>：客户端接收到服务端响应内容，标志着<span class="highlight">Span</span>的结束，其中<span class="highlight">cr - ss</span>则为<span class="highlight">网络延迟</span>和<span class="highlight">时钟抖动</span>。
+    	</div>
+    </div>
+
+    <li>
+    	<h2>分布式系统调用跟踪的基本架构</h2>
+    </li>
+    <p class="wrap">
+    	对于一个基本的<span class="highlight">分布式系统调用跟踪系统</span>，大致需要满足基本的特性：<span class="highlight">低侵入性</span>，<span class="highlight">高性能</span>，<span class="highlight">高可用容错</span>，<span class="highlight">低丢失率</span>等，下文绍这几个特性的简单实现。
+    </p>
+    <li>
+    	<h3>低侵入性</h3>
+    </li>
+    <p class="wrap">
+    	对于业务系统而言，<span class="highlight">低侵入性</span>是一个比较基础的特性，保证对业务开放人员的透明性，尽量减少代码级的侵入。对于<span class="highlight">分布式调用跟踪</span>，跟踪事件发生在调用前后，因此可借助类似<span class="highlight">拦截器</span>，<span class="highlight">过滤器</span>，<span class="highlight">AOP</span>等机制，利用<span class="highlight">配置</span>代替<span class="highlight">编码</span>。
+    </p>
+    <li>
+    	<h3>高可用容错</h3>
+    </li>
+    <p class="wrap">
+    	在跟踪分布式调用过程中，应当保证<span class="highlight">跟踪系统</span>具有<span class="highlight">高可用容错</span>，首先保证<span class="highlight">跟踪服务器</span>具有集群特性，不能出现单点，即便跟踪服务器均不可用，也不应影响到业务系统的稳定性，保持自身的轻量性。建议以<span class="highlight">日志文件</span>的方式记录跟踪行为，再通过<span class="highlight">Collector</span>来收集这些记录，输出到<span class="highlight">跟踪服务器</span>。这样即便<span class="highlight">跟踪服务器</span>不可用时，也不会影响到业务系统的运行。同时，使用了<span class="highlight">记录文件</span>后，有便于以后针对高流量时，可适当做一些<span class="highlight">缓冲</span>或<span class="highlight">流控</span>方面的优化。
+    </p>
+    <li>
+    	<h3>高性能 & 低丢失率</h3>
+    </li>
+    <p class="wrap">
+    	对于<span class="highlight">分布式调用跟踪</span>，应该保证良好的性能，如上文所述，采用<span class="highlight">文件记录</span>的方式肯定比直接通过<span class="highlight">网络传输</span>更高效，结合一些高效的I/O手段，如使用高效的队列库<a href="https://lmax-exchange.github.io/disruptor/" target="_blank">Disruptor</a>，在结合Java自身的<span class="highlight">MappedByteBuffer</span>和<span class="highlight">RandomAccessFile</span>的<span class="highlight">顺序写，随机读</span>的方式，将达到一个可观的性能。除此外，<span class="highlight">ByteBuffer</span>也保证，在应用将<span class="highlight">跟踪记录</span>写入到内存后，若此时应用意外崩溃，但<span class="highlight">跟踪记录</span>并不会丢失，而是由操作系统完成从内存到文件的同步工作，这进一步降低了<span class="highlight">记录丢失</span>的发生。
+    </p>
+    <li>
+    	<h3>分布式系统调用跟踪系统的架构设计</h3>
+    </li>
+    <img src="/images/trace/trace-arch.png" width="100%">
+
+    <li>
+    	<h2>基于Dubbo的分布式系统调用跟踪实践</h2>
+    </li>
+    <p class="wrap">
+    	由于业务系统中，应用均以<a href="http://dubbo.io/" target="_blank">dubbo</a>RPC框架，下面将以<a href="http://zipkin.io/" target="_blank">Zipkin</a>作为<span class="highlight">跟踪服务器</span>，做一些简单的实践。
+    </p>
+    <li>
+    	<h3>一个简单的Demo</h3>
+    </li>
+    <p class="wrap">
+    	假设现在前端有一个<span class="highlight">创建订单</span>的请求，需要先调用到<span class="highlight">web应用</span>的API，再分别调用<span class="highlight">订单服务</span>和<span class="highlight">用户服务</span>，<span class="highlight">订单服务</span>还会间接调用<span class="highlight">用户服务</span>，如下图所示：
+    </p>
+    <img src="/images/trace/trace-demo.png" width="100%">
+    <p class="wrap">
+    	从图中可以看出，Web应用作为用户请求的第一层，因此，可以在Web应用层初始化整个调用链，包括<span class="highlight">traceId</span>，<span class="highlight">rootSpanId</span>等重要信息，对于<span class="highlight">ID</span>生成，可以是UUID或64位整型，又或者根据自己的规则去生成。这个操作比较适合放在<span class="highlight">Filter</span>中来作，但其实并不是每个请求都需要作跟踪，可以在<span class="highlight">配置文件</span>中定义需要的跟踪的请求，如：
+    </p>
+    {% highlight java %}
+// TraceFilter
+public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) 
+				throws IOException, ServletException { 
+	// 初始化根Span
+	Span rootSpan = startTrace(req);
+
+	// 将核心数据放入ThreadLocal
+	TraceContext.start();
+	TraceContext.setTraceId(rootSpan.getTrace_id());
+	TraceContext.setSpanId(rootSpan.getId());
+	TraceContext.addSpan(rootSpan);
+
+	// 执行其他filter及servlet
+	chain.doFilter(request, response);
+
+	// 结束跟踪，并收集Span信息
+	endTrace(req, rootSpan, watch);
+}
+
+private Span startTrace(HttpServletRequest req, TracePoint point) {
+    // ... 
+
+    // 设置sr
+    apiSpan.addToAnnotations(
+            Annotation.create(timestamp, TraceConstants.ANNO_SR,
+                    Endpoint.create(apiName, ServerInfo.IP4, req.getLocalPort())));
+
+    return apiSpan;
+}
+
+private void endTrace(HttpServletRequest req, Span span, Stopwatch watch) {
+    // 设置ss
+    span.addToAnnotations(
+            Annotation.create(Times.currentMicros(), TraceConstants.ANNO_SS,
+                    Endpoint.create(span.getName(), ServerInfo.IP4, req.getLocalPort())));
+
+    // 计算耗时
+    span.setDuration(watch.stop().elapsed(TimeUnit.MICROSECONDS));
+
+    // 发送跟踪记录
+    agent.send(TraceContext.getSpans());
+}
+    {% endhighlight %}
+    <p class="wrap">
+    	由于需要在整个请求链中共享<span class="highlight">traceId</span>及<span class="highlight">父级spanId</span>，因此将其放入<span class="highlight">ThreadLocal</span>上下文。既然已经初始化了<span class="highlight">rootSpan</span>，接下来我们还需要讲这里的<span class="highlight">traceId</span>和<span class="highlight">spanId</span>传递给后端的dubbo服务，这可以通过在dubbo提供的Filter中的<span class="highlight">attachment</span>中设置，如：
+    </p>
+    {% highlight java %}
+// TraceConsumerFilter
+@Override
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+
+    // 消费者方开始跟踪服务调用，即cs
+    Span consumeSpan = startTrace(invoker, invocation);
+
+    // 发起远程调用
+    Result result = invoker.invoke(invocation);
+
+    // 远程调用结束，即cr
+    endTrace(invoker, result, consumeSpan, watch);
+
+    return result;
+}
+
+private Span startTrace(Invoker<?> invoker, Invocation invocation){
+	// ...
+    // 将traceId，spanId放入调用上下文
+    Map<String, String> attaches = invocation.getAttachments();
+    attaches.put(TraceConstants.TRACE_ID, String.valueOf(consumeSpan.getTrace_id()));
+    attaches.put(TraceConstants.SPAN_ID, String.valueOf(consumeSpan.getId()));
+    // ...
+}
+
+
+    {% endhighlight %}
+    <p class="wrap">
+    	这样在<span class="highlight">provider</span>端就能获取到当前<span class="highlight">traceId</span>和<span class="highlight">spanId</span>，由于在<span class="highlight">provider</span>端仍然还有可能调用其他dubbo服务，因此<span class="highlight">provider</span>端接收到<span class="highlight">consumer</span>传递的<span class="highlight">traceId</span>和<span class="highlight">spanId</span>后，还需要将其设置在<span class="highlight">ThreadLocal</span>中，以便后续的dubbo服务调用中也需要传递<span class="highlight">traceId</span>和<span class="highlight">spanId</span>，如：
+    </p>
+    {% highlight java %}
+// TraceProviderFilter
+@Override
+public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
+	
+    // ...
+    Map<String, String> attaches = invocation.getAttachments();
+    if (!attaches.containsKey(TraceConstants.TRACE_ID)){
+        // 没有必要跟踪该请求
+        return invoker.invoke(invocation);
+    }
+
+    // prepare trace context
+    startTrace(attaches);
+
+    Result result = invoker.invoke(invocation);
+    endTrace();
+    return rpcResult;
+}
+
+private void startTrace(Map<String, String> attaches) {
+
+	// 设置traceId和spanId到ThreadLocal
+    long traceId = Long.parseLong(attaches.get(TraceConstants.TRACE_ID));
+    long parentSpanId = Long.parseLong(attaches.get(TraceConstants.SPAN_ID));
+    TraceContext.start();
+    TraceContext.setTraceId(traceId);
+    TraceContext.setSpanId(parentSpanId);
+}
+
+private void endTrace() {
+	// 发送跟踪记录
+    agent.send(TraceContext.getSpans());
+    // 清空ThreadLocal
+    TraceContext.clear();
+}
+    {% endhighlight %}
+    <p>
+    	这样，当在前端发起请求后，则会在<span class="highlight">跟踪服务器</span>生成对应的跟踪记录：
+    </p>
+    <img src="/images/trace/trace-zipkin.png" width="100%">
+    <li>
+    	<h3>其他问题</h3>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			这里并没有考虑<span class="highlight">NTP</span>问题(服务器时间同步问题)，这个其实也没法完全保证，可以作一些容错判断；
+		</div>
+		<div class="item">
+            这里仅对服务调用时进行跟踪，<span class="highlight">调用耗时</span>其实包含了请求和响应的<span class="highlight">网络延迟</span>和<span class="highlight">抖动时间</span>，若想明确统计出这些时间，可以通过在<span class="highlight">provider</span>端记录<span class="highlight">sr</span>和<span class="highlight">ss</span>，由<span class="highlight">consumer</span>中的<span class="highlight">cs</span>(sr - cs)和<span class="highlight">cr</span>(cr - ss)算出；
+        </div>
+        <div class="item">
+            这里对跟踪的事件粒度还比较粗，若想更细粒度跟踪，如想对服务中发起的<span class="highlight">SQL请求</span>进行跟踪，同理可以对<span class="highlight">SQL请求</span>进行拦截跟踪；
+        </div>
+        <div class="highlight">
+        	对于想跟踪<span class="highlight">线程池</span>中的调用时，单纯的<span class="highlight">ThreadLocal</span>时不能的达到传递数据的能力的，可以参考<a href="https://github.com/alibaba/transmittable-thread-local" target="_blank">这个项目</span>来传递共享数据；
+        </div>
+        <div class="item">
+        	这里使用的Http来发送跟踪记录，更合理应该通过日志文件的形式；
+        </div>
+        <div class="item">
+        	具体细节可以参考<a href="https://github.com/ihaolin/dubbo-trace" target="_blank">该项目</a>。
+        </div>
+	</div>
+
+	<li>
+    	<h2>总结</h2>
+    </li>
+    <p class="wrap">
+    	以上，则是有关<span class="highlight">分布式系统调用跟踪</span>的实践，这对于<span class="highlight">发现应用瓶颈</span>，<span class="highlight">排查问题</span>及<span class="highlight">服务依赖优化</span>都比较重要，希望对读者有所帮助。
+    </p>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="https://bigbully.github.io/Dapper-translation/" target="_blank">https://bigbully.github.io/Dapper-translation/</a>
+		</div>
+        <div class="item">
+            <a href="http://zipkin.io/pages/instrumenting.html" target="_blank">http://zipkin.io/pages/instrumenting.html</a>
+        </div>
+        <div class="item">
+        	<a href="http://javarevisited.blogspot.com/2012/01/memorymapped-file-and-io-in-java.html" target="_blank">http://javarevisited.blogspot.com/2012/01/memorymapped-file-and-io-in-java.html</a>
+        </div>
+        <div class="item">
+        	<a href="http://www.kdgregory.com/index.php?page=java.byteBuffer" target="_blank">http://www.kdgregory.com/index.php?page=java.byteBuffer</a>
+        </div>
+	</div>
+
+
+</ul>
