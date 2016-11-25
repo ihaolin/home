@@ -110,7 +110,7 @@ keywords: 分布式系统调用, 跟踪, 分布式系统调用跟踪
     	<h3>高性能 & 低丢失率</h3>
     </li>
     <p class="wrap">
-    	对于<span class="highlight">分布式调用跟踪</span>，应该保证良好的性能，如上文所述，采用<span class="highlight">文件记录</span>的方式肯定比直接通过<span class="highlight">网络传输</span>更高效，结合一些高效的I/O手段，如使用高效的队列库<a href="https://lmax-exchange.github.io/disruptor/" target="_blank">Disruptor</a>，在结合Java自身的<span class="highlight">MappedByteBuffer</span>和<span class="highlight">RandomAccessFile</span>的<span class="highlight">顺序写，随机读</span>的方式，将达到一个可观的性能。除此外，<span class="highlight">ByteBuffer</span>也保证，在应用将<span class="highlight">跟踪记录</span>写入到内存后，若此时应用意外崩溃，但<span class="highlight">跟踪记录</span>并不会丢失，而是由操作系统完成从内存到文件的同步工作，这进一步降低了<span class="highlight">记录丢失</span>的发生。
+    	对于<span class="highlight">分布式调用跟踪</span>，应该保证良好的性能，如上文所述，采用<span class="highlight">文件记录</span>的方式肯定比直接通过<span class="highlight">网络传输</span>更高效，结合一些高效的I/O手段，如使用高效的队列库<a href="https://lmax-exchange.github.io/disruptor/" target="_blank">Disruptor</a>，在结合Java自身的<span class="highlight">MappedByteBuffer</span>和<span class="highlight">RandomAccessFile</span>的<span class="highlight">顺序写，随机读</span>的方式，将达到一个可观的性能。除此外，<span class="highlight">MappedByteBuffer</span>也保证，在应用将<span class="highlight">跟踪记录</span>写入到内存后，若此时应用意外崩溃，但<span class="highlight">跟踪记录</span>并不会丢失，而是由操作系统完成从内存到文件的同步工作，这进一步降低了<span class="highlight">记录丢失</span>的发生。
     </p>
     <li>
     	<h3>分布式系统调用跟踪系统的架构设计</h3>
