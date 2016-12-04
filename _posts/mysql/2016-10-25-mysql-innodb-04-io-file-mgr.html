@@ -1,0 +1,199 @@
+---
+title : MySQL InnoDB存储引擎(四)：磁盘I/O及文件管理
+category : [mysql]
+tags : [mysql, innodb, 磁盘I/O，文件管理]
+layout : post
+show : 1
+keywords: mysql，innodb，磁盘I/O，文件管理
+---
+
+
+<ul>
+    
+    <p class="intro">
+    	对于DBA，通常需要对数据库服务器的<span class="highlight">磁盘I/O</span>作相关监控管理，以免发生I/O资源过于紧张，进而导致服务器不稳定及崩溃。除此之外，<span class="highlight">磁盘空间管理</span>也很重要，需要为数据库保证足够的磁盘空间。<span class="highlight">ACID</span>设计模型为了保证数据的可靠性(比如，通过写<span class="highlight">Undo Log</span>等)，也需要I/O资源。而<span class="highlight">InnoDB</span>在运行过程中，会尽可能<span class="highlight">降低I/O操作</span>和<span class="highlight">优化磁盘文件的组织</span>(如，延迟某些I/O操作直到数据库空闲时，或者为了保证数据一致性，在数据库重启后执行某些恢复操作)。本文将描述<span class="highlight">InnoDB</span>的磁盘I/O和文件管理的相关细节。
+    </p>
+
+
+    <li>
+    	<h2>InnoDB的磁盘I/O</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB</span>会在可能的情况下使用异步磁盘I/O，主要通过创建多个线程来处理I/O操作，与此同时允许其他数据库操作。 在<span class="highlight">Linux</span>和<span class="highlight">Windows</span>平台上，InnoDB使用可用的操作系统和库函数来执行<span class="highlight">“本地”异步I/O</span>，而在其他平台上，InnoDB仍然使用I/O线程，但实际上线程可能会等待I/O请求完成，这种技术也被称为<span class="highlight">模拟异步I/O</span>。
+    </p>
+
+    <li>
+    	<h3>预读(Read-Ahead)</h3>
+    </li>
+    <p class="wrap">
+    	当<span class="highlight">InnoDB</span>可以确定如果某些数据将很可能被使用，则会执行<span class="highlight">预读</span>操作，即将这些数据载入缓冲池，以便在内存中可用，因为对连续的数据执行几次大量的读取请求有可能比执行几次少量且分散的请求更高效，InnoDB中包括以下两种情况会执行预读操作：
+    </p>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+    		<strong>顺序预读</strong>：如果InnoDB注意到表空间中的段的访问模式是<span class="highlight">顺序的</span>，则会预先向I/O系统发出一批数据库页的读取请求；
+    	</div>
+    	<div class="item">
+    		<strong>随机预读</strong>：如果InnoDB注意到表空间中的某些区域似乎正在完全读入缓冲池，则会向I/O系统发出剩余的读操作请求。
+    	</div>
+    </div>
+    <p>
+    	开发人员可以通过<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-performance-read_ahead.html" target="_blank">缓冲区相关配置</a>来调整<span class="highlight">预读行为</span>。
+    </p>
+
+    <li>
+    	<h3>双写缓冲区(Doublewrite Buffer)</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB</span>使用了一种新的文件刷新技术(叫做<span class="highlight">双写缓冲区(doublewrite buffer)</span>)，其提升了当数据库崩溃或断电后恢复的安全性，并且对于大多数Unix系统，其通过减少<span class="highlight">fsync()</span>调用来提升数据库性能，默认情况该特性会开启(可通过<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_doublewrite" target="_blank">innodb_doublewrite</a>配置)。
+    </p>
+    <p class="wrap">
+    	在将页面写入数据文件之前，<span class="highlight">InnoDB</span>首先将它们写入连续的表空间区域(即<span class="highlight">双写缓冲区</span>)。 只有在写入并刷新到双写缓冲区后，InnoDB才会将页面写入数据文件中的正确位置。 如果在页面写入过程中有操作系统，<span class="highlight">存储子系统</span>或<span class="highlight">mysqld进程崩溃</span>(导致页面破坏条件)，这样InnoDB可以在恢复期间从双写缓冲区中找到该页面的完整副本。
+    </p>
+    <p class="wrap">
+    	从<span class="highlight">MySQL 5.7.4</span>开始，如果系统表空间文件(<span class="highlight">ibdata文件</span>)位于支持<span class="highlight">原子写入</span>的<span class="highlight">Fusion-io</span>设备上，则会<span class="highlight">自动禁用双写缓冲</span>，并对所有数据文件使用Fusion-io原子写入。 因为双写缓冲区设置是<span class="highlight">全局的</span>，所以对于驻留在非Fusion-io硬件上的数据文件也禁用双写缓冲。 此功能仅在Fusion-io硬件上支持，并且仅对Linux上的Fusion-io NVMFS启用。要充分利用此功能，建议使用<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_flush_method" target="_blank">innodb_flush_method</a>设置<span class="highlight">O_DIRECT</span>。
+    </p>
+
+    <li>
+    	<h2>文件空间管理</h2>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB系统表空间</span>由配置文件中的选项<a href="" target="_blank">innodb_data_file_path</a>指定的数据文件组成。 这些文件在逻辑上连续以形成系统表空间。开发人员不能定义系统表空间中表的分配位置。在新创建的系统表空间中，InnoDB将从第一个数据文件开始分配空间。
+    </p>
+    <p class="wrap">
+    	为了避免在<span class="highlight">系统表空间</span>中存储所有表和索引，可以启用<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>配置选项(默认值)，该选项将每个新创建的表存储在单独的表空间文件(扩展名为<span class="highlight">.ibd</span>)中。 对于以这种方式存储的表，磁盘文件中的<span class="highlight">碎片较少</span>，并且当表被截取(truncate)或丢弃(drop)时，占用空间将返回给操作系统，而不是仍由InnoDB的系统表空间占用。对于<span class="highlight">innodb_file_per_table</span>的优缺点可见<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-multiple-tablespaces.html" target="_blank">这里</a>。
+    </p>
+    <p class="wrap">
+    	从<span class="highlight">MySQL 5.7.6</span>开始，您还可以在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_general_tablespace" target="_blank">通用表空间</a>中存储表。 一般表空间是使用<a href="http://dev.mysql.com/doc/refman/5.7/en/create-tablespace.html" target="_blank">CREATE TABLESPACE</a>语法创建的共享表空间，它们可以在MySQL数据目录之外创建，能够保存多个表，并支持所有行格式的表。具体细节可见<a href="http://dev.mysql.com/doc/refman/5.7/en/general-tablespaces.html" target="_blank">这里</a>。
+    </p>
+
+    <li>
+    	<h3>页面，扩展区，段及表空间(Pages, Extents, Segments, and Tablespaces)</h3>
+    </li>
+    <p class="wrap">
+    	每个<span class="highlight">表空间</span>都由<span class="highlight">数据库页面</span>组成。MySQL实例中的每个表空间具有相同的<span class="highlight">页面大小</span>。默认情况下，所有表空间的页大小为16KB; 您可以通过在创建MySQL实例时指定<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_page_size" target="_blank">innodb_page_size</a>选项将页面大小减小到8KB或4KB。从<span class="highlight">MySQL 5.7.6</span>开始，您还可以将页面大小增加到32KB或64KB。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">数据库页面</span>被分组成大小为1MB的扩展区，即64个连续的16KB页，或128个8KB的页或256个4KB的页，对于32KB的页面大小，扩展区大小为2MB。 对于64KB的页面大小，扩展区大小为4MB。表空间中的“文件”在InnoDB中称为<span class="highlight">段</span>(这些段与<span class="highlight">回滚段</span>不同，后者实际上包含许多表空间段)。
+    </p>
+    <p class="wrap">
+    	当一个<span class="highlight">段</span>在表空间内增长时，InnoDB将前32个页面一次性分配给它。之后，InnoDB开始将整个扩展区分配给段。 InnoDB可以一次将最多4个<span class="highlight">扩展区</span>添加到大段中，以确保数据良好的<span class="highlight">顺序性</span>。
+    </p>
+    <p class="wrap">
+    	在InnoDB中会为每个索引分配两个段，一个段对应<span class="highlight">B+树</span>的非叶子节点，另一个对应叶子节点。保持叶子节点在磁盘上的连续，可以实现更好的<span class="highlight">顺序I/O操作</span>，因为这些叶子节点包含实际的表数据。
+    </p>
+    <p class="wrap">
+    	表空间中的一些页面包含其他页面的<span class="highlight">位图</span>，因此InnoDB表空间中的一些<span class="highlight">扩展区</span>不能作为一个整体分配给段，而只能作为单独的页面分配。
+    </p>
+    <p class="wrap">
+    	当通过<a href="" target="_blank">SHOW TABLE STATUS</a>语句查询表空间中的可用空间时，InnoDB报告表空间中绝对可用的扩展区。 InnoDB总是保留一些区域用于清理及内部使用，这些保留的区不包括在自由空间中。
+    </p>
+    <p class="wrap">
+    	当从表中删除数据时，<span class="highlight">InnoDB</span>会收缩相应的B+树索引，释放的空间是否可用于其他用户，取决于<span class="highlight">删除模式</span>是否将单个页面或扩展区释放到表空间。<span class="highlight">删除表(Drop table)</span>或<span class="highlight">删除其中的所有行</span>将保证向其他用户释放这些空间，但删除的行仅会通过清除(<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_purge" target="_blank">purge</a>)操作进行物理删除，这将发生在<span class="highlight">事务回滚</span>或<span class="highlight">一致性读取</span>不再需要这些被删除数据后。
+    </p>
+
+    <li>
+    	<h3>页面与表数据行的关系</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">最大行长度</span>略小于数据库页面的一半，可由<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_page_size" target="_blank">innodb_page_size</a>设置为4KB，8KB，16KB，32KB或64KB。例如，对于默认的16KB InnoDB页面大小，最大行长度略小于8KB。对于大于32KB的页面，最大行长度均略小于16KB。
+    </p>
+    <p class="wrap">
+    	如果一行的数据大小不超过<span class="highlight">最大行长度</span>，则它将全部存储在页面内。 如果行超过最大行长度，则将选择<span class="highlight">可变长度列</span>存储在外部页中，直到行符合最大行长度限制。<span class="highlight">可变长度列</span>的外部页存储<span class="highlight">行格式</span>有两种：
+    </p>
+    <div class="ui bulleted list">
+    	<div class="item">
+    		<strong>COMPACT和REDUNDANT行格式</strong>：当在外部页存储<span class="highlight">可变长度列</span>时，InnoDB将前768个字节存储在行中，其余的存储在<span class="highlight">外部溢出页</span>中，每个这样的列都有自己的溢出页列表，768字节前缀会存储一个20字节的值，该值存储列的真实长度，并指向溢出列表中存储该列的剩余部分。具体细节可见<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-row-format-antelope.html" target="_blank">这里</a>。
+    	</div>
+    	<div class="item">
+    		<strong>DYNAMIC和COMPRESSED行格式</strong>：当为外部页存储<span class="highlight">可变长度列</span>时，InnoDB在该行中存储20字节的指针，并指向溢出列表中存储该列的剩余部分。具体细节可见<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-row-format-dynamic.html" target="_blank">这里</a>。
+    	</div>
+    </div>
+
+    <li>
+    	<h2>InnoDB检查点(Checkpoints)</h2>
+    </li>
+    <p class="wrap">
+    	使用<span class="highlight">大日志文件</span>可能会减少<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_checkpoint" target="_blank">检查点(Checkpoints)</a>期间的磁盘I/O。 因此将日志文件的总大小设置为与缓冲池一样大，或者甚至更大，通常是有意义的。虽然之前大日志文件可能使<span class="highlight">崩溃恢复</span>需要过多的时间，但从MySQL 5.5开始，崩溃恢复的性能增强使得有可能使用大型日志文件，在崩溃后能快速启动(严格地说，这种性能改进可用于MySQL 5.1与InnoDB插件1.0.7和更高版本。与MySQL 5.5，这种改进在InnoDB存储引擎中默认可用)。
+    </p>
+    <li>
+    	<h3>检查点(Checkpoints)如何工作</h3>
+    </li>
+    <p class="wrap">
+    	<span class="highlight">InnoDB</span>实现称为<span class="highlight">模糊检查点(fuzzy checkpointing)</span>的检查点机制。InnoDB以小批量从缓冲池刷新修改的数据库页面，而不是在一个批处理中刷新缓冲池，这将导致在检查点过程中影响对用户SQL语句的处理。
+    </p>
+    <p class="wrap">
+    	在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_crash_recovery" target="_blank">数据库崩溃恢复</a>期间，InnoDB会查找写入日志文件的检查点标记，并确认标签之前对数据库的所有修改，然后从检查点向前扫描日志文件，将记录的修改应用于数据库。
+    </p>
+
+    <li>
+    	<h2>清除表碎片(Defragmenting a Table)</h2>
+    </li>
+    <p class="wrap">
+    	对于<span class="highlight">二级索引</span>的随机插入或删除可能导致索引碎片化。 碎片意味着磁盘上索引页的物理排序与页上记录的索引排序并不相近，或者说在分配给索引的64页块中有许多未使用的页。
+    </p>
+    <p class="wrap">
+    	<span class="highlight">碎片化</span>的症状之一就是表实际占用的空间比应该占用的空间多，至于多少则很难确定。 所有<span class="highlight">InnoDB</span>数据和索引存储在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_b_tree" target="_blank">B树</a>中，它们的<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_fill_factor" target="_blank">填充因子</a>可能在50％到100％之间不等。 碎片化的另一个症状是，下面的表扫描语句实际花的时间比应该花的时间更多：
+    </p>
+    {% highlight sql %}
+SELECT COUNT(*) FROM t WHERE non_indexed_column <> 12345;
+    {% endhighlight %}
+    <p class="wrap">
+    	上面的查询，没有使用索引列查询，将进行<span class="highlight">全表扫描</span>，对于数据量大的表，执行耗时将比较大。为了加快索引扫描，通常可以通过<a href="http://dev.mysql.com/doc/refman/5.7/en/alter-table.html" target="_blank">ALTER TABLE</a>操作来重建表数据，如：
+    </p>
+    {% highlight sql %}
+ALTER TABLE tbl_name ENGINE=INNODB;
+    {% endhighlight %}
+    <p class="wrap">
+    	另外，也可以通过<a href="http://dev.mysql.com/doc/refman/5.7/en/mysqldump.html" target="_blank">mysqldump</a>将表数据dump到文本文件，然后drop掉该表数据，并从文本文件中重新加载数据。
+    </p>
+    <p class="wrap">
+    	对于<span class="highlight">升序插入索引</span>和<span class="highlight">从尾开始删除记录</span>时，<span class="highlight">InnoDB</span>将通过算法保证索引中不会产生碎片，这也是InnoDB默认都会为表生成主键索引的原因之一。
+    </p>
+
+    <li>
+    	<h2>通过TRUNCATE TABLE回收磁盘空间</h2>
+    </li>
+    <p class="wrap">
+    	对于要在截取InnoDB表时回收其磁盘空间，则该表数据必须存储在其自己的<span class="highlight">.ibd文件</span>中，即在创建表时必须启用<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>。 此外，在被截取的表和其他表之间不能有外键约束，否则<span class="highlight">TRUNCATE TABLE</span>将执行失败。但是，允许在同一个表中的两列之间的外键约束。
+    </p>
+    <p class="wrap">
+    	当表被截取时，它将被删除并在重新创建<span class="highlight">.ibd文件</span>，并且释放的空间将返回到操作系统。这与截取存储在InnoDB<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_system_tablespace" target="_blank">系统表空间</a>(<span class="highlight">innodb_file_per_table=OFF</span>时创建的表)和存储在共享<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_general_tablespace" target="_blank">通用表空间</a>(其中只有InnoDB可以使用表被截取后所释放的空间)的InnoDB表形成对比。
+    </p>
+    <p class="wrap">
+    	能够<span class="highlight">截取表并将磁盘空间返回到操作系统</span>也意味着<span class="highlight">物理备份</span>可以更小。而截取存储在<span class="highlight">系统表空间</span>中的表(在<span class="highlight">innodb_file_per_table= OFF</span>时创建的表)或在<span class="highlight">通用表空间</span>的表时，未使用的空间将扔保留在表空间中，并不会返回给操作系统。
+    </p>
+
+    <li>
+    	<h2>总结</h2>
+    </li>
+    <p class="wrap">
+    	以上，则是与<span class="highlight">InnoDB</span>磁盘I/O及文件管理相关的讲述。
+    </p>
+
+     <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-disk-io.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-disk-io.html</a>
+		</div>
+        <div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-file-space.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-file-space.html</a>
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-checkpoints.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-checkpoints.html</a>
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-file-defragmenting.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-file-defragmenting.html</a>
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-truncate-table-reclaim-space.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-truncate-table-reclaim-space.html</a>
+		</div>
+		<div class="item">
+			<a href="https://www.xaprb.com/blog/2011/01/29/how-innodb-performs-a-checkpoint/" target="_blank">https://www.xaprb.com/blog/2011/01/29/how-innodb-performs-a-checkpoint/</a>
+		</div>
+		<div class="item">
+			<a href="http://hedengcheng.com/?p=88InnoDB" target="_blank">http://hedengcheng.com/?p=88InnoDB</a>
+		</div>
+	</div>
+</ul>
