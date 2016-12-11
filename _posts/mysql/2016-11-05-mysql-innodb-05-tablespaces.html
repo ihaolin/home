@@ -1,0 +1,353 @@
+---
+title : MySQL InnoDB存储引擎(五)：表空间
+category : [mysql]
+tags : [mysql, innodb, 表空间，tablespace]
+layout : post
+show : 1
+keywords: mysql，innodb，表空间，tablespace
+---
+
+
+<ul>
+    
+    <p class="intro">
+    	<span class="highlight">InnoDB</span>把数据保存在表空间内，本质上是一个由一个或多个磁盘文件组成的虚拟文件系统。InnoDB用表空间并不只是存储<span class="highlight">表</span>和<span class="highlight">索引</span>，还保存了<span class="highlight">回滚段</span>、<span class="highlight">双写缓冲区</span>等。本文将介绍InnoDB表空间的相关性质。
+    </p>
+
+
+	<li>
+		<h2>调整InnoDB系统表空间大小</h2>
+	</li>
+
+	<li>
+		<h3>增加InnoDB系统表空间大小</h3>
+	</li>
+	<p class="wrap">
+		增加InnoDB系统表空间大小的最简单方法就是初始化配置为<span class="highlight">自动扩展(autoextend)</span>。 在表空间定义中为最后一个数据文件指定<span class="highlight">autoextend</span>属性，这样InnoDB在空间不足时以64MB的增量自动增加该文件的大小。 可以通过设置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_autoextend_increment" target="_blank">innodb_autoextend_increment</a>系统变量的值来更改增量大小(单位为MB)。为了扩展系统表空间，开发人员可通过添加新的数据文件：
+	</p>
+	<div class="ui bulleted list">
+		<div class="item">
+			关闭数据库；
+		</div>
+		<div class="item">
+			若之前使用了<span class="highlight">autoextend</span>，可以将其替换为明确的数据文件名及文件大小，如：
+		</div>
+		{% highlight python %}
+innodb_data_home_dir =
+# before
+innodb_data_file_path = /ibdata/ibdata1:988M:autoextend
+# after
+innodb_data_file_path = /ibdata/ibdata1:988M;/disk2/ibdata2:50M:autoextend
+		{% endhighlight %}
+		<div class="item">
+			启动数据库。
+		</div>
+	</div>
+
+	<li>
+		<h3>减小InnoDB系统表空间大小</h3>
+	</li>
+	<p class="wrap">
+		在<span class="highlight">InnoDB</span>中，开发人员并不能直接从<span class="highlight">系统表空间</span>中删除数据文件，为了减小系统表空间，可以执行如下操作：
+	</p>
+	<div class="ui bulleted list">
+		<div class="item">
+			使用<a href="http://dev.mysql.com/doc/refman/5.7/en/mysqldump.html" target="_blank">mysqldump</a>备份所有InnoDB表数据；
+		</div>
+		<div class="item">
+			关闭数据库；
+		</div>
+		<div class="item">
+			删除所有表空间文件(<span class="highlight">*.ibd</span>文件)，包括<span class="highlight">ibdata</span>和<span class="highlight">ib_log</span>等文件，再删除所有InnoDB表文件(<span class="highlight">*.frm</span>文件)；
+		</div>
+		<div class="item">
+			配置新的表空间，启动数据库，再导入之前dump的文件。
+		</div>
+	</div>
+
+	<li>
+		<h2>改变重建日志文件(Redo Log)的数量及大小</h2>
+	</li>
+	<p class="wrap">
+		若开发人员想改变InnoDB<a href="" target="_blank">重建日志文件</a>的数量及大小，可以执行如下操作：
+	</p>
+	<div class="ui bulleted list">
+		<div class="item">
+			正常关闭数据库；
+		</div>
+		<div class="item">
+			修改<span class="highlight">my.cnf</span>文件，配置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_log_files_in_group" target="_blank">innodb_log_files_in_group</a>(修改文件数量，文件名通常为ib_logfile0, ib_logfile1, ib_logifleN)和<a href="" target="_blank"></a>(文件大小，若之前有日志文件大小不一致，会先写<span class="highlight">Checkpoint</span>，再创建新的日志文件)；
+		</div>
+		<div class="item">
+			启动数据库。
+		</div>
+	</div>
+
+	<li>
+		<h2>使用裸磁盘分区</h2>
+	</li>
+	<p class="wrap">
+		开发人员可以在<span class="highlight">InnoDB系统表空间</span>中使用<span class="highlight">裸磁盘分区</span>作为数据文件。 此技术在Windows和某些Linux和Unix系统上会启用<span class="highlight">无缓冲I/O</span>，这样无需文件系统开销，然而最终是否使用裸磁盘分区，还是应该进行测试，以验证此更改是否真实提高了系统性能。对于Linux或Unix系统，可按如下操作执行：
+	</p>
+	<div class="ui bulleted list">
+		<div class="item">
+			确保启动<span class="highlight">MySQL服务器</span>的用户对裸磁盘分区具有<span class="highlight">读写权限</span>；
+		</div>
+		<div class="item">
+			创建新数据文件时，须在<span class="highlight">innodb_data_file_path</span>选项的数据文件大小后指定关键字<span class="highlight">newraw</span>， 分区必须至少比指定的大小大。注意，InnoDB中的1MB是1024×1024字节，而磁盘规格中的1MB通常意味着1,000,000字节：
+		</div>
+		{% highlight python %}
+[mysqld]
+innodb_data_home_dir=
+innodb_data_file_path=/dev/hdd1:3Gnewraw;/dev/hdd2:2Gnewraw
+		{% endhighlight %}
+		<div class="item">
+			重新启动服务器。InnoDB会根据<span class="highlight">newraw</span>关键字并初始化新分区。然而，此时不应该创建或更改任何InnoDB表，否则，当下次重新启动服务器时，InnoDB将重新初始化分区，之前的更改将丢失(因此，为了安全起见，InnoDB会组织用户修改<span class="highlight">newraw</span>分区)；
+		</div>
+		<div class="item">
+			当<span class="highlight">InnoDB</span>初始化分区后，则关闭数据库，并修改<span class="highlight">newraw</span>关键字为<span class="highlight">raw</span>：
+		</div>
+		{% highlight java %}
+[mysqld]
+innodb_data_home_dir=
+innodb_data_file_path=/dev/hdd1:3Graw;/dev/hdd2:2Graw
+		{% endhighlight %}
+		<div class="item">
+			重启数据库，此时便可以进行修改操作。
+		</div>
+	</div>
+
+	<li>
+		<h2>Innodb File-Per-Table 表空间</h2>
+	</li>
+	<p class="wrap">
+		过去，所有<span class="highlight">InnoDB</span>表和索引都存储在<span class="highlight">系统表空间</span>中，这种整体方法针对的是完全专用于数据库处理的机器，并且经过精心规划的<span class="highlight">数据增长</span>，分配给MySQL的任何磁盘存储都不需要用于其他目的。现在InnoDB针对每个表的表空间提供了一个更灵活的选择，将每个InnoDB表及其索引存储在单独的<span class="highlight">.ibd</span>数据文件中，每个这样的.ibd数据文件都表示一个单独的表空间。此功能可由<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>配置选项控制，默认情况下，此选项在MySQL 5.6.6及更高版本中启用。<span class="highlight">innodb_file_per_table</span>带来了诸多好处，但也会有一些缺点，下面将分别讲述。
+	</p>
+	<li>
+		<h3>File-Per-Table表空间的优势</h3>
+	</li>
+	<div class="ui bulleted teal list">
+		<div class="item">
+			当截取(<span class="highlight">TRUNCATE</span>)或删除(<span class="highlight">DROP</span>)表可以回收对应的磁盘空间。相对于截取或删除存储在<span class="highlight">系统表空间</span>中的表，其空间只能被InnoDB使用，而不能由操作系统使用。类似地，对驻留在<span class="highlight">系统表空间</span>中的表执行表复制<a href="http://dev.mysql.com/doc/refman/5.7/en/alter-table.html" target="_blank">ALTER TABLE</a>操作可以增加表空间使用的空间量。这样的操作可能需要与表中的数据和索引一样多的额外空间。表复制ALTER TABLE操作所需的额外空间不会释放回操作系统，因为它是针对单个表的文件表空间；
+		</div>
+		<div class="item">
+			 在<a href="http://dev.mysql.com/doc/refman/5.7/en/truncate-table.html" target="_blank">TRUNCATE TABLE</a>操作时比系统表空间性能更高；
+		</div>
+		<div class="item">
+			为了<span class="highlight">提升I/O性能</span>，<span class="highlight">空间管理</span>或者<span class="highlight">备份</span>，用户可以将指定表存储在<span class="highlight">单独的存储设备</span>上。 在以前的版本中，必须将<span class="highlight">整个数据库目录</span>移动到其他驱动器，并在MySQL数据目录中创建<a href="http://dev.mysql.com/doc/refman/5.7/en/symbolic-links.html" target="_blank">符号链接</a>。在MySQL 5.6.6之后，可以使用语法<span class="highlight">CREATE TABLE ... DATA DIRECTORY = absolute_path_to_directory</span>指定每个表的位置，即<a href="#create-outside-data-dir-for-per-tablespace">为每个表空间创建外部数据目录</a>；
+		</div>
+		<div class="item">
+			用户可以执行<a>OPTIMIZE TABLE</a>来<span class="highlight">压缩</span>或<span class="highlight">重新创建</span>每个表的文件表空间。当运行<span class="highlight">OPTIMIZE TABLE</span>时，InnoDB将使用临时名称创建一个新的<span class="highlight">.ibd</span>文件，这会使用存储实际数据所需的空间。 当优化完成后，InnoDB将删除旧的.ibd文件，并用新的.ibd文件替换它。如果旧的.ibd文件显着增长，但实际数据仅占其大小的一部分，则运行<span class="highlight">OPTIMIZE TABLE</span>可以回收未使用的空间；
+		</div>
+		<div class="item">
+			用户可以移动单个Innodb表而不是整个数据库；
+		</div>
+		<div class="item">
+			用户可以从一个MySQL实例复制单个Innodb表到另一个实例(基于<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_transportable_tablespace" target="_blank">可传输的表空间(transportable tablespace)</a>特性)；
+		</div>
+		<div class="item">
+			以文件表空间创建的表会使用<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_barracuda" target="_blank">Barracuda</a>文件格式，<span class="highlight">Barracuda</span>文件格式支持<span class="highlight">压缩和动态行格式</span>等特性；
+		</div>
+		<div class="item">
+			用户可以使用<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_dynamic_row_format" target="_blank">动态行格式</a>为<span class="highlight">BLOB</span>或<span class="highlight">TEXT</span>列的表启用更高效的存储；
+		</div>
+		<div class="item">
+			当<span class="highlight">发生损坏</span>，<span class="highlight">服务器无法重新启动</span>，或者<span class="highlight">备份和二进制日志不可用</span>时，<span class="highlight">File-per-table</span>表空间可以<span class="highlight">提升成功恢复的机会</span>和<span class="highlight">节省时间</span>；
+		</div>
+		<div class="item">
+			<span class="highlight">File-per-table</span>表空间便于在<span class="highlight">复制</span>或<span class="highlight">备份</span>表时，进行每个表的状态报告；
+		</div>
+		<div class="item">
+			用户无需访问MySQL，便可以在文件系统级别监控表大小；
+		</div>
+		<div class="item">
+			当<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_flush_method" target="_blank">innodb_flush_method</a>设置为<span class="highlight">O_DIRECT</span>时，通用Linux文件系统不允许并发写入单个文件。因此，将<span class="highlight">file-per-table</span>表空间与<span class="highlight">innodb_flush_method</span>结合使用，有可能会提高并发写性能。
+		</div>
+		<div class="item">
+			<span class="highlight">系统表空间</span>存储数据字典和撤销日志，并且大小受<span class="highlight">InnoDB表空间</span>大小的限制，对于<span class="highlight">file-per-table</span>表空间，每个表都有自己的表空间，这就提供了增长空间。
+		</div>
+	</div>
+	<li>
+		<h3>File-Per-Table表空间的潜在缺点</h3>
+	</li>
+	<div class="ui bulleted teal list">
+		<div class="item">
+			对于<span class="highlight">file-per-table</span>表空间，每个表可能都有未使用的空间，并且只能由相同表的行使用，如果未能正确管理，这可能会导致浪费空间；
+		</div>
+		<div class="item">
+			<span class="highlight">fsync</span>操作必须在每个打开的表上运行，而不是在单个文件上运行。 因为每个文件都有单独的fsync操作，因此多个表上的写操作不能合并到单个I/O操作中，这可能需要<span class="highlight">InnoDB</span>执行更多的fsync操作；
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/mysqld.html" target="_blank">mysqld</a>必须为每个表保留一个打开的文件句柄，如果在<span class="highlight">file-per-table</span>表空间中有许多表，这可能会影响性能；
+		</div>
+		<div class="item">
+			会使用更多的文件描述符；
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>默认情况下在<span class="highlight">MySQL 5.6.6</span>及更高版本中启用。如果考虑向后兼容MySQL 5.5或5.1，可以考虑禁用它。在<span class="highlight">ALTER TABLE</span>重新创建表(<span class="highlight">ALGORITHM = COPY</span>)的情况下，禁用<span class="highlight">innodb_file_per_table</span>可防止<span class="highlight">ALTER TABLE</span>将InnoDB表从<span class="highlight">系统表空间</span>移动到单个<span class="highlight">.ibd</span>文件；
+		</div>
+		<div class="item">
+			如果许多表都在增长，则由可能产生更多碎片，这可能阻碍<span class="highlight">DROP TABLE</span>和<span class="highlight">表扫描</span>性能。 不过，当碎片可控时，在<span class="highlight">innodb_file_per_table</span>表空间则可以提高性能；
+		</div>
+		<div class="item">
+			当删除<span class="highlight">innodb_file_per_table</span>表空间时，将扫描缓冲池，对于大小为数十GB的缓冲池，可能需要几秒钟。 使用内部锁执行扫描，则可能会延迟其他操作，而系统表空间中的表不受影响；
+		</div>
+		<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_autoextend_increment" target="_blank">innodb_autoextend_increment</a>变量定义了在自动扩展<span class="highlight">共享表空间时，扩展的增量大小(以MB为单位)，但不适用于自动扩展的<span class="highlight">file-per-table</span>表空间文件，无论<span class="highlight">innodb_autoextend_increment</span>是否设置，初始扩展是比较小的，之后扩展则以<span class="highlight">4MB</span>的增量大小执行。
+		</div>
+	</div>
+	<li>
+		<h3>启用或禁用File-Per-Table表空间</h3>
+	</li>
+	<p class="wrap">
+		启用或禁用<span class="highlight">，只需配置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>，如：
+	</p>
+	{% highlight python %}
+[mysqld]
+innodb_file_per_table=1
+	{% endhighlight %}
+	<p>
+		或者运行时修改：
+	</p>
+	{% highlight shell %}
+SET GLOBAL innodb_file_per_table=1;
+	{% endhighlight %}
+	<p>
+		具体细节可见<a href="http://dev.mysql.com/doc/refman/5.7/en/tablespace-enabling.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2 id="create-outside-data-dir-for-per-tablespace">为File-Per-Table创建外部数据目录</h2>
+	</li>
+	<p class="wrap">
+		为<span class="highlight">File-Per-Table</span>创建外部数据目比较简单，只需在创建表时指定外部目录即可，这样InnoDB将在对应目录创建目标数据库目录及表空间文件，如：
+	</p>
+	{% highlight sql %}
+CREATE TABLE t1 (c1 INT PRIMARY KEY) DATA DIRECTORY = '/path/to/data_dir';
+	{% endhighlight %}
+
+	<li>
+		<h2>复制File-Per-Table表空间到其他数据库实例</h2>
+	</li>
+	<p class="wrap">
+		将文件每表表空间从一个数据库实例复制到另一个数据库实例，也称为<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_transportable_tablespace" target="_blank">可传输表空间</a>功能。在MySQL 5.7.4之前，只支持<span class="highlight">非分区</span>的InnoDB表。从MySQL 5.7.4开始，还支持分区的InnoDB表和各个InnoDB表分区和子分区。现实中，可能会有不同原因需要作表复制，如：
+	</p>
+	<div class="ui bulleted teal list">
+		<div class="item">
+			作数据报表时，为了不影响生产服务器上，需要先复制到临时数据库；
+		</div>
+		<div class="item">
+			为了在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_slave_server" target="_blank">从服务器</a>上建立相同的表数据；
+		</div>
+		<div class="item">
+			在出现问题或错误后，恢复表或分区的备份版本；
+		</div>
+		<div class="item">
+			作为一种更快的移动数据的方式，而不是通过<a href="http://dev.mysql.com/doc/refman/5.7/en/mysqldump.html" target="_blank">mysqldump</a>命令倒入，这样数据可以立即可用，不必重新插入并重建索引；
+		</div>
+		<div class="item">
+			将<span class="highlight">File-Per-Table</span>表空间移动到具有更适合系统要求的存储介质的服务器；
+		</div>
+		<div class="item">
+			...
+		</div>
+	</div>
+	<p>
+		对于具体如何执行表复制，可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-transportable-tablespace-examples.html" target="_blank">该文章</a>。
+	</p>
+
+	<li>
+		<h2>在单独的表空间中存储撤销日志(Undo Logs)</h2>
+	</li>
+	<p class="wrap">
+		用户可以将InnoDB<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_undo_log" target="_blank">撤销日志</a>(也被称为<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_rollback_segment" target="_blank">回滚段</a>)存储在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_system_tablespace" target="_blank">系统表空间</a>之外的一个或多个单独的<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_undo_tablespace" target="_blank">撤销表空间</a>中。 此设计与默认配置不同，其中撤销日志是系统表空间的一部分。 撤消日志的<span class="highlight">I/O模式</span>使得这些表空间迁移到<span class="highlight">SSD存储</span>更具优势，同时将<span class="highlight">系统表空间</span>保留在<span class="highlight">硬盘存储</span>上。 用户不能删除创建的用于单独存储撤销日志的表空间，也不能删除这些表空间中的各个段。但是，从<span class="highlight">MySQL 5.7.5</span>开始，存储在<span class="highlight">撤销表空间</span>中的撤销日志可以被截取(truncate)。截取撤销日志细节可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/truncate-undo-tablespace.html" target="_blank">这里</a>。由于<span class="highlight">撤销日志</span>相关特性不能动态配置，因此只能在初始化MySQL实例时启用。
+	</p>
+	<p class="wrap">
+		将<span class="highlight">撤销日志</span>保存在单独的文件中，这样使得与事务数据相关的I/O和内存操作得到优化。 例如，因为<span class="highlight">撤销日志</span>被写入磁盘，但其实很少会读取(仅在崩溃恢复的情况下)，它不需要保存在文件系统高速缓存中，从而允许将更多的内存用于<span class="highlight">InnoDB缓冲区</span>。
+	</p>
+	<p>
+		启用撤销日志特性，大致步骤如下，细节可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-undo-tablespace.html" target="_blank">这里</a>：
+	</p>
+	<div class="ui bulleted teal list">
+		<div class="item">
+			配置保存撤消日志的路径，可以在MySQL配置文件或启动脚本中配置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_directory" target="_blank">innodb_undo_directory</a>参数， 如果没有指定，则在MySQL数据目录中创建<span class="highlight">撤销表空间</span>；
+		</div>
+		<div class="item">
+			配置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_logs" target="_blank">innodb_undo_logs</a>选项的起始值，可以从相对较低的值开始，并随时间增加，以监控对性能的影响；
+		</div>
+		<div class="item">
+			配置<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_tablespaces" target="_blank">innodb_undo_tablespaces</a>，指定<span class="highlight">撤销表空间</span>的数量；
+		</div>
+		<div class="item">
+			根据上述配置，创建新的MySQL实例(初始化启动MySQL)；
+		</div>
+		<div class="item">
+			对I/O性能作基准测试；
+		</div>
+		<div class="item">
+			定期增加<span class="highlight">innodb_undo_logs</span>的值并重新作性能测试，找出I/O性能最高时的<span class="highlight">innodb_undo_logs</span>值。
+		</div>
+	</div>
+
+	<li>
+		<h2>截取撤销日志(Truncating Undo Logs)</h2>
+	</li>
+	<p class="wrap">
+		从MySQL5.7.5后，用户可以通过<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_log_truncate" target="_blank">innodb_undo_log_truncate</a>配置选项开启截取<span class="highlight">撤销日志</span>。当启用<span class="highlight">innodb_undo_log_truncate</span>后，超过由<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_max_undo_log_size" target="_blank">innodb_max_undo_log_size</a>配置定义的阈值的表空间将标记为截断。注意，只有存储在撤销表空间中的撤销日志才能被截取，系统表空间中的撤销日志不支持截断。 要使得截取发生，必须至少有两个<span class="highlight">撤销表空间</span>，且都启用了<span class="highlight">重坐撤销日志</span>的配置选项。 这也意味着<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_tablespaces" target="_blank">innodb_undo_tablespaces</a>必须设置为大于等于2的值，<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_undo_logs" target="_blank">innodb_undo_logs</a>必须设置为等于或大于35的值。具体细节可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/truncate-undo-tablespace.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>InnoDB通用表空间(General Tablespaces)</h2>
+	</li>
+	<p class="wrap">
+		<span class="highlight">通用表空间</span>是一种新的InnoDB表空间，在MySQL 5.7.6中引入。<span class="highlight">通用表空间</span>特性主要有以下功能：
+	</p>
+	<div class="ui bulleted teal list">
+		<div class="item">
+			与<span class="highlight">系统表空间</span>类似，<span class="highlight">通用表空间</span>是可以存储多个表的数据；
+		</div>
+		<div class="item">
+			<span class="highlight">通用表空间</span>相对于<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-multiple-tablespaces.html" target="_blank">file-per-table</a>表空间具有潜在的内存优势。服务器在表空间的生命周期内会将表空间元数据保存在内存中，而将多张表的元数据信息保存在<span class="highlight">通用表空间</span>内相对于每张表单独将各自元数据保存在自己的表空间内会更节省内存；
+		</div>
+		<div class="item">
+			<span class="highlight">通用表空间</span>数据文件可以被放置在相对于或独立于MySQL数据目录的目录中，该目录提供了许多对<span class="highlight">file-per-table</span>表空间的数据文件和存储管理的功能。与<span class="highlight">file-per-table</span>表空间表空间一样，将数据文件放在MySQL数据目录之外，使得可以分别管理关键表的性能，例如为特定表设置<span c;
+			hidden="">RAID</span>或<span class="highlight">DRBD</span>，或将表绑定到特定磁盘；
+		</div>
+		<div class="item">
+			<span class="highlight">通用表空间</span>支持<span class="highlight">Antelope</span>和<span class="highlight">Barracuda</span>文件格式，因此支持所有行格式及相关特性。通过支持这两种文件格式，通用表空间不依赖于<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_format" target="_blank">innodb_file_format</a>或><a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_file_per_table" target="_blank">innodb_file_per_table</a>设置，这些变量对通用表空间没有任何影响； 
+		</div>
+		<div class="item">
+			<span class="highlight">TABLESPACE</span>选项可与<a href="http://dev.mysql.com/doc/refman/5.7/en/create-table.html" target="_blank">CREATE TABLE</a>一起，在<span class="highlight">通用表空间</span>，<span class="highlight">file-per-table</span>表空间或<span class="highlight">系统表空间</span>中创建表；
+		</div>
+		<div class="item">
+			<span class="highlight">TABLESPACE</span>选项可与<a>ALTER TABLE</a>一起，在<span class="highlight">通用表空间</span>，<span class="highlight">file-per-table</span>表空间或<span class="highlight">系统表空间</span>之间移动表。以前，不可能将表从<span class="highlight">file-per-table</span>表空间移动到<span class="highlight">系统表空间</span>，而使用<span class="highlight">通用表空间</span>特性，则可以这么做。
+		</div>
+	</div>
+	<p>
+		通用表空间具体使用，可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/general-tablespaces.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+		<h2>InnoDB表空间加密(Encryption)</h2>
+	</li>
+	<p class="wrap">
+		InnoDB支持对存储在<a href="http://dev.mysql.com/doc/refman/5.7/en/glossary.html#glos_file_per_table" target="_blank">file-per-table</a>表空间中的表的数据进行加密，该特性对物理表空间的数据文件提供<span class="highlight">静态加密</span>。InnoDB表空间加密使用两层加密密钥体系结构，包括<span class="highlight">主加密密钥</span>和<span class="highlight">表空间密钥</span>。当InnoDB表被加密时，表空间密钥被加密并存储在表空间头中。 当应用程序或已认证的用户想要访问加密的表空间数据时，InnoDB使用<span class="highlight">主加密密钥</span>来解密<span class="highlight">表空间密钥</span>。表空间密钥的解密版本从不改变，但是主加密密钥可以根据需要改变，此操作称为<span class="highlight">主密钥旋转</span>。上述加密特性需依赖<span class="highlight">keyring_file</span>插件，具体加密细节可参考<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-tablespace-encryption.html" target="_blank">这里</a>。
+	</p>
+
+	<li>
+    	<h2>总结</h2>
+    </li>    
+    <p class="wrap">
+    	以上，则是InnoDB表空间的相关特性，开发人员则可以针对不同业务特性，场景等作一系列相关优化等。
+    </p>
+
+    <li>
+    	<h2>参考文献</h2>
+    </li>
+    <div class="ui teal bulleted list">
+    	<div class="item">
+			<a href="http://dev.mysql.com/doc/refman/5.7/en/innodb-tablespace.html" target="_blank">http://dev.mysql.com/doc/refman/5.7/en/innodb-tablespace.html</a>
+		</div>
+	</div>
+
+</ul>
