@@ -775,7 +775,8 @@ download_server=0
     	<h3>同组Storage之间的文件同步</h3>
     </li>
     <p class="wrap">
-    	<span class="highlight">FastDFS</span>通过在<span class="highlight">同组内的多个Storage同步文件</span>来保证系统的<span class="highlight">容错性(Fault Tolerance)</span>。当<span class="highlight">Storage</span>启动时，会为同组内的其他<span class="highlight">Storage</span>分别开启一个线程，进行文件同步。<span class="highlight">文件同步</span>主要通过<span class="highlight">binlog</span>来实现，该文件被放置在<span class="highlight">/path/to/storage_data_path/sync</span>下：
+    	<span class="highlight">FastDFS</span>通过在<span class="highlight">同组内的多个Storage同步文件</span>来保证系统的<span class="highlight">容错性(Fault Tolerance)</span>。当<span class="highlight">Storage</span>启动时，会为同组内的其他<span class="highlight">Storage</span>分别开启一个线程，进行文件同步。<span class="highlight">文件同步</span>主要通过<span class="highlight">binlog</span>来实现，该文件被放置在
+        <span class="highlight">/path/to/storage_data_path/sync</span>下：
     </p>
     {% highlight shell %}
 # Storage(10.112.88.106)    

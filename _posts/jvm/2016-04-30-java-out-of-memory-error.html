@@ -137,7 +137,7 @@ Exception in thread "main" java.lang.OutOfMemoryError: GC overhead limit exceede
     <p class="wrap">
         Java 7及其之前，JVM内存被分为了几个不同的区：
     </p>
-    <img src="{{site.url}}/images/jvm/jvm-heap-regions.png">
+    <img src="{{site.url}}/images/jvm/jvm-heap-regions.png" width="100%">
     <p class="wrap">
         <span class="highlight">Permgen space</span>表明该异常发生在<span class="highlight">永久代</span>，即<span class="highlight">永久代</span>内存已经耗尽。从<span class="highlight">JVM内存管理</span>中可知，<span class="highlight">永久代</span>主要用于存放<span class="highlight">已加载类的元数据</span>(包括类名称，字段及其方法字节码等)，<span class="highlight">常量池信息</span>，<span class="highlight">类相关的对象数据和类型数组</span>，及<span class="highlight">JIT编译器的优化信息</span>等，而往往出现这类错误的原因是<span class="highlight">JVM加载的类太多或太大</span>。
     </p>
@@ -436,9 +436,9 @@ public class ArrayLenLimit {
         <h2>参考文献</h2>
     </li>
     <p class="wrap">
-        <a href="https://plumbr.eu/outofmemoryerror" target="_blank">https://plumbr.eu/outofmemoryerror</a>
-        <br><a href="https://plumbr.eu/blog/memory-leaks/how-not-to-create-a-permgen-leak" target="_blank">https://plumbr.eu/blog/memory-leaks/how-not-to-create-a-permgen-leak</a>
-        <br><a href="http://linux-mm.org/OOM_Killer" target="_blank">http://linux-mm.org/OOM_Killer</a>
-        <br><a href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html" target="_blank">https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html</a>
+        <a href="https://plumbr.eu/outofmemoryerror" target="_blank">OOM错误指南</a>
+        <br><a href="https://plumbr.eu/blog/memory-leaks/how-not-to-create-a-permgen-leak" target="_blank">如何使永久代内存泄漏</a>
+        <br><a href="http://linux-mm.org/OOM_Killer" target="_blank">OOM杀手</a>
+        <br><a href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Performance_Tuning_Guide/s-memory-captun.html" target="_blank">Linux内存调优</a>
     </p>
 </ul>    

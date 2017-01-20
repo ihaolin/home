@@ -38,7 +38,7 @@ keywords: devops，静态资源缓存，varnish使用，CDN
     <p class="wrap">
     	各缓存方案的一些特性对比：
     </p>
-    <img src="{{site.url}}/images/varnish/cache-vs.png">
+    <img src="{{site.url}}/images/varnish/cache-vs.png" width="50%">
 
     <li>
     	<h3>使用ATS作缓存</h3>
@@ -91,7 +91,10 @@ regex_map http://(.*)/ http://${BACKEND_SERVER_ADDR}/
     	<h4>ATS中重要的几个组件</h4>
     </li>
     <p class="wrap">
-    	如下图，<span class="highlight">ATS</span>中主要包含了<span class="highlight">traffic_server</span>，<span class="highlight">traffic_manager</span>，<span class="highlight">traffic_cop</span>组件：
+    	如下图，<span class="highlight">ATS</span>中主要包含了
+        <span class="highlight">traffic_server</span>，
+        <span class="highlight">traffic_manager</span>，
+        <span class="highlight">traffic_cop</span>组件：
     </p>
     <img src="{{site.url}}/images/varnish/traffic_server_processes.jpg" width="70%">
     <div class="ui teal bulleted list">
@@ -487,24 +490,23 @@ var config = {
     </li>
     <div class="ui teal bulleted list">
     	<div class="item">
-			<a href="https://www.varnish-cache.org/docs/4.1/" target="_blank">https://www.varnish-cache.org/docs/4.1/</a>
+			<a href="https://www.varnish-cache.org/docs/4.1/" target="_blank">Varnish文档</a>
 		</div>
 		<div class="item">
-			<a href="https://info.varnish-software.com/blog/understanding-varnish-cache-memory-usage" target="_blank">https://info.varnish-software.com/blog/understanding-varnish-cache-memory-usage</a>
+			<a href="https://info.varnish-software.com/blog/understanding-varnish-cache-memory-usage" target="_blank">理解Varnish内存使用</a>
 		</div>
 		<div class="item">
-			<a href="http://www.ibm.com/developerworks/cn/opensource/os-cn-varnish-intro/" target="_blank">http://www.ibm.com/developerworks/cn/opensource/os-cn-varnish-intro/</a>
+			<a href="http://www.ibm.com/developerworks/cn/opensource/os-cn-varnish-intro/" target="_blank">Varnish介绍</a>
 		</div>
 		<div class="item">
-			<a href="https://docs.trafficserver.apache.org/en/6.2.x/" target="_blank">https://docs.trafficserver.apache.org/en/6.2.x/</a>
+			<a href="https://docs.trafficserver.apache.org/en/6.2.x/" target="_blank">Apache Traffic Server</a>
 		</div>
 		<div class="item">
-			<a href="http://weizhifeng.net/nginx-proxy-cache.html" target="_blank">http://weizhifeng.net/nginx-proxy-cache.html</a>
+			<a href="http://weizhifeng.net/nginx-proxy-cache.html" target="_blank">Nginx Proxy Cache</a>
 		</div>
 		<div class="item">
 			<a href="https://www.bizety.com/2016/01/07/nginx-vs-varnish-vs-apache-traffic-server-high-level-comparison/
-" target="_blank">https://www.bizety.com/2016/01/07/nginx-vs-varnish-vs-apache-traffic-server-high-level-comparison/
-</a>
+" target="_blank">Nginx vs Varnish vs ATS</a>
 		</div>
 	</div>
 </ul>

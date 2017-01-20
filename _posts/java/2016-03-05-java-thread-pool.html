@@ -52,7 +52,7 @@ keywords: java,thread pool,线程池实现
     <p class="wrap">
     	JDK中通过<span class="highlight">ThreadPoolExecutor</span>来抽象通用线程池，可看其继承树:
     </p>
-    <img src="{{site.url}}/images/java/thread-pool-tree.png">
+    <img src="{{site.url}}/images/java/thread-pool-tree.png" width="100%">
     <li>
     	<h3>
     		Executor
@@ -686,7 +686,9 @@ public void execute(Runnable command) {
 }
     {% endhighlight %}
     <p class="wrap">
-    	在<span class="highlight">ThreadPoolExecutor</span>中，将工作者线程抽象为<span class="highlight">Worker</span>。<span class="highlight">Worker</span>实现了<span class="highlight">Runnable</span>，即将作为线程启动，同时也继承了<span class="highlight">AbstractQueuedSynchronizer</span>，<span class="highlight">AbstractQueuedSynchronizer</span>是一个<span class="highlight">基于队列的同步器</span>，其作为Java并发的核心基础类，这里先简单知道<span class="highlight">Worker</span>是一个<span class="highlight">同步器</span>，具有<span class="highlight">非重入的互斥锁</span>的功能：
+    	在<span class="highlight">ThreadPoolExecutor</span>中，将工作者线程抽象为<span class="highlight">Worker</span>。<span class="highlight">Worker</span>实现了<span class="highlight">Runnable</span>，即将作为线程启动，同时也继承了<span class="highlight">AbstractQueuedSynchronizer</span>，
+    	<span class="highlight">AbstractQueuedSynchronizer</span>
+    	是一个<span class="highlight">基于队列的同步器</span>，其作为Java并发的核心基础类，这里先简单知道<span class="highlight">Worker</span>是一个<span class="highlight">同步器</span>，具有<span class="highlight">非重入的互斥锁</span>的功能：
     </p>
     {% highlight java %}
 private final class Worker extends AbstractQueuedSynchronizer implements Runnable {
@@ -1260,10 +1262,13 @@ new ScheduledThreadPoolExecutor(int corePoolSize,
     </p>
     <div class="ui bulleted list">
 		<div class="item">
-			<span class="highlight">CPU密集型任务</span>。CPU密集型任务配置应该配置尽可能小的线程，如<span class="highlight">Runtime.getRuntime().availableProcessors() + 1</span>。
+			<span class="highlight">CPU密集型任务</span>。CPU密集型任务配置应该配置尽可能小的线程，如
+			<span class="highlight">Runtime.getRuntime()
+			.availableProcessors() + 1</span>。
 		</div>
 		<div class="item">
-			<span class="highlight">I/O密集型任务</span>。IO密集型任务则由于线程并不是一直在执行任务，则配置尽可能多的线程，如<span class="highlight">Runtime.getRuntime().availableProcessors() * 2</span>。
+			<span class="highlight">I/O密集型任务</span>。IO密集型任务则由于线程并不是一直在执行任务，则配置尽可能多的线程，如<span class="highlight">Runtime.getRuntime()
+			.availableProcessors() * 2</span>。
 		</div>
 		<div class="item">
 			<span class="highlight">混合型的任务</span>。如果可以拆分，则将其拆分成一个CPU密集型任务和一个IO密集型任务，只要这两个任务执行的时间相差不是太大，那么分解后执行的吞吐率要高于串行执行的吞吐率，如果这两个任务执行时间相差太大，则没必要进行分解。
@@ -1287,9 +1292,9 @@ new ScheduledThreadPoolExecutor(int corePoolSize,
     <p class="wrap">
     	<a href="" target="_blank">JDK7</a>
 		<br><a href="" target="_blank">Java并发编程第六章</a>
-		<br><a href="https://www.ibm.com/developerworks/cn/java/l-threadPool/" target="_blank">https://www.ibm.com/developerworks/cn/java/l-threadPool</a>
-		<br><a href="http://www.infoq.com/cn/articles/java-threadPool">http://www.infoq.com/cn/articles/java-threadPool</a>
-		<br><a href="http://www.infoq.com/cn/articles/Java-Thread-Pool-Performance-Tuning?utm_source=infoq&amp;utm_medium=popular_links_homepage">http://www.infoq.com/cn/articles/Java-Thread-Pool-Performance-Tuning?utm_source=infoq&amp;utm_medium=popular_links_homepage</a>
+		<br><a href="https://www.ibm.com/developerworks/cn/java/l-threadPool/" target="_blank">Java线程池</a>
+		<br><a href="http://www.infoq.com/cn/articles/java-threadPool">Java线程池使用</a>
+		<br><a href="http://www.infoq.com/cn/articles/Java-Thread-Pool-Performance-Tuning?utm_source=infoq&amp;utm_medium=popular_links_homepage">Java线程池调优</a>
 	</p>
 
 </ul>
