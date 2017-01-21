@@ -1,0 +1,193 @@
+---
+title : 分布式配置管理平台的设计与实现
+category : [open_source]
+tags : [diablo, configuration center, distributed configuration, 配置中心, 分布式配置, 分布式]
+layout : post
+show : 1
+keywords: 分布式配置，配置中心，配置管理系统，diablo
+---
+
+<ul>
+    <p class="intro">
+        随着业务的发展，应用系统中的配置通常会越来越多，常见的一些应用配置大致会有<span class="highlight">数据源配置</span>，<span class="highlight">数据源组件配置</span>，<span class="highlight">业务组件配置</span>等，对于这类配置都会比较稳定且较少变化，通常会放在文件中随应用一起发布。但实际中会有某些配置信息变化有一定频率和规律，并且希望能够做到尽量实时，比如一些<span class="highlight">营销类</span>，或<span class="highlight">活动类</span>应用系统，若使用传统的配置文件，加上重新发布应用可能会有些不方便，因此，才有了<span class="highlight">分布式配置管理平台</span>，旨在能更好地解决这类问题。本文将介绍相关细节，及一个轻量的开源实现<a href="https://github.com/ihaolin/diablo" target="_blank">diablo</a>。
+    </p>
+
+
+    <li>
+        <h2>分布式配置平台的一些应用场景</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">分布式配置</span>，也即<span class="highlight">配置中心</span>。通常有以下的场景或需求，可以需要考虑使用<span class="highlight">分布式配置</span>：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            对某些配置的更新，<span class="highlight">不想要重启应用</span>，并且能<span class="highlight">近似实时生效</span>；
+        </div>
+        <div class="item">
+            希望将配置进行<span class="highlight">统一管理</span>，而非放入各应用的配置文件中；
+        </div>
+        <div class="item">
+            对于某些应用系统，其某些配置<span class="highlight">变更比较频繁，规律</span>；
+        </div>
+        <div class="item">
+            通常<span class="highlight">配置中心</span>也可作为在其他分布式应用中的<span class="highlight">感知组件</span>，比如典型的<a href="http://zookeeper.apache.org/" target="_blank">Zookeeper</a>；
+        </div>
+        <div class="item">
+            <strong>...</strong>。
+        </div>
+    </div>
+
+    <li>
+        <h2>分布式配置平台需要满足的一些基本特性</h2>
+    </li>
+    <p class="wrap">
+        对于一个可靠的分布式配置平台，大致应该满足一些基本特性，如：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">高可用性</span>：服务器集群应该<span class="highlight">无单点故障</span>，即只要集群中还有存活的节点，就能提供服务；
+        </div>
+        <div class="item">
+            <span class="highlight">容错性</span>：容错性主要针对客户端，应保证即便在配置平台不可用时，也<span class="highlight">不影响客户端的正常运行</span>；
+        </div>
+        <div class="item">
+            <span class="highlight">高性能</span>：对于配置平台，主要操作则是<span class="highlight">获取配置</span>，不能因为获取配置给应用带来不可接受的损失；
+        </div>
+        <div class="item">
+            <span class="highlight">可靠的存储</span>：这包括数据的<span class="highlight">备份容灾，一致性</span>等，通过数据库和一些运维手段可以解决；
+        </div>
+        <div class="item">
+            <span class="highlight">近似实时生效</span>：对于配置的变更，客户端应用能够<span class="highlight">及时感知</span>；
+        </div>
+        <div class="item">
+            <span class="highlight">负载均衡</span>：为了尽量提升服务器集群的性能及稳定性，应尽量保证服务器的<span class="highlight">请求负载均衡</span>；
+        </div>
+        <div class="item">
+            <span class="highlight">扩展性</span>：服务器集群应该保证做到<span class="highlight">无感扩容</span>，以提升集群服务能力；
+        </div>
+        <div class="item">
+            <strong>...</strong>。
+        </div>
+    </div>
+
+    <li>
+        <h2>分布式配置平台Diablo的设计与实现</h2>
+    </li>
+    
+    <li>
+        <h3>Diablo架构设计</h3>
+    </li>
+    <p class="wrap">
+        Diablo的架构设计比较简单轻量，如图：
+    </p>
+    <img src="/images/open_source/diablo/diablo-arch.png" width="80%">
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">Apps</span>：及各类业务应用实例；
+        </div>
+        <div class="item">
+            <span class="highlight">Servers</span>：为客户端提供获取配置服务的Server集群；
+        </div>
+        <div class="item">
+            <span class="highlight">Redis Storage Service</span>：用作数据存储。
+        </div>
+    </div>
+
+    <li>
+        <h3>Diablo模型设计</h3>
+    </li>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">应用(App)</span>：通常，对于一个用于各<span class="highlight">外部系统</span>的平台，都可以抽象这些系统为<span class="highlight">应用</span>，用于<span class="highlight">标识</span>或是<span class="highlight">分组</span>。对于应用环境，个人觉得应交由应用去处理，而不是在平台为各应用提供不同环境，比如可以通过<span class="highlight">应用名称</span>就能区分不同环境。除此外，通常需要让应用提供一些安全方面的配置，如<span class="highlight">签名Key</span>，<span class="highlight">加密Key</span>等，可用于在与外部应用交互中作一些安全处理(如<span class="highlight">签名</span>，<span class="highlight">加密</span>等)；
+        </div>
+        <div class="item">
+            <span class="highlight">配置项(Config)</span>：对于配置平台，其数据模型比较简单，核心数据就是<span class="highlight">配置项</span>。<span class="highlight">配置项</span>除了基本的<span class="highlight">配置名称</span>和<span class="highlight">配置值</span>外，通常还需要有用于判定配置项是否变更的字段，可以用<span class="highlight">MD5值</span>等。
+        </div>
+    </div>
+
+    <li>
+        <h3>对等的服务器集群</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Diablo</span>集群中的Server被视为是<span class="highlight">对等</span>的，即各节点没有<span class="highlight">主从(Master/Slave)</span>关系，是逻辑相等的，这样就避免了<span class="highlight">Master/Slave</span>架构带来的问题，如<span class="highlight">数据同步延迟</span>，<span class="highlight">数据丢失</span>等问题。
+    </p>
+
+    <li>
+        <h3>高性能处理</h3>
+    </li>
+    <p class="wrap">
+        客户端应用获取配置时，仅会从<span class="highlight">本地缓存</span>中获取，开发人员在控制台更改配置后，会通知客户端刷新缓冲；
+    </p>
+
+    <li>
+        <h3>使用Redis作存储</h3>
+    </li>
+    <p class="wrap">
+        配置平台本身并没有太多复杂的关联关系，因此使用NoSQL也能满足常用的查询。在设计存储Key上，因尽量保证Key的简洁清晰，比如，存储应用记录，可以以<span class="highlight">apps:1</span>来标识一条记录，而存储结构最好使用<span class="highlight">hash</span>，而不是使用<span class="highlight">JSON字符串</span>。在使用Redis时，<span class="highlight">diablo</span>避免使用了一些特殊函数，如<span class="highlight">管道</span>，<span class="highlight">事务</span>等，因为这些函数在一些Redis的高可用解决方案(如<span class="highlight">Redis Cluster</span>，<span class="highlight">Redis Proxy</span>等)中通常不支持，这样用户可以自由使用不同的Redis高可用方案。
+    </p>
+
+    <li>
+        <h3>客户端的实现</h3>
+    </li>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">重试等待</span>：<span class="highlight">diablo</span>会通过<span class="highlight">重试等待</span>等机制保证，在服务端集群不可用时，也不会影响客户端应用的正常运行，而是等待集群恢复；
+        </div>
+        <div class="item">
+            <span class="highlight">请求负载</span>：为了使服务器集群的各节点的<span class="highlight">负载</span>尽量均衡，在客户端进行请求处理前，服务端会为客户端分配一个可用的Server节点，后续的请求将在该节点上，这里使用的负载算法是<a href="/algorithm/2015/08/15/consistent-hash.html" target="_blank">一致性哈希</a>；
+        </div>
+        <div class="item">
+            <span class="highlight">额外参数</span>：通常对于客户端实现，在与服务器交互过程中，除了必要的数据外，还会携带一些额外参数，如客户端<span class="highlight">版本号</span>(为后期作兼容性处理)，<span class="highlight">语言类型</span>(后端可针对不同语言进行处理)等。
+        </div>
+    </div>
+    
+    <li>
+        <h3>配置更新实时生效</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">配置更新实时生效</span>是配置平台的核心功能之一，对于获取配置的方式，大致有两种模式：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">Pull模式</span>：即客户端主动向服务端拉取配置信息，通常是客户端<span class="highlight">定时轮询拉取</span>。这种方式最简单稳定，但是存在时间间隔问题，间隔太长，配置延迟更新越大，间隔太短对服务器会造成过多的压力；
+        </div>
+        <div class="item">
+            <span class="highlight">Push模式</span>：即当配置发生变更时，服务端主动推送更新至各个客户端。这种方式能保证配置更新实时生效，但需要在客户端/服务端建立长链接，服务端需要处理各种异常情况和协议规范，保证更新能实时推送成功，实现起来相对麻烦些。
+        </div>
+    </div>
+    <p class="wrap">
+        <span class="highlight">diablo</span>使用了特殊<span class="highlight">Pull模式</span>，即<span class="highlight">(长轮询)Long Pulling</span>。当客户端发起Http请求后，服务端接收处理完请求，并不会立即返回客户端，而是<span class="highlight">等待一定条件发生</span>或<span class="highlight">超时</span>后才返回客户端，这里的一定条件就是<span class="highlight">当有配置发生变更时</span>，这样就有效减少了客户端请求，也达到了实时生效的目的。对于<span class="highlight">Java长连接</span>的实现，主要使用了Servlet规范中的<span class="highlight">AsyncContext</span>，使得服务端接收到请求后，并不会让<span class="highlight">Servlet容器</span>立即返回客户端，而是当调用<span class="highlight">AsyncContext.complete()</span>方法时，才会返回。
+    </p>
+
+    <li>
+        <h3>客户端语言类型</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">diablo</span>默认实现了<span class="highlight">Java语言</span>的客户端，希望以后能支持<span class="highlight">node</span>，<span class="highlight">go</span>，<span class="highlight">python</span>等语言。由于<span class="highlight">diablo</span>仅通过Http接口提供服务，不同语言只要遵循API接口，即可实现不同的语言版本。若读者有意实现，可参考该<a href="https://github.com/ihaolin/diablo/blob/master/CLIENT_API.md" target="_blank">客户端规范</a>，下图为客户端与服务端的交互过程：
+    </p>
+    <img src="/images/open_source/diablo/client-server-interaction.png" width="80%">
+
+    <li>
+        <h3>diablo实践建议</h3>
+    </li>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">服务器集群部署</span>：对于一个高可用的服务器集群，建议可以<span class="highlight">nginx</span>等代理服务器作转发，这样在服务器集群发生变化时，客户端应用也不用更新任何配置，如：
+        </div>
+        <img src="/images/open_source/diablo/diablo-deploy-arch.png" width="80%">
+    </div>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">应用环境区分</span>：对于需要区分不同环境的应用，可以通过不同的应用名称作区分，如<span class="highlight">app_dev</span>，<span class="highlight">app_test</span>。但对于生产环境，都建议与其他环境隔离，独立部署。
+        </div>
+    </div>
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+        以上，则是有关<span class="highlight">分布式配置管理平台</span>设计与实现的相关细节，也欢迎issue和fork项目<a href="https://github.com/ihaolin/diablo" target="_blank">diablo</a>。
+    </p>
+
+</ul>
+
