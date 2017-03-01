@@ -1,0 +1,505 @@
+---
+title : 使用G1垃圾收集器
+category : [jvm]
+tags : [jvm, gc, G1, Garbage Collector]
+layout : post
+show : 1
+keywords: jvm, G1 garbage collector
+---
+
+<ul>
+    <p class="intro">
+        自Oracle JDK 7 update 4之后，JVM中引入了一种新的垃圾收集器--<span class="highlight">G1垃圾收集器(Garbage-First Collector)</span>。之前的<a href="/jvm/2016/02/20/java-memory-manage.html" target="_blank">一篇文章</a>，有介绍一些基本的垃圾收集器，比如比较常用的<span class="highlight">CMS垃圾收集器</span>，但即便是<span class="highlight">CMS垃圾收集器</span>，其也有一些不足，比如，不能很好地处理<span class="highlight">内存碎片</span>的问题，随着应用的运行，也会导致内存使用率不高，因此通常在使用<span class="highlight">CMS垃圾收集器</span>时，会设置相对较大的堆大小。<span class="highlight">G1垃圾收集器</span>则旨在能够比<span class="highlight">CMS垃圾收集器</span>更合理地管理内存，或者说更智能地管理内存。本文将介绍有关<span class="highlight">G1垃圾收集器</span>的基本原理，以便开发人员能考虑在生产中使用之。
+    </p>
+
+    <li>
+    	<h2>G1垃圾收集器介绍</h2>
+    </li>
+    <p class="wrap">
+        <span class="highlight">Garbage-First(G1)收集器</span>是一种<span class="highlight">服务器(server)类型</span>的垃圾收集器，针对具有大内存的多处理器机器。 大多数情况下，它能满足垃圾收集(GC)<span class="highlight">暂停时间</span>目标，同时实现<span class="highlight">高吞吐量</span>，这在之前的垃圾收集器中是无法满足的，从Oracle JDK 7 Update 4之后已完全支持<span class="highlight">G1垃圾回收器</span>。<span class="highlight">G1垃圾收集器</span>主要为有以下需求而设计：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            类似于<span class="highlight">CMS垃圾收集器</span>，GC线程可与应用程序线程<span class="highlight">并行运行</span>；
+        </div>
+        <div class="item">
+            不想因为压缩内存空间，给GC造成太长的<span class="highlight">暂停时间</span>；
+        </div>
+        <div class="item">
+            需要更多<span class="highlight">可预测的</span>GC暂停持续时间；
+        </div>
+        <div class="item">
+            不想要牺牲太多的<span class="highlight">吞吐量</span>；
+        </div>
+        <div class="item">
+            不要求太大的<span class="highlight">Java堆内存</span>。
+        </div>
+    </div>
+    <p class="wrap">
+        <span class="highlight">G1垃圾收集器</span>被计划作为<span class="highlight">CMS垃圾收集器</span>的长期替代品。相较于CMS，G1的某些特性使其成为更好的解决方案，其一是G1属于<span class="highlight">压缩垃圾收集器</span>，其没有使用CMS中的<span class="highlight">空闲内存链表</span>来为对象分配内存，而是使用了<span class="highlight">区(Region)</span>。这大大简化了垃圾收集器的工作，并且大部分消除了潜在的<span class="highlight">碎片问题</span>。此外，G1提供了比CMS<span class="highlight">更可预测的</span>垃圾收集暂停，并允许用户指定所需的暂停目标。
+    </p>
+
+    <li>
+        <h3>G1运行概览</h3>
+    </li>
+    <p class="wrap">
+        对于一些旧的垃圾收集器(如<span class="highlight">串行垃圾收集器(Serial)</span>，<span class="highlight">并垃圾收集器(Parallel)</span>，<span class="highlight">CMS垃圾收集器</span>)，整个内存堆被分为了三个区域：<span class="highlight">Eden区</span>，<span class="highlight">Survivor区</span>及<span class="highlight">Old区</span>，如图所示：
+    </p>
+    <img src="/images/jvm/jvm-old-heap.png" width="60%">
+    <p class="wrap">
+        然而，G1采用了不同的堆分布，整个堆会被划分为一些列大小相等且内存连续的<span class="highlight">区(Region)</span>，某些区仍会被标记为旧垃圾收集器中的分代(<span class="highlight">年轻代</span>，<span class="highlight">老年代</span>及<span class="highlight">永久代</span>)，但这些代并没有固定的大小，因此，在内存使用上，具有更大的灵活性，如图所示：
+    </p>
+    <img src="/images/jvm/jvm-g1-heap-regions.png" width="60%">
+    <p class="wrap">
+       当执行垃圾回收时，G1会以类似于CMS收集器的方式操作。G1并行执行<span class="highlight">全局标记阶段</span>，以确定整个堆中存活的对象。 在标记阶段完成后，G1则知道哪些区域大多是空的，它首先在这些区域收集，这通常会产生大量的空闲内存，这就是为什么这种垃圾收集方法称为<span class="highlight">Garbage-First</span>。 顾名思义，G1将其<span class="highlight">收集</span>和<span class="highlight">压缩</span>的动作集中在可能充满可回收对象(即垃圾)的<span class="highlight">区域</span>。G1会使用<span class="highlight">暂停时间预测模型</span>，来达到用户定义的<span class="highlight">暂停时间目标</span>，并基于指定的<span class="highlight">暂停时间目标</span>选择要收集的区域的数量。
+    </p>
+    <p class="wrap">
+        由G1识别为可回收区域中的垃圾对象，会以<span class="highlight">evacuation(暂且叫淘汰)</span>的方式被回收的，即将存活对象从堆的一个或多个区域复制到堆上的单个区域，并且在此过程中<span class="highlight">压缩</span>和<span class="highlight">释放</span>这些内存区域，该过程在多处理器上是并行执行的，以<span class="highlight">减少暂停时间</span>，并<span class="highlight">增加吞吐量</span>。因此，对于每次垃圾收集，G1将在<span class="highlight">用户定义的暂停时间内</span>持续运行，以<span class="highlight">减少内存碎片</span>，这具备了之前的垃圾收集器同时满足这两点的能力(如<span class="highlight">CMS</span>不执行压缩操作，<span class="highlight">ParallelOld</span>回收只执行整堆压缩，这会导致相当大的暂停时间)。
+    </p>
+    <p class="wrap">
+        需要注意的是，G1并不是<span class="highlight">实时垃圾收集器</span>，它只会尽最大可能但不是绝对确定性满足用户设置的<span class="highlight">暂停时间目标</span>。通过来自先前垃圾收集的数据，G1会估计在用户指定的目标时间内可以收集多少区域。 因此，G1收集器对于收集区域，具有相当准确的的收集成本模型，并且会使用该模型来确定在<span class="highlight">停留时间目标</span>内应该收集哪个区域和多少区域。
+    </p>
+    <p class="wrap">
+        G1既有并发阶段(与应用程序线程一起运行，例如<span class="highlight">优化</span>，<span class="highlight">标记</span>，<span class="highlight">清除</span>)，也有并行阶段(多线程，例如<span class="highlight">stop-the-world</span>)。<span class="highlight">FullGC</span>仍然是<span class="highlight">单线程</span>的，但如果调整得当，你的应用程序应该避免<span class="highlight">FullGC</span>。
+    </p>
+
+    <li>
+        <h3>建议使用G1的场景</h3>
+    </li>
+    <p class="wrap">
+        <span class="highlight">G1</span>为运行在<span class="highlight">大堆上但又要求较低的GC延迟</span>的应用提供了解决方案，这意味着堆大小约为6GB或更大，并且稳定和可预测的暂停时间低于0.5秒。如今使用<span class="highlight">CMS</span>或<span class="highlight">ParallelOldGC</span>垃圾收集器的应用如果具有一个或多个以下特性，可以考虑切换到<span class="highlight">G1</span>：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">FullGC</span>持续时间太长或太频繁；
+        </div>
+        <div class="item">
+            对象<span class="highlight">分配率</span>和<span class="highlight">晋升率</span>差异较大；
+        </div>
+        <div class="item">
+            不希望<span class="highlight">太长的GC或压缩时间</span>(超过0.5秒或1秒)。
+        </div>
+    </div>
+
+    <li>
+        <h2>G1垃圾收集器如何工作</h2>
+    </li>
+    <li>
+        <h3>G1堆结构</h3>
+    </li>
+    <p class="wrap">
+        G1中，整个堆会被分割为许多固定大小(在JVM启动时，会指定区数量(2000左右)及大小(1~32M))的<span class="highlight">内存区(Region)</span>：
+    </p>
+    <img src="/images/jvm/jvm-g1-heap.png" width="60%">
+    <p>
+        如上所述，G1中的区域会被逻辑分为<span class="highlight">Eden区</span>，<span class="highlight">Survivor区</span>及<span class="highlight">Old区</span>：
+    </p>
+    <img src="/images/jvm/jvm-g1-heap-regions.png" width="60%">
+    <p class="wrap">
+        如图，不同颜色代表的区域所属于的角色，<span class="highlight">存活对象</span>将从一个区域被复制或移动到另外的区域，而原区域中的将并行地以<span class="highlight">非stop-the-world</span>的方式被回收。除了上述的三种逻辑区外，还有一种区用于存储大对象(通常大小大于单个区域的50%)，它们被存储在连续的区中，最终这种区域会变为堆中未使用的区域(<span class="highlight">收集大对象通常不会被优化，因此应用程序应避免创建大对象</span>)。
+    </p>
+
+    <li>
+        <h3>G1中的年轻代</h3>
+    </li>
+    <p class="wrap">
+        G1堆会被分为大约2000个区域(Region)，区域大小最小为1M，最大为32M，蓝色区域为老年代，绿色区域为年轻代，如图所示(<span class="highlight">这些区域可以是不连续的</span>)：
+    </p>
+    <img src="/images/jvm/jvm-g1-heap-young.png" width="60%">
+    
+    <li>
+        <h3>G1中的Young GC</h3>    
+    </li>
+    <p class="wrap">
+        G1中执行<span class="highlight">Young GC</span>时，会将存活对象移动或复制到一个或多个<span class="highlight">Survivor区</span>，若对象年龄达到了阈值，则会被晋升至<span class="highlight">老年代</span>。该过程是<span class="highlight">Stop-The-World</span>的，为了下一次<span class="highlight">Young GC</span>，<span class="highlight">Eden区</span>和<span class="highlight">Survivor区</span>的大小会根据<span class="highlight">垃圾收集统计信息</span>及<span class="highlight">用户定义的暂停时间目标</span>等计算得来，这种方式使得调整区域大小十分容易，并按需对区域进行扩展或缩小。
+    </p>
+    <p>
+        在存活对象被复制到其他区域或老年代后，堆分布会如下：
+    </p>
+    <img src="/images/jvm/jvm-g1-young-gc-end.png" width="60%">
+
+    <li>
+        <h3>G1中Old GC的几个阶段</h3>    
+    </li>
+    <p class="wrap">
+        和<span class="highlight">CMS</span>一样，<span class="highlight">G1</span>也是旨在以<span class="highlight">低暂停时间</span>地收集老年代对象，下表中描述了G1中<span class="highlight">Old GC</span>的几个阶段(一部分阶段也属于<span class="highlight">Young GC</span>)：
+    </p>
+    <table class="ui celled teal small table">
+        <thead>
+            <tr>
+                <th width="30%">阶段</th>
+                <th>描述</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        初始化标记<br />
+                        (Stop-The-World)
+                    </span>
+                </td>   
+                <td>
+                   该阶段会随着<span class="highlight">Young GC</span>一起，并且对<span class="highlight">Survivor区</span>进行标记(作为<span class="highlight">根引用区</span>，因为该区内可能有引用指向老年代)。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        扫描根引用区
+                    </span>
+                </td>   
+                <td>
+                   该阶段会扫描<span class="highlight">Survivor区</span>中针对老年代的引用，会在应用程序运行时发生，该阶段必须在<span class="highlight">Young GC</span>前完成。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        并发标记
+                    </span>
+                </td>   
+                <td>
+                   标记整个堆中存活的对象，该阶段会与应用程序并行，并且可以被<span class="highlight">Young GC</span>中断。
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        重标记<br />
+                        (Stop-The-World)
+                    </span>
+                </td>   
+                <td>
+                   标记堆中存活的对象，并且使用比之前<span class="highlight">CMS</span>更快的算法<a href="http://useless-factor.blogspot.com/2008/05/couple-gc-algorithms-in-more-detail.html" target="_blank">snapshot-at-the-beginning (SATB)</a>。
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        清理<br />
+                        (Stop-The-World & 并发)
+                    </span>
+                </td>   
+                <td>
+                    <div class="ui bulleted list">
+                        <div class="item">
+                            确定存活对象及完全空闲的区域(Stop-The-World)；
+                        </div>
+                        <div class="item">
+                            清除<span class="highlight">Remembered Sets</span>(Stop-The-World)；
+                        </div>
+                        <div class="item">
+                            重置空闲区域，并归还给空闲列表(并发)。
+                        </div>
+                    </div>
+                </td>
+            </tr>
+             <tr>
+                <td>
+                    <span class="highlight">
+                        复制<br />
+                        (Stop-The-World)
+                    </span>
+                </td>   
+                <td>
+                   将存活对象复制到未使用的区域。该阶段可以在<span class="highlight">年轻代区域</span>完成(日志记录为<span class="highlight">[GC pause (young)]</span>)，也可以在混合的<span class="highlight">老年代区域</span>和<span class="highlight">年轻代区域</span>(日志记录为<span class="highlight">GC Pause (mixed)</span>)。
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <li>
+        <h3>G1中Old GC的过程</h3>    
+    </li>
+    <p class="wrap">
+        上面介绍了<span class="highlight">G1中Old GC</span>的几个阶段，这里再通过图示来阐述下具体的过程。
+    </p>
+    <li>
+        <h4>初始化标记阶段</h4>
+    </li>
+    <p class="wrap">
+        存活对象的初始化标记是随<span class="highlight">Young GC</span>一起的，在日志<span class="highlight">GC pause (young)(inital-mark)</span>中可以看出：
+    </p>
+    <img src="/images/jvm/jvm-g1-init-mark.png" width="60%">
+    
+    <li>
+        <h4>并发标记阶段</h4>
+    </li>
+    <p class="wrap">
+        该阶段会标记一些空的区域，并在<span class="highlight">重标记阶段</span>被移除。同时，一些统计信息将用于计算<span class="highlight">区域活跃度</span>：
+    </p>
+    <img src="/images/jvm/jvm-g1-concurrent-mark.png" width="60%">
+
+    <li>
+        <h4>重标记阶段</h4>
+    </li>
+    <p class="wrap">
+        该阶段空区域被删除和回收，并对所有区域作<span class="highlight">活跃度计算</span>：
+    </p>
+    <img src="/images/jvm/jvm-g1-remark.png" width="60%">
+
+    <li>
+        <h4>复制/清理阶段</h4>
+    </li>
+    <p class="wrap">
+        该阶段G1会选择<span class="highlight">活跃度最低</span>的区域，这些区域收集得最快，这些区域会在<span class="highlight">Young GC</span>的同时被回收，在日志<span class="highlight">[GC pause (mixed)]</span>可以看出，因此，<span class="highlight">年轻代</span>和<span class="highlight">老年代</span>会同时被收集：
+    </p>
+    <img src="/images/jvm/jvm-g1-copying-cleanup.png" width="60%">
+
+    <li>
+        <h4>复制/清理阶段之后</h4>
+    </li>
+    <p class="wrap">
+        该阶段将被选择的区域<span class="highlight">收集</span>，并将存活对象<span class="highlight">压缩</span>成深蓝色区域和深绿色区域：
+    </p>
+    <img src="/images/jvm/jvm-g1-after-copying-cleanup.png" width="60%">
+
+    <li>
+        <h2>G1相关的命令行参数及最佳实践</h2>
+    </li>
+    <p class="wrap">
+        使用<span class="highlight">G1垃圾收集器</span>，有一些关键的命令行：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">-XX:+UseG1GC</span>：开启使用G1垃圾收集器；
+        </div>
+        <div class="item">
+            <span class="highlight">-XX:MaxGCPauseMillis=200</span>：设置<span class="highlight">最大暂停时间</span>目标，这并不是一个绝对的目标，JVM会尽量保证达到该目标，默认为200毫秒；
+        </div>
+        <div class="item">
+            <span class="highlight">XX:InitiatingHeapOccupancyPercent=45</span>：整个堆占用比达到多少后，G1启动<span class="highlight">并发GC周期</span>。
+        </div>
+    </div>
+
+    <li>
+        <h3>最佳实践</h3>
+    </li>
+    <p class="wrap">
+        在使用G1时，有一些可供参考的最佳实践，下面将作相关介绍。
+    </p>
+    <li>
+        <h4>不要设置年轻代大小</h4>
+    </li>
+    <p class="wrap">
+        设置<span class="highlight">年轻代</span>大小(<span class="highlight">-Xmn</span>)后，将会影响G1的一些默认行为，如：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            G1不再考虑<span class="highlight">暂停时间目标</span>，也就是说，设置年轻代大小会禁用<span class="highlight">暂停时间目标</span>；
+        </div>
+        <div class="item">
+            G1不再能<span class="highlight">按需扩展或收缩年轻代</span>大小。
+        </div>
+    </div>
+    <li>
+        <h4>响应时间指标</h4>
+    </li>
+    <p class="wrap">
+        不要使用<span class="highlight">平均响应时间(ART)</span>作为度量，来设置<span class="highlight">XX：MaxGCPauseMillis = N</span>，而是只会在90％以上的时间能达到该目标值。 这意味着发起请求的用户中，有90％不会遇到高于目标的响应时间。记住，暂停时间是一个目标，并不能保证始终能达到。
+    </p>
+    <li>
+        <h4>什么是Evacuation失败？</h4>
+    </li>
+    <p class="wrap">
+        在GC期间(<span class="highlight">Survivor区和晋升的对象</span>)，若JVM堆区域耗尽，则会发生<span class="highlight">晋升失败(Promotion Failure)</span>。由于堆达到了最大值，而不能进行扩展，这会在启用GC日志(<span class="highlight">XX:+PrintGCDetails</span>)时，通过日志<span class="highlight">to-space overflow</span>体现，这会造成严重的影响，如以下的一些步骤：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            GC仍然需要继续，内存空间必须得到释放；
+        </div>
+        <div class="item">
+            未成功复制的对象必须被晋升到适当的地方；
+        </div>
+        <div class="item">
+            任何对<span class="highlight">CSet集</span>中的<span class="highlight">Rsets区域</span>的更新必须重新生成。
+        </div>
+    </div>
+    <li>
+        <h4>如何避免Evacuation失败</h4>
+    </li>
+    <p class="wrap">
+        开发人员可考虑通过以下选项，来避免<span class="highlight">Evacuation失败</span>：
+    </p>
+    <div class="ui bulleted list">
+        <div class="item">
+            <span class="highlight">增加堆大小</span>：增加<span class="highlight">-XX:G1ReservePercent=n</span>(默认为10)，在需要更多空间的情况下，G1会保留一些空闲内存，提前提示空间不足；
+        </div>
+        <div class="item">
+            提前启动<span class="highlight">标记周期</span>；
+        </div>
+        <div class="item">
+            增加并发标记的线程数<span class="highlight">-XX:ConcGCThreads=n</span>。
+        </div>
+    </div>
+
+    <li>
+        <h3>G1相关命令行参数列表</h3>
+    </li>
+    <table class="ui celled teal small table">
+        <thead>
+            <tr>
+                <th width="30%">命令行选项</th>
+                <th width="18%">默认值</th>
+                <th>描述</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:+UseG1GC
+                    </span>
+                </td>  
+                <td>
+                    禁用
+                </td>   
+                <td>
+                   启用G1垃圾收集器。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:MaxGCPauseMillis=n
+                    </span>
+                </td>  
+                <td>
+                    200ms
+                </td>   
+                <td>
+                   设置最大的GC暂停时间，JVM会尽量满足该目标。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:InitiatingHeap
+                        OccupancyPercent=n
+                    </span>
+                </td>  
+                <td>
+                    45
+                </td>   
+                <td>
+                   当整个堆的占用率达到该值时，将启动<span class="highlight">并发GC周期</span>。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:NewRatio=n
+                    </span>
+                </td>  
+                <td>
+                    2
+                </td>   
+                <td>
+                   <span class="highlight">老年代</span>/<span class="highlight">年轻代</span>内存占比。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:SurvivorRatio=n
+                    </span>
+                </td>  
+                <td>
+                    8
+                </td>   
+                <td>
+                   <span class="highlight">Eden区</span>/<span class="highlight">Survivor区</span>内存占比。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:MaxTenuringThreshold
+                        =n
+                    </span>
+                </td>  
+                <td>
+                    15
+                </td>   
+                <td>
+                    用于控制对象经历多少次<span class="highlight">Minor GC</span>后，晋升到老年代。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:ParallelGCThreads=n
+                    </span>
+                </td>  
+                <td>
+                    取决于不同平台
+                </td>   
+                <td>
+                    垃圾收集器执行<span class="highlight">并行阶段</span>时的线程数。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:ConcGCThreads=n
+                    </span>
+                </td>  
+                <td>
+                    取决于不同平台
+                </td>   
+                <td>
+                    并发垃圾收集器运行时的线程数。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:G1ReservePercent=n
+                    </span>
+                </td>  
+                <td>
+                    10
+                </td>   
+                <td>
+                    设置堆内存的预留占比，以减少<span class="highlight">晋升失败</span>。
+                </td>   
+            </tr>
+            <tr>
+                <td>
+                    <span class="highlight">
+                        -XX:G1HeapRegionSize=n
+                    </span>
+                </td>  
+                <td>
+                    1~32M
+                </td>   
+                <td>
+                    G1中每个区域的大小。
+                </td>   
+            </tr>
+        </tbody>
+    </table>
+
+    <li>
+        <h3>理解G1的GC日志</h3>
+    </li>
+    <p class="wrap">
+        有关GC日志，可以参考之前的<a href="/jvm/2016/03/15/jvm-gc-log.html" target="_blank">这篇文章</a>，针对G1垃圾收集器的GC日志细节，可以在<a href="https://blogs.oracle.com/poonam/entry/understanding_g1_gc_logs" target="_blank">这里</a>找到答案。
+    </p>
+
+
+    <li>
+        <h2>总结</h2>
+    </li>
+    <p class="wrap">
+        以上，则是有关<span class="highlight">G1垃圾收集器</span>的基本原理和使用，若生产中的一些GC收集器始终无法达到预期，可以尝试使用G1。
+    </p>
+
+    <li>
+        <h2>参考文献</h2>
+    </li>
+    <p>
+        <a href="http://www.oracle.com/technetwork/tutorials/tutorials-1876574.html" target="_blank">G1垃圾收集指南</a>
+    </p>
+</ul>    
